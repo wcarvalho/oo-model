@@ -1,0 +1,70 @@
+train:
+
+
+#   - name: "1.pickup"
+#     task_kinds: pickup
+#     num_dists: 0
+
+#   - name: "2.slice"
+#     task_kinds: slice
+#     num_dists: 0
+
+#   - name: "2.clean"
+#     task_kinds: clean
+#     num_dists: 0
+
+#   - name: "2.5.pickup_cleaned"
+#     task_kinds: pickup_cleaned
+#     num_dists: 0
+
+#   - name: "2.5.pickup_sliced"
+#     task_kinds: pickup_sliced
+#     num_dists: 0
+
+  # - name: "3.cook"
+  #   task_kinds: cook
+  #   taskarg_options:
+  #     z: [microwave]
+  #   num_dists: 0
+
+  # - name: "3.place_cooked"
+  #   task_kinds: place_cooked
+  #   num_dists: 0
+
+  # - name: "3.place_cleaned"
+  #   task_kinds: place_cleaned
+  #   num_dists: 0
+
+  # - name: "4.place_cooked"
+  #   task_kinds: place_cooked
+  #   num_dists: 0
+
+  # - name: "5.cook_with_cleaned"
+  #   task_kinds: cook_with_cleaned
+  #   num_dists: 0
+
+  - name: "5.cook_sliced_with_cleaned"
+    task_kinds: cook_sliced_with_cleaned
+    num_dists: 0
+
+  # - name: "5.cook_sliced"
+  #   task_kinds: cook_sliced
+  #   num_dists: 0
+
+# test:
+
+#   - name: "combo0_toggle_and_slice" # length 3
+#     task_kinds: toggle_and_slice
+#     num_dists: 0
+
+#   - name: "combo1_clean_and_toggle" # length 4
+#     task_kinds: clean_and_toggle
+#     num_dists: 0
+
+#   - name: "combo2_clean_and_slice" # length 5
+#     task_kinds: clean_and_slice
+#     num_dists: 0
+
+#   - name: "combo3_clean_and_slice_and_toggle" # length 6
+#     task_kinds: clean_and_slice_and_toggle
+#     num_dists: 0

@@ -1,0 +1,75 @@
+train:
+
+  - name: pickup_train_dist0
+    task_kinds: pickup
+    taskarg_options:
+      x: [pot, pan, bowl, lettuce, potato, orange, fork, plates, knife, onion, tomato, apple]
+    num_dists: 0
+
+  - name: chill_train_dist0
+    task_kinds: chill
+    taskarg_options:
+      x: food1
+    num_dists: 0
+
+  - name: slice_train_dist0
+    task_kinds: slice
+    taskarg_options:
+      x: food2
+    num_dists: 0
+
+  - name: chill_train_dist2
+    task_kinds: chill
+    taskarg_options:
+      x: food1
+    num_dists: 2
+
+  - name: slice_train_dist2
+    task_kinds: slice
+    taskarg_options:
+      x: food2
+    num_dists: 2
+
+  - name: pickup_train_dist2
+    task_kinds: pickup
+    taskarg_options:
+      x: food
+    num_dists: 2
+
+test:
+
+  - name: chill_test_dist2
+    task_kinds: chill
+    taskarg_options:
+      x: food2
+    num_dists: 2
+
+  - name: slice_train_dist2
+    task_kinds: slice
+    taskarg_options:
+      x: food1
+    num_dists: 2
+
+  - name: chill_test_dist5
+    task_kinds: chill
+    taskarg_options:
+      x: food2
+    num_dists: 5
+
+  - name: slice_train_dist5
+    task_kinds: slice
+    taskarg_options:
+      x: food1
+    num_dists: 5
+
+  - name: chill_test_dist8
+    task_kinds: chill
+    taskarg_options:
+      x: food2
+    num_dists: 8
+
+  - name: slice_train_dist8
+    task_kinds: slice
+    taskarg_options:
+      x: food1
+    num_dists: 8

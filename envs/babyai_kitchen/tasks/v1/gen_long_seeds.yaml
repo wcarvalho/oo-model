@@ -1,0 +1,186 @@
+train:
+
+
+  - name: "1.pickup"
+    task_kinds: pickup
+    num_dists: 0
+
+  - name: "1.place"
+    task_kinds: place
+    num_dists: 0
+    taskarg_options:
+      y: clean2
+
+    #-----------------
+    # Train = Food1
+    # Test = Food2
+    #-----------------
+  - name: "2.a.slice"
+    task_kinds: slice
+    num_dists: 0
+    taskarg_options:
+      x: food1
+
+  - name: "2.b.pickup_sliced"
+    task_kinds: pickup_sliced
+    num_dists: 0
+    taskarg_options:
+      x: food1
+
+  - name: "3.place_sliced"
+    task_kinds: place_sliced
+    num_dists: 0
+    taskarg_options:
+      x: food1
+
+  - name: "5.cook_sliced"
+    task_kinds: cook_sliced
+    num_dists: 0
+    taskarg_options:
+      x: cookfood1
+
+    #-----------------
+    # Train = Clean1
+    # Test = clean2
+    #-----------------
+  - name: "2.a.clean"
+    task_kinds: clean
+    num_dists: 0
+    taskarg_options:
+      x: clean1
+
+  - name: "2.b.pickup_cleaned"
+    task_kinds: pickup_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: clean1
+
+  - name: "3.place_cleaned"
+    task_kinds: place_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: clean1
+
+    #-----------------
+    # Train = Food2
+    # Test = Food1
+    #-----------------
+
+  - name: "3.cook"
+    task_kinds: cook
+    num_dists: 0
+    taskarg_options:
+      x: cookfood2
+
+  - name: "4.place_cooked"
+    task_kinds: place_cooked
+    num_dists: 0
+    taskarg_options:
+      x: cookfood2
+
+  - name: "5.cook_with_cleaned"
+    task_kinds: cook_with_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: cookfood2
+
+  - name: "6.cook_sliced_with_cleaned"
+    task_kinds: cook_sliced_with_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: cookfood2
+
+
+test:
+    #---------------------------------------------------
+    #---------------------------------------------------
+    # New seeds
+    #---------------------------------------------------
+    #---------------------------------------------------
+  - name: "1.place"
+    task_kinds: place
+    num_dists: 0
+    taskarg_options:
+      y: clean2
+
+    #-----------------
+    # Train = Food1
+    # Test = Food2
+    #-----------------
+  - name: "2.a.slice"
+    task_kinds: slice
+    num_dists: 0
+    taskarg_options:
+      x: food1
+
+  - name: "2.b.pickup_sliced"
+    task_kinds: pickup_sliced
+    num_dists: 0
+    taskarg_options:
+      x: food1
+
+  - name: "3.place_sliced"
+    task_kinds: place_sliced
+    num_dists: 0
+    taskarg_options:
+      x: food1
+
+  - name: "5.cook_sliced"
+    task_kinds: cook_sliced
+    num_dists: 0
+    taskarg_options:
+      x: cookfood1
+
+    #-----------------
+    # Train = Clean1
+    # Test = clean2
+    #-----------------
+  - name: "2.a.clean"
+    task_kinds: clean
+    num_dists: 0
+    taskarg_options:
+      x: clean1
+
+  - name: "2.b.pickup_cleaned"
+    task_kinds: pickup_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: clean1
+
+  - name: "3.place_cleaned"
+    task_kinds: place_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: clean1
+
+    #-----------------
+    # Train = Food2
+    # Test = Food1
+    #-----------------
+
+  - name: "3.cook"
+    task_kinds: cook
+    num_dists: 0
+    taskarg_options:
+      x: cookfood2
+
+  - name: "4.place_cooked"
+    task_kinds: place_cooked
+    num_dists: 0
+    taskarg_options:
+      x: cookfood2
+
+  - name: "5.cook_with_cleaned"
+    task_kinds: cook_with_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: cookfood2
+
+  - name: "6.cook_sliced_with_cleaned"
+    task_kinds: cook_sliced_with_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: cookfood2
+
+actor_label: actor_long
+eval_label: evaluator_long

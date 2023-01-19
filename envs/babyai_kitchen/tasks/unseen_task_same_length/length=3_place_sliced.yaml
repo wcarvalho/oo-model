@@ -1,0 +1,60 @@
+test:
+
+  - name: place_sliced_test_dist2
+    task_kinds: place2_sliced
+    taskarg_options:
+      x: food
+    num_dists: 2
+
+  - name: place_sliced_test_dist5
+    task_kinds: place2_sliced
+    taskarg_options:
+      x: food
+    num_dists: 5
+
+  - name: place_sliced_test_dist8
+    task_kinds: place2_sliced
+    taskarg_options:
+      x: food
+    num_dists: 8
+
+train:
+
+  # Pickup {Food, Utensil, Container}
+  - name: pickup_train_dist0
+    task_kinds: pickup
+    taskarg_options:
+      x: [food, utensil, container]
+    num_dists: 0
+
+  - name: pickup_train_dist2
+    task_kinds: pickup
+    taskarg_options:
+      x: [food, utensil, container]
+    num_dists: 2
+
+  # Pickup Sliced
+  - name: pickup_sliced_train_dist2
+    task_kinds: pickup_sliced
+    taskarg_options:
+      x: food
+    num_dists: 2
+
+  - name: pickup_sliced_train_dist0
+    task_kinds: pickup_sliced
+    taskarg_options:
+      x: food
+    num_dists: 0
+
+  # Place
+  - name: place_train_dist2
+    task_kinds: place2
+    taskarg_options:
+      x: food
+    num_dists: 2
+
+  - name: place_train_dist0
+    task_kinds: place2
+    taskarg_options:
+      x: food
+    num_dists: 0

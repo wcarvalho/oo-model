@@ -1,0 +1,37 @@
+train:
+
+  - name: "0.toggle"
+    task_kinds: toggle
+    num_dists: 0
+
+  - name: "0.toggle_dists"
+    task_kinds: toggle
+    num_dists: 2
+
+test:
+
+  - name: "0.toggle2" # length 2
+    task_kinds: toggle2
+    use_subtasks: True
+    num_dists: 0
+
+
+  - name: "0.toggle3" # length 2
+    task_kinds: toggle3
+    use_subtasks: True
+    num_dists: 0
+
+
+  - name: "1.toggle2_dists" # length 2
+    task_kinds: toggle2
+    use_subtasks: True
+    num_dists: 2
+
+
+  - name: "1.toggle3_dists" # length 2
+    task_kinds: toggle3
+    use_subtasks: True
+    num_dists: 2
+
+actor_label: actor_gen_toggle_pickup
+eval_label: evaluator_gen_toggle_pickup

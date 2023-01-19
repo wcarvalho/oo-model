@@ -1,0 +1,24 @@
+pickup: pickup
+toggle: turnon
+place: place
+heat: heat
+clean: clean
+slice: slice
+chill: chill
+slice2: slice
+toggle2: turnon
+slice3: slice
+toggle3: turnon
+clean_and_slice: clean slice
+clean_and_toggle: clean turnon
+toggle_and_slice: turnon slice
+toggle_and_pickup: turnon pickup
+clean_and_slice_and_toggle: clean slice turnon
+pickup_cleaned: cleaned
+pickup_sliced: sliced
+pickup_chilled: chilled
+pickup_heated: heated
+cook: cook
+pickup_cooked: cooked
+pickup_placed: placed
+place_sliced: place sliced

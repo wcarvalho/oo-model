@@ -1,0 +1,52 @@
+train:
+
+  - name: pickup
+    task_kinds: pickup
+    num_dists: 0
+
+  - name: clean
+    task_kinds: clean
+    num_dists: 0
+
+  - name: slice
+    task_kinds: slice
+    num_dists: 0
+
+  - name: chill
+    task_kinds: chill
+    num_dists: 0
+
+  # - name: heat
+  #   task_kinds: heat
+  #   num_dists: 0
+
+  - name: pickup_cleaned
+    task_kinds: pickup_cleaned
+    num_dists: 0
+
+  # - name: pickup_heated
+  #   task_kinds: pickup_heated
+  #   num_dists: 0
+
+  - name: pickup_sliced
+    task_kinds: pickup_sliced
+    num_dists: 0
+
+test:
+
+  - name: train_pickup_cleaned
+    task_kinds: pickup_cleaned
+    num_dists: 0
+
+  # - name: train_pickup_heated
+  #   task_kinds: pickup_heated
+  #   num_dists: 0
+
+  - name: train_pickup_sliced
+    task_kinds: pickup_sliced
+    num_dists: 0
+
+    # UNSEEN TASK
+  - name: test_pickup_chilled
+    task_kinds: pickup_chilled
+    num_dists: 0

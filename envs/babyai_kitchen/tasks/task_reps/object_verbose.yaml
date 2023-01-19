@@ -1,0 +1,25 @@
+pickup: pickup x
+toggle: turnon x
+place: place x on y
+heat: heat x
+clean: clean x
+slice: slice x
+chill: chill x
+slice2: slice x and slice y
+toggle2: turnon x and turnon y
+slice3: slice x and slice y and slice z
+toggle3: turnon x and turnon y and turnon z
+clean_and_slice: clean x and slice y
+clean_and_toggle: clean x and turnon y
+toggle_and_slice: turnon x and slice y
+toggle_and_pickup: turnon x and pickup y
+clean_and_slice_and_toggle: clean x and slice y and turnon z
+pickup_cleaned: pickup cleaned x
+pickup_sliced: pickup sliced x
+pickup_chilled: pickup chilled x
+pickup_heated: pickup heated x
+cook: cook x with y on z
+pickup_cooked: pickup cooked x
+pickup_placed: pickup placed x
+place_sliced: place sliced x
+place_cleaned: place cleaned x

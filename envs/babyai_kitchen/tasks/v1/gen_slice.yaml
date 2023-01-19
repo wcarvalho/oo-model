@@ -1,0 +1,33 @@
+train:
+
+  - name: "0.slice"
+    task_kinds: slice
+    num_dists: 0
+
+  - name: "0.slice_dists"
+    task_kinds: slice
+    num_dists: 2
+
+test:
+
+  - name: "0.slice2" # length 2
+    task_kinds: slice2
+    use_subtasks: True
+    num_dists: 0
+
+  - name: "0.slice3" # length 2
+    task_kinds: slice3
+    use_subtasks: True
+    num_dists: 0
+
+
+  - name: "1.slice2_dists" # length 2
+    task_kinds: slice2
+    use_subtasks: True
+    num_dists: 2
+
+
+  - name: "1.slice3_dists" # length 2
+    task_kinds: slice3
+    use_subtasks: True
+    num_dists: 2

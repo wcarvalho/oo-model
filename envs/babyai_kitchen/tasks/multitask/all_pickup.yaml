@@ -1,0 +1,29 @@
+train:
+
+  - name: pickup
+    task_kinds: pickup
+    num_dists: 0
+
+  - name: place
+    task_kinds: place
+    num_dists: 0
+
+  - name: heat
+    task_kinds: heat
+    num_dists: 0
+
+  - name: pickup_cleaned
+    task_kinds: pickup_cleaned
+    num_dists: 0
+
+  - name: pickup_sliced
+    task_kinds: pickup_sliced
+    num_dists: 0
+
+  - name: pickup_chilled
+    task_kinds: pickup_chilled
+    num_dists: 0
+
+  - name: pickup_cooked
+    task_kinds: pickup_cooked
+    num_dists: 0

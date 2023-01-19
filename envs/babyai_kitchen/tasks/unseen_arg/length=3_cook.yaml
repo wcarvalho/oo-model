@@ -1,0 +1,72 @@
+train:
+
+  - name: cook_train_dist0
+    task_kinds: cook
+    taskarg_options:
+      x: food1
+    num_dists: 0
+
+  - name: cook_train_dist2
+    task_kinds: cook
+    taskarg_options:
+      x: food1
+    num_dists: 2
+
+  - name: pickup_train_dist0
+    task_kinds: pickup
+    taskarg_options:
+      x: food
+    num_dists: 0
+
+  - name: pickup_train_dist2
+    task_kinds: pickup
+    taskarg_options:
+      x: food
+    num_dists: 2
+
+  - name: place_train_dist0
+    task_kinds: place
+    taskarg_options:
+      x: food
+    y: container
+    num_dists: 0
+
+  - name: place_train_dist2
+    task_kinds: place
+    taskarg_options:
+      x: food
+      y: pot
+    y: container
+    num_dists: 2
+
+  - name: heat_train_dist0
+    task_kinds: heat
+    taskarg_options:
+      x: container
+    num_dists: 0
+
+  - name: heat_train_dist2
+    task_kinds: heat
+    taskarg_options:
+      x: container
+    num_dists: 2
+
+test:
+
+  - name: cook_test_dist2
+    task_kinds: cook
+    taskarg_options:
+      x: food2
+    num_dists: 2
+
+  - name: cook_test_dist5
+    task_kinds: cook
+    taskarg_options:
+      x: food2
+    num_dists: 5
+
+  - name: cook_test_dist8
+    task_kinds: cook
+    taskarg_options:
+      x: food2
+    num_dists: 8

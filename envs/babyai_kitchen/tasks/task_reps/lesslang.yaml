@@ -1,0 +1,9 @@
+pickup: pickup x
+clean:  clean x
+slice: slice x
+chill: chill x
+heat: heat x
+pickup_cleaned: cleaned x
+pickup_heated: heated x
+pickup_sliced: sliced x
+pickup_chilled: chilled x

@@ -1,0 +1,32 @@
+train:
+
+  - name: chill_train
+    task_kinds: chill
+    taskarg_options:
+      x: food1
+    num_dists: 0
+
+  - name: slice_train
+    task_kinds: slice
+    taskarg_options:
+      x: food2
+    num_dists: 0
+
+  - name: pickup_train
+    task_kinds: pickup
+    taskarg_options:
+      x: food
+    num_dists: 0
+
+test:
+  - name: chill_test
+    task_kinds: chill
+    taskarg_options:
+      x: food2
+    num_dists: 0
+
+  - name: slice_test
+    task_kinds: slice
+    taskarg_options:
+      x: food1
+    num_dists: 0
