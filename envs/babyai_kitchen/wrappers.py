@@ -62,7 +62,7 @@ class RGBImgFullyObsWrapper(gym.core.ObservationWrapper):
         shape=(obs_shape[0] * tile_size, obs_shape[1] * tile_size, 3),
         dtype='uint8'
     )
-    raise NotImplemented("currently has bug")
+    # raise NotImplemented("currently has bug")
 
   def observation(self, obs):
     env = self.unwrapped

@@ -159,6 +159,7 @@ def build_experiment_config() -> experiments.OfflineExperimentConfig[
 
 def main(_):
   config = build_experiment_config()
+  import ipdb; ipdb.set_trace()
   if FLAGS.run_distributed:
     program = experiments.make_distributed_offline_experiment(experiment=config)
     lp.launch(program, xm_resources=lp_utils.make_xm_docker_resources(program))

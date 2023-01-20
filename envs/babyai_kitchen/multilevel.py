@@ -69,7 +69,7 @@ class MultiLevel(BabyAiMultiLevel):
       )
   def create_level(self, **level_kwargs):
     level = self.LevelCls(
-      # kitchen=copy.deepcopy(self.kitchen),
-      kitchen=self.kitchen,
+      kitchen=copy.deepcopy(self.kitchen),
+      # kitchen=self.kitchen,
       **level_kwargs)
     return level

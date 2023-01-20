@@ -216,13 +216,13 @@ class KitchenLevel(RoomGridLevel):
     """
     placed_objects = set()
     # first place task objects
-    if task is not None:
-        for obj in task.task_objects:
-            self.place_in_room(0, 0, obj)
-            placed_objects.add(obj)
-            if self.verbosity > 1:
-                print(f"Added task object: {obj}")
 
+    if task is not None:
+      for obj in task.task_objects:
+          self.place_in_room(0, 0, obj)
+          placed_objects.add(obj)
+          if self.verbosity > 1:
+              print(f"Added task object: {obj}")
     # if number of left over objects is less than num_distractors, set as that
     # possible_space = (self.grid.width - 2)*(self.grid.height - 2)
     num_leftover_objects = len(self.kitchen.objects)-len(placed_objects)
@@ -249,6 +249,7 @@ class KitchenLevel(RoomGridLevel):
 
         self.distractors_added.append(random_object)
         placed_objects.add(random_object)
+
 
     if self.verbosity > 0:
       print('-'*10)
@@ -352,7 +353,6 @@ class KitchenLevel(RoomGridLevel):
 
 
     self.add_objects(task=task, num_distractors=self.num_dists)
-
     # The agent must be placed after all the object to respect constraints
     while True:
         self.place_agent()
@@ -366,7 +366,6 @@ class KitchenLevel(RoomGridLevel):
     # self.unblocking==False means agent does not need to unblock. check
     if not self.unblocking:
         self.check_objs_reachable()
-
 
     return task
 
@@ -386,30 +385,34 @@ class KitchenLevel(RoomGridLevel):
     """
     # We catch RecursionError to deal with rare cases where
     # rejection sampling gets stuck in an infinite loop
-    tries = 0
+    tries = -1
+    max_tries = 5
     while True:
-        if tries > 1000:
+        if tries > max_tries:
             raise RuntimeError("can't sample task???")
         try:
             tries += 1
-            if self.verbosity > 0:
-              print(f"RESET ATTEMPT {tries}")
             # generate grid of observation
             self._gen_grid(width=self.width, height=self.height)
 
             # Generate the task
             task = self.generate_task()
+            if self.verbosity > 0:
+              print(f"made task {tries}")
 
             # Validate the task
             self.validate_task(task)
+            if self.verbosity > 0:
+              print(f"validated task {tries}")
 
 
         except RecursionError as error:
-            print(f'Timeout during mission generation:{tries}/1000\n', error)
+            print(f'Timeout during mission generation:{tries}/{max_tries}\n', error)
             continue
 
         except RejectSampling as error:
-            #print('Sampling rejected:', error)
+            if self.verbosity > 0:
+              print('Sampling rejected:', error)
             continue
 
         break

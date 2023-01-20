@@ -706,11 +706,6 @@ class PlaceTask(KitchenTask):
         # pick 1 at random
         self.to_place = np.random.choice(pickup_type_objs)
 
-    elif y_options:
-        self.container = np.random.choice(container_type_objs)
-        pickup_type_objs = self.kitchen.objects_by_type(self.container.can_contain)
-        self.to_place = np.random.choice(pickup_type_objs)
-
     elif x_options:
         # sample pickup first
         self.to_place = np.random.choice(pickup_type_objs)
@@ -724,9 +719,7 @@ class PlaceTask(KitchenTask):
         self.container = np.random.choice(container_type_objs)
     else:
         # pick container
-        containers = [o for o in self.kitchen.objects if o.is_container]
-        self.container = np.random.choice(containers)
-
+        self.container = np.random.choice(container_type_objs)
         # pick thing that can be placed inside
         pickup_type_objs = self.kitchen.objects_by_type(self.container.can_contain)
         self.to_place = np.random.choice(pickup_type_objs)

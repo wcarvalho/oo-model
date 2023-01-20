@@ -1,3 +1,9 @@
+_acme
+_babyai
+_gym-minigrid
+data/
+*sublime*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
