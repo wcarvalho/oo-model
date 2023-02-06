@@ -4,6 +4,7 @@ _gym-minigrid
 data/
 *sublime*
 
+*.DS_Store
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
