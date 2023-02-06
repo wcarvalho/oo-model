@@ -1,0 +1,30 @@
+train:
+
+  - name: lettuce_on_y
+    task_kinds: place
+    num_dists: 2
+    taskarg_options:
+      x: lettuce
+      y: can_contain
+
+  - name: x_on_fridge
+    task_kinds: place
+    num_dists: 2
+    taskarg_options:
+      x: food
+      y: fridge
+
+test:
+  - name: lettuce_on_y  # all except lettuce
+    task_kinds: place
+    num_dists: 2
+    taskarg_options:
+      x: [tomato, onion, potato, apple, orange]
+      y: can_contain
+
+  - name: x_on_fridge # all except fridge
+    task_kinds: place
+    num_dists: 2
+    taskarg_options:
+      x: food
+      y: [sink, pot, pan, plates, bowl]

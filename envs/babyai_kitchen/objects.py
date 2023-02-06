@@ -55,6 +55,7 @@ class KitchenObject(WorldObj):
     # ======================================================
     # load basics
     # ======================================================
+    self.rootdir = rootdir
     self.name = self.type = name
     self.object_type = object_type
     self.pickupable = pickupable
@@ -67,6 +68,8 @@ class KitchenObject(WorldObj):
     self.verbosity = verbosity
     self.rendering_scale = rendering_scale
     self.properties = properties
+    self.property2states = property2states
+    self.property2default = property2default
     self.visible_properties = visible_properties if visible_properties else properties
 
     # add tempterature if not already there
@@ -77,38 +80,7 @@ class KitchenObject(WorldObj):
     # load possible object-states & images
     # ======================================================
     if properties:
-        states = []
-        state2idx = {}
-        idx2state = {}
-        image_paths = {}
-        possible_states = {}
-        for prop in properties:
-            if prop in property2states:
-                possible_states[prop]=property2states[prop]
-            else:
-                possible_states[prop]=[True, False]
-        possible_states = [i for i in ParameterGrid(possible_states)]
-        # -----------------------
-        # load: paths, states
-        # -----------------------
-
-        for state in possible_states:
-            # ensures that always matches ordering of list
-            state = {p:state[p] for p in properties}
-            key = str(state)
-            states.append(key)
-
-            # indx each state
-            state2idx[key] = len(state2idx)
-            idx2state[state2idx[key]] = state
-
-            # get path for each state
-            path = f"{name}"
-            for prop in visible_properties:
-                if prop and state[prop]:
-                    path += f"_{prop}"
-            image_paths[key] = os.path.join(rootdir, f"{ICONPATH}/{path}.png")
-
+        image_paths, state2idx, states, idx2state = self.setup_states_paths()
     else:
         image_paths = {'default':  f"{ICONPATH}/{name}.png"}
         state2idx = {'default':  0}
@@ -131,7 +103,7 @@ class KitchenObject(WorldObj):
       pass
     else:
         if properties:
-            all_false = {prop: False for prop in properties}
+            all_false = {prop: False for prop in self.properties}
             all_false.update(property2default)
 
             self.state = self.default_state = all_false
@@ -146,6 +118,40 @@ class KitchenObject(WorldObj):
     self.reset(random=False)
     self.object_id = None
     self.kitchen_object = True
+
+  def setup_states_paths(self):
+    states = []
+    state2idx = {}
+    idx2state = {}
+    image_paths = {}
+    possible_states = {}
+    for prop in self.properties:
+        if prop in self.property2states:
+            possible_states[prop]=self.property2states[prop]
+        else:
+            possible_states[prop]=[True, False]
+    possible_states = [i for i in ParameterGrid(possible_states)]
+    # -----------------------
+    # load: paths, states
+    # -----------------------
+
+    for state in possible_states:
+        # ensures that always matches ordering of list
+        state = {p:state[p] for p in self.properties}
+        key = str(state)
+        states.append(key)
+
+        # indx each state
+        state2idx[key] = len(state2idx)
+        idx2state[state2idx[key]] = state
+
+        # get path for each state
+        path = f"{self.name}"
+        for prop in self.visible_properties:
+            if prop and state[prop]:
+                path += f"_{prop}"
+        image_paths[key] = os.path.join(self.rootdir, f"{ICONPATH}/{path}.png")
+    return image_paths, state2idx, states, idx2state
 
   def has_prop(self, prop):
     return prop in self.properties
@@ -378,6 +384,44 @@ class Food(KitchenObject):
     # food get's cooked when hot
     if self.has_prop('cooked') and self.state['temp'] == 'hot':
         self.set_prop("cooked", True)
+
+  # def setup_states_paths(self):
+  #   states = []
+  #   state2idx = {}
+  #   idx2state = {}
+  #   image_paths = {}
+  #   possible_states = {}
+  #   props_no_dirty = [p for p in self.properties if not p == 'dirty']
+  #   for prop in props_no_dirty:
+  #     if prop in self.property2states:
+  #         possible_states[prop] = self.property2states[prop]
+  #     else:
+  #         possible_states[prop] = [True, False]
+  #   possible_states = [i for i in ParameterGrid(possible_states)]
+
+  #   # -----------------------
+  #   # load: paths, states
+  #   # -----------------------
+  #   for state in possible_states:
+  #     # ensures that always matches ordering of list
+  #     state = {p: state[p] for p in props_no_dirty}
+  #     key = str(state)
+  #     states.append(key)
+
+  #     # indx each state
+  #     state2idx[key] = len(state2idx)
+  #     idx2state[state2idx[key]] = state
+
+  #     # get path for each state
+  #     path = f"{self.name}"
+  #     for prop in self.visible_properties:
+  #         if prop == 'dirty': continue
+  #         if prop and state[prop]:
+  #             path += f"_{prop}"
+  #     image_paths[key] = os.path.join(self.rootdir, f"{ICONPATH}/{path}.png")
+
+  #   import ipdb; ipdb.set_trace()
+  #   return image_paths, state2idx, states, idx2state
 
 
 class KitchenContainer(KitchenObject):

@@ -308,6 +308,9 @@ class Kitchen(object):
     return self._objects
 
   def _default_objects(self, rendering_scale=96, rootdir="."):
+    foods = ['lettuce', 'potato', 'tomato', 'onion', 'apple', 'orange']
+    nonfoods_pickupable = ['fork', 'knife', 'pot', 'pan', 'plates', 'bowl']
+    pickupable = foods + nonfoods_pickupable
     return [
             KitchenContainer(
                 name="sink",
@@ -315,7 +318,7 @@ class Kitchen(object):
                 rootdir=rootdir,
                 properties=['on', 'dirty'],
                 visible_properties=['on'],
-                can_contain=['knife', 'pot', 'pan', 'fork', 'plates', 'bowl'],
+                can_contain=pickupable,
                 pickupable=False,
                 toggle_prop={'dirty': False},
             ),
@@ -345,7 +348,7 @@ class Kitchen(object):
                 rootdir=rootdir,
                 properties=['on'],
                 visible_properties=[''],
-                can_contain=['lettuce', 'potato', 'tomato', 'onion', 'apple', 'orange'],
+                can_contain=pickupable,
                 pickupable=False,
                 toggle_prop={'temp': 'cold'},
 
@@ -355,7 +358,7 @@ class Kitchen(object):
                 rendering_scale=rendering_scale,
                 rootdir=rootdir,
                 # hides_content=True,
-                can_contain=['lettuce', 'potato', 'tomato', 'onion'],
+                can_contain=foods,
                 properties=['dirty'],
                 visible_properties=['dirty'],
                 # can_heat_contained=True,
@@ -365,7 +368,7 @@ class Kitchen(object):
                 name="pan",
                 rendering_scale=rendering_scale,
                 rootdir=rootdir,
-                can_contain=['lettuce', 'potato', 'tomato', 'onion'],
+                can_contain=foods,
                 # hides_content=True,
                 properties=['dirty'],
                 visible_properties=['dirty'],
@@ -376,7 +379,7 @@ class Kitchen(object):
                 name="plates",
                 rendering_scale=rendering_scale,
                 rootdir=rootdir,
-                can_contain=['lettuce', 'potato', 'tomato', 'onion', 'fork', 'knife'],
+                can_contain=foods,
                 properties=['dirty'],
                 visible_properties=['dirty'],
             ),
@@ -384,7 +387,7 @@ class Kitchen(object):
                 name="bowl",
                 rendering_scale=rendering_scale,
                 rootdir=rootdir,
-                can_contain=['lettuce', 'potato', 'tomato', 'onion', 'fork', 'knife'],
+                can_contain=foods,
                 properties=['dirty'],
                 visible_properties=['dirty'],
             ),
@@ -405,7 +408,6 @@ class Kitchen(object):
                 visible_properties=['dirty'],
                 rootdir=rootdir,
             ),
-
             Food(name='lettuce',
                 rendering_scale=rendering_scale,
                 rootdir=rootdir,

@@ -6,39 +6,23 @@ class MissionIntegerWrapper(gym.core.ObservationWrapper):
   Wrapper to convert mission to integers.
   """
 
-  def __init__(self, env, instr_preproc, struct_and=False, max_length=30):
+  def __init__(self, env, instr_preproc, max_length=30):
     super().__init__(env)
 
     self.instr_preproc = instr_preproc
     self.max_length = max_length
-    self.struct_and = struct_and
-
-    shape = (self.max_length, self.max_length)
 
     self.observation_space.spaces['mission'] = gym.spaces.Box(
         low=0,
-        high=1,
-        shape=shape,
+        high=1024,
+        shape=(self.max_length, ),
         dtype='int32'
     )
-
   def observation(self, obs):
-    obs_mission = np.zeros((self.max_length, self.max_length), dtype=np.int32)
-    if self.struct_and:
-      pieces = obs['mission'].split(' and ')
-      for idx, piece in enumerate(pieces):
-        if 'not' in piece:
-          clean_piece = piece.replace("not", "").strip()
-          tokens = self.instr_preproc(clean_piece)
-          obs_mission[idx, :len(tokens)] = -tokens
-        else:
-          tokens = self.instr_preproc(piece)
-          obs_mission[idx, :len(tokens)] = tokens
-
-    else:
-      mission = self.instr_preproc(obs['mission'])
-      assert len(mission) <= self.max_length
-      obs_mission[0, :len(mission)] = mission
+    obs_mission = np.zeros((self.max_length), dtype=np.int32)
+    mission = self.instr_preproc(obs['mission'])
+    assert len(mission) <= self.max_length
+    obs_mission[:len(mission)] = mission
 
     obs['mission'] = obs_mission
     return obs
@@ -59,10 +43,11 @@ class RGBImgFullyObsWrapper(gym.core.ObservationWrapper):
     self.observation_space.spaces['image'] = gym.spaces.Box(
         low=0,
         high=255,
-        shape=(obs_shape[0] * tile_size, obs_shape[1] * tile_size, 3),
+        shape=(self.env.height * tile_size,
+               self.env.width * tile_size,
+               3),
         dtype='uint8'
     )
-    # raise NotImplemented("currently has bug")
 
   def observation(self, obs):
     env = self.unwrapped

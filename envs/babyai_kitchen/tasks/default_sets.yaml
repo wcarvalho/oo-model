@@ -12,3 +12,13 @@ utensil: [knife, fork]
 clean1: [knife, fork, plates]
 clean2: [pot, pan, bowl]
 clean: [knife, fork, plates, pot, pan, bowl]
+
+nonfoods_pickupable: [fork, knife, pot, pan, plates, bowl]
+pickupable: food + nonfoods_pickupable
+
+can_contain: [fridge,
+              sink,
+              pot,
+              pan,
+              plates,
+              bowl]
