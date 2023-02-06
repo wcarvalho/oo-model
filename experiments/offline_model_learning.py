@@ -1,3 +1,7 @@
+"""
+Copied from: https://github.com/deepmind/acme/blob/master/examples/baselines/imitation/run_bc.py
+
+"""
 from typing import Callable, Iterator, Tuple
 
 from absl import flags
@@ -6,52 +10,59 @@ from acme import types
 from acme.agents.jax import actor_core as actor_core_lib
 from acme.agents.jax import bc
 from acme.datasets import tfds
-import helpers
+
 from absl import app
 from acme.jax import experiments
 from acme.jax import types as jax_types
 from acme.jax import utils
 from acme.utils import lp_utils
+from acme.agents.jax import mbop
 import dm_env
 import haiku as hk
 import launchpad as lp
 import numpy as np
 
+from experiments import helpers
+from experiments import collect_rlds_data
+
 FLAGS = flags.FLAGS
 
-flags.DEFINE_bool(
-    'run_distributed', True, 'Should an agent be executed in a distributed '
-    'way. If False, will run single-threaded.')
-# Agent flags
-flags.DEFINE_string('env_name', 'HalfCheetah-v2', 'What environment to run')
-flags.DEFINE_integer('num_demonstrations', 11,
-                     'Number of demonstration trajectories.')
-flags.DEFINE_integer('num_bc_steps', 100_000, 'Number of bc learning steps.')
-flags.DEFINE_integer('num_steps', 0, 'Number of environment steps.')
+
+# flags.DEFINE_bool(
+#     'run_distributed', True, 'Should an agent be executed in a distributed '
+#     'way. If False, will run single-threaded.')
+# # Agent flags
+# flags.DEFINE_string('tasks_file', 'place', 'tasks_file')
+# flags.DEFINE_string('data_file', '', 'data_file')
+# flags.DEFINE_integer('num_demonstrations', 11,
+#                      'Number of demonstration trajectories.')
+# flags.DEFINE_integer('num_bc_steps', 100_000, 'Number of bc learning steps.')
+# flags.DEFINE_integer('num_steps', 0, 'Number of environment steps.')
 flags.DEFINE_integer('batch_size', 64, 'Batch size.')
-flags.DEFINE_float('learning_rate', 1e-4, 'Optimizer learning rate.')
-flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate of bc network.')
-flags.DEFINE_integer('num_layers', 3, 'Num layers of bc network.')
-flags.DEFINE_integer('num_units', 256, 'Num units of bc network layers.')
-flags.DEFINE_integer('eval_every', 5000, 'Evaluation period.')
-flags.DEFINE_integer('evaluation_episodes', 10, 'Evaluation episodes.')
-flags.DEFINE_integer('seed', 0, 'Random seed for learner and evaluator.')
+# flags.DEFINE_float('learning_rate', 1e-4, 'Optimizer learning rate.')
+# flags.DEFINE_float('dropout_rate', 0.1, 'Dropout rate of bc network.')
+# flags.DEFINE_integer('num_layers', 3, 'Num layers of bc network.')
+# flags.DEFINE_integer('num_units', 256, 'Num units of bc network layers.')
+# flags.DEFINE_integer('eval_every', 5000, 'Evaluation period.')
+# flags.DEFINE_integer('evaluation_episodes', 10, 'Evaluation episodes.')
+# flags.DEFINE_integer('seed', 0, 'Random seed for learner and evaluator.')
 
 
 def _make_demonstration_dataset_factory(
-    dataset_name: str, num_demonstrations: int,
-    environment_spec: specs.EnvironmentSpec, batch_size: int
-) -> Callable[[jax_types.PRNGKey], Iterator[types.Transition]]:
+  data_directory: str,
+  batch_size: int,
+  return_horizon: int = 10) -> Callable[[jax_types.PRNGKey], Iterator[types.Transition]]:
   """Returns the demonstration dataset factory for the given dataset."""
 
   def demonstration_dataset_factory(
       random_key: jax_types.PRNGKey) -> Iterator[types.Transition]:
     """Returns an iterator of demonstration samples."""
 
-    transitions_iterator = tfds.get_tfds_dataset(
-        dataset_name, num_demonstrations, env_spec=environment_spec)
+    episode_dataset = tfds.builder_from_directory(data_directory).as_dataset(split='all')
+    dataset = mbop.episodes_to_timestep_batched_transitions(
+        episode_dataset, return_horizon=return_horizon)
     return tfds.JaxInMemoryRandomSampleIterator(
-        transitions_iterator, key=random_key, batch_size=batch_size)
+        dataset, key=random_key, batch_size=batch_size)
 
   return demonstration_dataset_factory
 
@@ -113,24 +124,27 @@ def _make_network_factory(
   return network_factory
 
 
-def build_experiment_config() -> experiments.OfflineExperimentConfig[
-    bc.BCNetworks, actor_core_lib.FeedForwardPolicy, types.Transition]:
+# def build_experiment_config() -> experiments.OfflineExperimentConfig[
+#     bc.BCNetworks, actor_core_lib.FeedForwardPolicy, types.Transition]:
+def build_experiment_config():
   """Returns a config for BC experiments."""
 
   # Create an environment, grab the spec, and use it to create networks.
-  environment = helpers.make_environment(task=FLAGS.env_name)
+  environment = helpers.make_kitchen_environment(
+    tasks_file=FLAGS.tasks_file)
   environment_spec = specs.make_environment_spec(environment)
 
   # Define the demonstrations factory.
-  dataset_name = helpers.get_dataset_name(FLAGS.env_name)
-  demonstration_dataset_factory = _make_demonstration_dataset_factory(
-      dataset_name, FLAGS.num_demonstrations, environment_spec,
-      FLAGS.batch_size)
+  data_directory = collect_rlds_data.make_directory(
+    tasks_file=FLAGS.tasks_file,
+    evaluation=False,
+    debug=FLAGS.debug)
 
-  # Load the demonstrations to compute the stats.
-  dataset = tfds.get_tfds_dataset(
-      dataset_name, FLAGS.num_demonstrations, env_spec=environment_spec)
-  shift, scale = helpers.get_observation_stats(dataset)
+  return_horizon = 10
+  demonstration_dataset_factory = _make_demonstration_dataset_factory(
+      data_directory, FLAGS.batch_size, return_horizon=return_horizon)
+
+  import ipdb; ipdb.set_trace()
 
   # Define the network factory.
   network_factory = _make_network_factory(
@@ -159,7 +173,7 @@ def build_experiment_config() -> experiments.OfflineExperimentConfig[
 
 def main(_):
   config = build_experiment_config()
-  import ipdb; ipdb.set_trace()
+
   if FLAGS.run_distributed:
     program = experiments.make_distributed_offline_experiment(experiment=config)
     lp.launch(program, xm_resources=lp_utils.make_xm_docker_resources(program))
