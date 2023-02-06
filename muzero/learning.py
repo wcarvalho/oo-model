@@ -163,29 +163,30 @@ class MuZeroLearner(acme.Learner):
         )
       loss_fn_ = jax.vmap(loss_fn_, in_axes=(1, 1, 1, 0, 0), out_axes=1) # vmap over batch dimension
       # [T, B]
-      total_loss, metrics = loss_fn_(data,
+      batch_loss, metrics = loss_fn_(data,
                                online_outputs,
                                target_outputs,
                                online_state,
                                target_state)
-      mean_loss = total_loss.mean()
-      # # Importance weighting.
-      # probs = sample.info.probability
-      # importance_weights = (1. / (probs + 1e-6)).astype(online_q.dtype)
-      # importance_weights **= importance_sampling_exponent
-      # importance_weights /= jnp.max(importance_weights)
-      # mean_loss = jnp.mean(importance_weights * batch_loss)
 
-      # # Calculate priorities as a mixture of max and mean sequence errors.
-      # abs_td_error = jnp.abs(batch_td_error).astype(online_q.dtype)
-      # max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
-      # mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
-      # priorities = (max_priority + mean_priority)
-      priorities = jnp.zeros_like(mean_loss)
-      # reverb_update = learning_lib.ReverbUpdate(
-      #     keys=sample.info.key,
-      #     priorities=priorities
-      #     )
+      # Importance weighting.
+      probs = sample.info.probability
+      importance_weights = (1. / (probs + 1e-6)).astype(batch_loss.dtype)
+      importance_weights **= importance_sampling_exponent
+      importance_weights /= jnp.max(importance_weights)
+      mean_loss = jnp.mean(importance_weights * batch_loss)
+
+      # Calculate priorities as a mixture of max and mean sequence errors.
+      value_target = metrics['value_target']
+      value_prediction = metrics['value_prediction']
+      batch_td_error = value_target - value_prediction
+
+      abs_td_error = jnp.abs(batch_td_error).astype(batch_loss.dtype)
+      max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
+      mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
+      priorities = (max_priority + mean_priority)
+      # priorities = jnp.zeros_like(mean_loss)
+
       metrics = jax.tree_map(lambda x: x.mean(), metrics)
       extra = learning_lib.LossExtra(metrics=metrics,
                                      reverb_priorities=priorities)

@@ -36,7 +36,6 @@ from muzero.builder import MuZeroBuilder
 from muzero import networks
 # from muzero import config
 
-from experiments import network_defs
 
 # Flags which modify the behavior of the launcher.
 flags.DEFINE_bool(
