@@ -52,7 +52,7 @@ def make_kitchen_environment(
   path='.',
   tasks_file='',
   debug=False,
-  nseeds=0,
+  nseeds=1000,
   return_gym_env=False,
   **kwargs,
   ) -> dm_env.Environment:

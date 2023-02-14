@@ -24,10 +24,13 @@ cd _babyai
 pip install --editable .
 cd ..
 
-##############################################
-# ACME
-##############################################
+#############################################
+ACME
+#############################################
 git clone https://github.com/deepmind/acme.git _acme
+git checkout 4525ade7015c46f33556e18d76a8d542b916f264
 cd _acme
 pip install --editable ".[jax,testing]"
 cd ..
+
+pip install "gym[atari]==0.23.0"

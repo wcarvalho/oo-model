@@ -13,12 +13,16 @@
 # limitations under the License.
 
 """MuZero config."""
-import dataclasses
+from typing import Callable
 
 from acme.adders import reverb as adders_reverb
+from acme.agents.jax import r2d2
+from acme import types as acme_types
+
+import dataclasses
 import rlax
 
-from acme.agents.jax import r2d2
+Array = acme_types.NestedArray
 
 @dataclasses.dataclass
 class MuZeroConfig(r2d2.R2D2Config):
@@ -28,6 +32,8 @@ class MuZeroConfig(r2d2.R2D2Config):
   # evaluation_epsilon: float = 0.
   # num_epsilons: int = 256
   # variable_update_period: int = 400
+  seed: int = 1234
+  num_steps: int = 3e6
 
   # # Learner options
   # burn_in_length: int = 40
@@ -59,3 +65,10 @@ class MuZeroConfig(r2d2.R2D2Config):
   resnet_transition_dim: int = 256  # dim of resnet for transition function
   num_blocks: int = 8  # number of resnet blocks
   num_bins: int = 301  # number of bins for two-hot rep
+
+  simulation_steps: int = 4
+  model_state_extract_fn: Callable[[Array], Array] = lambda state: state.hidden
+  num_simulations: int = 50
+  maxvisit_init: int = 50
+  gumbel_scale: int = 1.0
+  td_steps: int = 4

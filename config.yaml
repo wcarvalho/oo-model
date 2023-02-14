@@ -18,9 +18,10 @@ dependencies:
     - matplotlib
     - numpy==1.22.4
     - gym[atari]==0.23.0
-
     - pyyaml
     - scikit-learn
+    - wandb
+    - mctx==0.0.2
 
 
 
