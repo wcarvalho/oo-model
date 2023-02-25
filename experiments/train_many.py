@@ -54,8 +54,8 @@ def create_and_run_program(
   group = config.pop('group', group)
   label = config.pop('label', DEFAULT_LABEL)
 
-  if cuda:
-    os.environ['CUDA_VISIBLE_DEVICES']=str(cuda)
+  # if cuda:
+  #   os.environ['CUDA_VISIBLE_DEVICES']=str(cuda)
 
   # TODO: keep this variable?
   # save_config_dict=dict()
@@ -127,9 +127,9 @@ def create_and_run_program(
                             wandb_init_kwargs=wandb_init_kwargs)
 
   # TODO: check that ray
-  # if cuda:
-  #   local_resources['learner'] = PythonProcess(
-  #     env={"CUDA_VISIBLE_DEVICES": str(cuda)})
+  if cuda:
+    local_resources['learner'] = PythonProcess(
+      env={"CUDA_VISIBLE_DEVICES": str(cuda)})
 
   if debug:
     print("="*50)
@@ -176,8 +176,10 @@ def main(_):
   folder = FLAGS.folder if FLAGS.folder else f"results/babyai"
   default_env_kwargs=dict(
     tasks_file='place_split_hard',
+    room_size=8,
+    num_dists=0,
+    partial_obs=False,
     )
-
 
 
   wait_time = 30.0

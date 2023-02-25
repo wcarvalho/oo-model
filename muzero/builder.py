@@ -85,10 +85,9 @@ class MuZeroBuilder(r2d2.R2D2Builder):
         max_priority_weight=self._config.max_priority_weight,
         target_update_period=self._config.target_update_period,
         iterator=dataset,
-        optimizer=optax.adam(self._config.learning_rate),
-        bootstrap_n=self._config.bootstrap_n,
+        # bootstrap_n=self._config.bootstrap_n,
         tx_pair=self._config.tx_pair,
-        clip_rewards=self._config.clip_rewards,
+        # clip_rewards=self._config.clip_rewards,
         replay_client=replay_client,
         counter=counter,
         config=self._config,
@@ -98,7 +97,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
                   networks: r2d2_networks.R2D2Networks,
                   environment_spec: specs.EnvironmentSpec,
                   evaluation: bool = False) -> muzero_actor.R2D2Policy:
-    if evaluation:
-      return muzero_actor.get_actor_core(networks, evaluation)
-    else:
-      return muzero_actor.get_actor_core(networks, evaluation)
+
+    return muzero_actor.get_actor_core(networks,
+                                        evaluation=evaluation,
+                                        config=self._config)

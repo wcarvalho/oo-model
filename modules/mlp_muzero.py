@@ -87,12 +87,14 @@ class Transition(hk.Module):
         return out
 
 class BasicMlp(hk.Module):
-  def __init__(self, mlp_layers, num_predictions):
+  def __init__(self, mlp_layers, num_predictions, output_init: float = 1.0):
     super().__init__(None)
     self._num_predictions = num_predictions
     self._mlp_layers = mlp_layers
+    self._output_init = output_init
 
   def __call__(self, x):
+    output_init = hk.initializers.VarianceScaling(scale=self._output_init)
     x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
     x = jax.nn.relu(x)
     for l in self._mlp_layers:
@@ -100,4 +102,4 @@ class BasicMlp(hk.Module):
       x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(x)
       x = jax.nn.relu(x)
 
-    return hk.Linear(self._num_predictions)(x)
+    return hk.Linear(self._num_predictions, w_init=output_init)(x)

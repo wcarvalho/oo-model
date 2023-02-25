@@ -34,6 +34,7 @@ from acme.utils import counting
 from acme.utils import loggers
 import jax
 import jax.numpy as jnp
+import haiku as hk
 import optax
 import reverb
 import rlax
@@ -75,14 +76,13 @@ class MuZeroLearner(acme.Learner):
                max_priority_weight: float,
                target_update_period: int,
                iterator: Iterator[R2D2ReplaySample],
-               optimizer: optax.GradientTransformation,
                config: MuZeroConfig,
-               bootstrap_n: int = 5,
+              #  bootstrap_n: int = 5,
                tx_pair: rlax.TxPair = rlax.SIGNED_HYPERBOLIC_PAIR,
-               clip_rewards: bool = False,
-               max_abs_reward: float = 1.,
+              #  clip_rewards: bool = False,
+              #  max_abs_reward: float = 1.,
                use_core_state: bool = True,
-               prefetch_size: int = 2,
+              #  prefetch_size: int = 2,
                loss_fn = muzero_loss,
                replay_client: Optional[reverb.Client] = None,
                counter: Optional[counting.Counter] = None,
@@ -98,6 +98,10 @@ class MuZeroLearner(acme.Learner):
     gumbel_scale = config.gumbel_scale
 
     td_steps = config.td_steps
+    policy_coef = config.policy_coef
+    value_coef = config.value_coef
+    reward_coef = config.reward_coef
+    q_normalize_epsilon = config.q_normalize_epsilon
 
     def loss(
         params: muzero_types.MuZeroParams,
@@ -113,9 +117,6 @@ class MuZeroLearner(acme.Learner):
       # Get core state & warm it up on observations for a burn-in period.
       if use_core_state:
         # Replay core state.
-        # NOTE: We may need to recover the type of the hk.LSTMState if the user
-        # specifies a dynamically unrolled RNN as it will strictly enforce the
-        # match between input/output state types.
         online_state = utils.maybe_recover_lstm_type(
             sample.data.extras.get('core_state'))
       else:
@@ -130,9 +131,10 @@ class MuZeroLearner(acme.Learner):
       if burn_in_length:
         burn_obs = jax.tree_map(lambda x: x[:burn_in_length], data.observation)
         key_grad, key1, key2 = jax.random.split(key_grad, 3)
-        _, online_state = networks.unroll(params.unroll, key1, burn_obs, online_state)
-        _, target_state = networks.unroll(target_params.unroll, key2, burn_obs,
-                                          target_state)
+        _, online_state = networks.unroll(
+          params.unroll, key1, burn_obs, online_state)
+        _, target_state = networks.unroll(
+          target_params.unroll, key2, burn_obs, target_state)
 
       #####################
       # Compute state + quantities for rest of trajectory
@@ -160,14 +162,19 @@ class MuZeroLearner(acme.Learner):
         gumbel_scale=gumbel_scale,
         discount=discount,
         td_steps=td_steps,
+        tx_pair=tx_pair,
+        policy_coef=policy_coef,
+        value_coef=value_coef,
+        reward_coef=reward_coef,
+        q_normalize_epsilon=q_normalize_epsilon,
         )
       loss_fn_ = jax.vmap(loss_fn_, in_axes=(1, 1, 1, 0, 0), out_axes=1) # vmap over batch dimension
       # [T, B]
       batch_loss, metrics = loss_fn_(data,
-                               online_outputs,
-                               target_outputs,
-                               online_state,
-                               target_state)
+                                     online_outputs,
+                                     target_outputs,
+                                     online_state,
+                                     target_state)
 
       # Importance weighting.
       probs = sample.info.probability
@@ -177,15 +184,14 @@ class MuZeroLearner(acme.Learner):
       mean_loss = jnp.mean(importance_weights * batch_loss)
 
       # Calculate priorities as a mixture of max and mean sequence errors.
-      value_target = metrics['value_target']
-      value_prediction = metrics['value_prediction']
+      value_target = metrics['2.value_target']
+      value_prediction = metrics['2.value_prediction']
       batch_td_error = value_target - value_prediction
 
       abs_td_error = jnp.abs(batch_td_error).astype(batch_loss.dtype)
       max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
       mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
       priorities = (max_priority + mean_priority)
-      # priorities = jnp.zeros_like(mean_loss)
 
       metrics = jax.tree_map(lambda x: x.mean(), metrics)
       extra = learning_lib.LossExtra(metrics=metrics,
@@ -258,12 +264,57 @@ class MuZeroLearner(acme.Learner):
     self._sgd_step = jax.pmap(sgd_step, axis_name=_PMAP_AXIS_NAME)
     self._async_priority_updater = async_utils.AsyncExecutor(update_priorities)
 
+    ########################
     # Initialise and internalise training state (parameters/optimiser state).
+    ########################
     random_key, key_init1, key_init2 = jax.random.split(random_key, 3)
-    initial_params = muzero_types.MuZeroParams(
-      unroll=networks.unroll_init(key_init1),
-      model= networks.model_init(key_init2),
+    unroll_params = networks.unroll_init(key_init1)
+    model_params =  networks.model_init(key_init2)
+    unroll_params_mask = hk.data_structures.map(
+        lambda module_name, name, value: True if name == "w" else False,
+        unroll_params,
     )
+    model_params_mask = hk.data_structures.map(
+        lambda module_name, name, value: True if name == "w" else False,
+        model_params,
+    )
+    if not config.seperate_model_nets:
+      unroll_params = model_params = hk.data_structures.merge(unroll_params, model_params)
+      model_params_mask = hk.data_structures.map(
+          lambda module_name, name, value: False,
+          model_params,
+      )
+
+    initial_params = muzero_types.MuZeroParams(
+      unroll=unroll_params,
+      model=model_params,
+    )
+    weight_decay_mask = muzero_types.MuZeroParams(
+      unroll=unroll_params_mask,
+      model=model_params_mask,
+    )
+    ########################
+    # Optimizer settings
+    ########################
+    learning_rate = optax.warmup_exponential_decay_schedule(
+        init_value=0.0,
+        peak_value=config.learning_rate,
+        warmup_steps=config.warmup_steps,
+        transition_steps=config.lr_transition_steps,
+        decay_rate=config.learning_rate_decay,
+        staircase=True,
+    )
+    if config.weight_decay > 0.0:
+      optimizer = optax.adamw(
+          learning_rate=learning_rate,
+          weight_decay=config.weight_decay,
+          mask=weight_decay_mask,
+      )
+    else:
+      optimizer = optax.adam(learning_rate=learning_rate)
+    if config.max_grad_norm:
+      optimizer = optax.chain(optax.clip_by_global_norm(config.max_grad_norm), optimizer)
+
     opt_state = optimizer.init(initial_params)
 
     # Log how many parameters the network has.

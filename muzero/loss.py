@@ -47,11 +47,9 @@ from acme.agents.jax.r2d2 import networks as r2d2_networks
 from muzero.config import MuZeroConfig
 from muzero import types as muzero_types
 from muzero.utils import (
-    inv_value_transform,
     logits_to_scalar,
     scalar_to_two_hot,
     scale_gradient,
-    value_transform,
 )
 
 Array = acme_types.NestedArray
@@ -72,12 +70,14 @@ def muzero_loss(data: acme_types.NestedArray,
                 num_bins: int,
                 num_simulations: int,
                 td_steps: int,
+                tx_pair: rlax.TxPair = rlax.SIGNED_HYPERBOLIC_PAIR,
                 maxvisit_init: int = 50,
                 gumbel_scale: float = 1.0,
                 discount: float = 0.99,
                 policy_coef: float = 1.0,
                 value_coef: float = 1.0,
                 reward_coef: float = 1.0,
+                q_normalize_epsilon: float = 0.5,
                 model_state_extract_fn: Callable[[acme_types.NestedArray],
                                                  jnp.ndarray] = lambda state: state.hidden,
                 ):
@@ -85,6 +85,7 @@ def muzero_loss(data: acme_types.NestedArray,
 
   #####################
   # Unroll model with action sequence from data
+  # Generates PREDICTIONS.
   # - outputs:
   #   - policy, value predictions for t = 0, ..., T (root + model)
   #   - reward for t = 1, ..., T (model)
@@ -92,24 +93,20 @@ def muzero_loss(data: acme_types.NestedArray,
   # 1) compute value + policy at root
   # root_state = jax.tree_map(lambda t: t[:1], online_outputs.state)
   learner_root = jax.tree_map(lambda t: t[:1], online_outputs)
-  # reward = logits_to_scalar(learner_root.reward_logits, num_bins)
-  # reward = inv_value_transform(reward)
-  # learner_root = compute_root_values(networks, params, num_bins, root_state)
-  # learner_root: AgentOutput = jax.tree_map(lambda t: t[0], learner_root)
+  num_actions = learner_root.policy_logits.shape[-1]
 
   # 2) compute actions that will be used for simulation
   unroll_data = jax.tree_map(lambda t: t[: simulation_steps + 1], data)
   random_action_mask = (
-      jnp.cumprod(1.0 - unroll_data.start_of_episode[1:]) == 0.0
+      jnp.cumprod(1.0 - unroll_data.start_of_episode) == 0.0
   )
-  action_sequence = unroll_data.action[:simulation_steps]
-  num_actions = learner_root.policy_logits.shape[-1]
   rng_key, action_key = jax.random.split(rng_key)
+  # TODO: why random actions? oh... for expectation?
   random_actions = jax.random.choice(
-      action_key, num_actions, action_sequence.shape, replace=True
+      action_key, num_actions, unroll_data.action.shape, replace=True
   )
   simulation_actions = jax.lax.select(
-      random_action_mask, random_actions, action_sequence
+      random_action_mask, random_actions, unroll_data.action
   )
 
   # 2) unroll model and get predictions
@@ -118,7 +115,7 @@ def muzero_loss(data: acme_types.NestedArray,
       params=params,
       rng_key=rng_key,
       state=model_state_extract_fn(online_state),
-      action_sequence=simulation_actions,
+      action_sequence=simulation_actions[: simulation_steps],
   )
 
   #####################
@@ -127,7 +124,7 @@ def muzero_loss(data: acme_types.NestedArray,
   # 2) Model learning targets.
   # prepare values
   target_values = logits_to_scalar(target_outputs.value_logits, num_bins)
-  target_values = inv_value_transform(target_values)
+  target_values = tx_pair.apply_inv(target_values)
 
   #---------------
   # reward
@@ -135,10 +132,10 @@ def muzero_loss(data: acme_types.NestedArray,
   rewards = data.reward
   reward_target = jax.lax.select(
       random_action_mask,
-      jnp.zeros_like(rewards[:simulation_steps]),
-      rewards[:simulation_steps],
+      jnp.zeros_like(rewards)[:simulation_steps+1],
+      rewards[:simulation_steps+1],
   )
-  reward_target_transformed = value_transform(reward_target)
+  reward_target_transformed = tx_pair.apply(reward_target)
   reward_logits_target = scalar_to_two_hot(
       reward_target_transformed, num_bins
   )
@@ -147,6 +144,8 @@ def muzero_loss(data: acme_types.NestedArray,
   #---------------
   # for policy, need initial policy + value estimates for each time-step
   # these will be used by MCTS
+  # search_data = jax.tree_map(lambda t: t[:simulation_steps+1], data)
+  search_data = unroll_data
   search_roots = jax.tree_map(lambda t: t[:simulation_steps+1], target_outputs)
   root_values = jax.tree_map(lambda t: t[:simulation_steps+1], target_values)
 
@@ -156,7 +155,6 @@ def muzero_loss(data: acme_types.NestedArray,
                             embedding=search_roots.state)
   
   # 1 step of policy improvement
-  search_data = jax.tree_map(lambda t: t[:simulation_steps+1], data)
   mcts_outputs = mctx.gumbel_muzero_policy(
       params=params,
       rng_key=rng_key,
@@ -166,7 +164,7 @@ def muzero_loss(data: acme_types.NestedArray,
           discount=(search_data.discount * discount).astype(root_values.dtype),
           networks=networks,
           num_bins=num_bins,
-          discount_factor=discount),
+          tx_pair=tx_pair),
       num_simulations=num_simulations,
       # invalid_actions=jax.vmap(lambda e: e.invalid_actions())(env),
       qtransform=functools.partial(
@@ -174,6 +172,7 @@ def muzero_loss(data: acme_types.NestedArray,
           value_scale=0.1,
           maxvisit_init=maxvisit_init,
           rescale_values=True,
+          epsilon=q_normalize_epsilon,
       ),
       gumbel_scale=gumbel_scale,
   )
@@ -193,7 +192,7 @@ def muzero_loss(data: acme_types.NestedArray,
   # Value
   #---------------
   # discounts = (1.0 - trajectory.is_last[1:]) * discount_factor
-  discounts = (data.discount[1:] * discount).astype(root_values.dtype)
+  discounts = (data.discount[:-1] * discount).astype(root_values.dtype)
   v_bootstrap = target_values
 
   def n_step_return(i: int) -> jnp.ndarray:
@@ -216,7 +215,7 @@ def muzero_loss(data: acme_types.NestedArray,
   value_target = jax.lax.select(
       zero_return_mask, jnp.zeros_like(returns), returns
   )
-  value_target_transformed = value_transform(value_target)
+  value_target_transformed = tx_pair.apply(value_target)
   value_logits_target = scalar_to_two_hot(value_target_transformed, num_bins)
   value_logits_target = jax.lax.stop_gradient(value_logits_target)
 
@@ -226,7 +225,7 @@ def muzero_loss(data: acme_types.NestedArray,
   # reward
   _batch_categorical_cross_entropy = jax.vmap(rlax.categorical_cross_entropy)
   reward_loss = _batch_categorical_cross_entropy(
-      reward_logits_target, model_output.reward_logits)
+      reward_logits_target[:simulation_steps], model_output.reward_logits)
   reward_loss = jnp.concatenate((jnp.zeros(1), reward_loss))
 
   # value
@@ -250,26 +249,28 @@ def muzero_loss(data: acme_types.NestedArray,
   # 3) organize predictions
   # [0, ...]
   value_preds = logits_to_scalar(value_logits, num_bins)
-  value_preds = inv_value_transform(value_preds)
+  value_preds = tx_pair.apply_inv(value_preds)
 
   # [1, ...]
   reward_preds = logits_to_scalar(model_output.reward_logits, num_bins)
-  reward_preds = inv_value_transform(reward_preds)
+  reward_preds = tx_pair.apply_inv(reward_preds)
 
   # reward_target = jnp.concatenate((jnp.zeros(1), reward_target))
   # reward_preds = jnp.concatenate((jnp.zeros(1), reward_preds))
 
   metrics = {
-      'reward_target': reward_target,
-      'reward_prediction': reward_preds,
-      'value_target': value_target,
-      'value_prediction': value_preds,
-      'policy_entropy': policy_entropy,
-      'policy_target_entropy': policy_target_entropy,
-      'reward_loss': reward_loss,
-      'value_loss': value_loss,
-      'policy_loss': policy_loss,
-      'total_loss': total_loss,
+      '0.0.total_loss': total_loss,
+      '0.1.policy_loss': policy_loss,
+      '0.2.reward_loss': reward_loss[1:],
+      '0.3.value_loss': value_loss,
+      '1.reward_target': reward_target,
+      '1.reward_prediction': reward_preds,
+      '2.value_target': value_target,
+      '2.raw_return': returns,
+      '2.value_prediction': value_preds,
+      '2.value_bootstrap': v_bootstrap,
+      '3.policy_entropy': policy_entropy,
+      '3.policy_target_entropy': policy_target_entropy,
   }
 
   return total_loss, metrics
@@ -307,21 +308,21 @@ def model_step(params: muzero_types.MuZeroParams,
                discount: chex.Array,
                networks: muzero_types.MuZeroNetworks,
                num_bins: int,
-               discount_factor: float = .99):
+               tx_pair: rlax.TxPair = rlax.SIGNED_HYPERBOLIC_PAIR):
   """One simulation step in MCTS."""
   rng_key, model_key = jax.random.split(rng_key)
   model_output, next_state = networks.apply_model(
       params.model, model_key, state, action,
   )
   reward = logits_to_scalar(model_output.reward_logits, num_bins)
-  reward = inv_value_transform(reward)
+  reward = tx_pair.apply_inv(reward)
 
   value = logits_to_scalar(model_output.value_logits, num_bins)
-  value = inv_value_transform(value)
+  value = tx_pair.apply_inv(value)
 
   recurrent_fn_output = mctx.RecurrentFnOutput(
       reward=reward,
-      discount=discount*discount_factor,
+      discount=discount,
       prior_logits=model_output.policy_logits,
       value=value,
   )

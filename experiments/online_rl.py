@@ -17,6 +17,11 @@ Example runing model-based agents on discrete control tasks.
 
 Copied from: https://github.com/deepmind/acme/blob/master/examples/baselines/rl_discrete/run_r2d2.py
 """
+# Do not preallocate GPU memory for JAX.
+import os
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
+# https://github.com/google/jax/issues/8302
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
 import dataclasses
 
@@ -97,6 +102,10 @@ def build_experiment_config(launch=False,
   # cannot be pickled and pickling is necessary when launching distributed
   # experiments via Launchpad.
   env_kwargs = env_kwargs or dict()
+  if not launch: #DEBUG
+    config_kwargs['seperate_model_nets'] = False
+    config_kwargs['action_source'] = 'value'
+    config_kwargs['weight_decay'] = 0.0
   # tasks_file = FLAGS.tasks_file
 
   # Create an environment factory.
@@ -119,14 +128,11 @@ def build_experiment_config(launch=False,
       learning_rate=1e-4,
       target_update_period=1200,
       variable_update_period=100,
+      num_simulations = 50 if launch else 2
   )
-
-  config.simulation_steps = 4
-  config.model_state_extract_fn = lambda state: state.hidden
-  config.num_simulations = 50 if launch else 2
-  config.maxvisit_init = 50
-  config.gumbel_scale = 1.0
-  config.td_steps = 4
+  # update with config kwargs
+  for k, v in config_kwargs.items():
+    setattr(config, k, v)
 
   # TODO: implacing conv_kwargs
   # TODO: swapping based on agent
@@ -155,7 +161,7 @@ def build_experiment_config(launch=False,
     name: str,
     steps_key: Optional[str] = None,
     task_id: Optional[int] = None,
-) -> loggers.Logger:
+    ) -> loggers.Logger:
     if use_wandb and launch:
       wandb.init(
         settings=wandb.Settings(start_method="fork"),
@@ -228,17 +234,20 @@ def main(_):
         agent=FLAGS.seed,
         seed=FLAGS.seed,
         return_kwpath=True)
-  env_kwargs = dict(
-    tasks_file=FLAGS.tasks_file,
-  )
-  config_kwargs = dict(
-    num_steps=FLAGS.num_step,
-  )
-
   if FLAGS.run_distributed:
     log_dir, config_path_str = log_dir_fn("results/babyai/debug_async")
+  else:
+    log_dir, config_path_str = log_dir_fn("results/babyai/debug_async")
+  if wandb_init_kwargs is not None:
     wandb_init_kwargs['name'] = config_path_str
 
+  env_kwargs = dict(
+      tasks_file=FLAGS.tasks_file,
+  )
+  config_kwargs = dict(
+      num_steps=FLAGS.num_steps,
+  )
+  if FLAGS.run_distributed:
     program, local_resources = make_distributed_program(
       log_dir=log_dir,
       wandb_init_kwargs=wandb_init_kwargs,
@@ -250,8 +259,6 @@ def main(_):
               terminal='current_terminal',
               local_resources=local_resources)
   else:
-    log_dir, config_path_str = log_dir_fn("results/babyai/debug_async")
-    wandb_init_kwargs['name'] = config_path_str
     config = build_experiment_config(
       launch=False,
       log_dir=log_dir,

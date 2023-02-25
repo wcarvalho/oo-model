@@ -48,7 +48,7 @@ def make_kitchen_environment(
   room_size: int=10,
   num_dists: int=2,
   partial_obs: bool = False,
-  max_text_length=10,
+  max_text_length=5,
   path='.',
   tasks_file='',
   debug=False,

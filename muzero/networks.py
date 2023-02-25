@@ -90,23 +90,32 @@ def make_babyai_networks(
     return observation_fn(inputs)
 
   def make_core_module() -> MuZeroNetworks:
-    
     res_dim = config.resnet_transition_dim
+    root_value_fn=BasicMlp([res_dim, 128], config.num_bins)
+    root_policy_fn=BasicMlp([res_dim, 128], num_actions)
+    model_reward_fn=BasicMlp([res_dim, 128], config.num_bins)
+    if config.seperate_model_nets:
+      model_value_fn=BasicMlp([res_dim, 128], config.num_bins)
+      model_policy_fn=BasicMlp([res_dim, 128], num_actions)
+    else:
+      model_value_fn=root_value_fn
+      model_policy_fn=root_policy_fn
+
     return MuZeroArch(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
       observation_fn=hk.to_module(
         batch_observation_fn)(name="ObservationFn"),
-      state_fn=hk.LSTM(512),
+      state_fn=hk.LSTM(config.state_dim),
       transition_fn=Transition(
         channels=res_dim,
         num_blocks=config.num_blocks,
       ),
-      root_value_fn=BasicMlp([res_dim, 128], config.num_bins),
-      root_policy_fn=BasicMlp([res_dim, 128], num_actions),
-      model_reward_fn=BasicMlp([res_dim, 128], config.num_bins),
-      model_value_fn=BasicMlp([res_dim, 128], config.num_bins),
-      model_policy_fn=BasicMlp([res_dim, 128], num_actions))
+      root_value_fn=root_value_fn,
+      root_policy_fn=root_policy_fn,
+      model_reward_fn=model_reward_fn,
+      model_value_fn=model_value_fn,
+      model_policy_fn=model_policy_fn)
 
   return make_unrollable_model_network(env_spec, make_core_module)
 

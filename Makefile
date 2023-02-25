@@ -10,7 +10,8 @@ agent?=muzero
 search?=''
 
 export PYTHONPATH:=$(PYTHONPATH):.
-export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):$(HOME)/miniconda3/envs/omodel/lib/:${HOME}/miniconda3/lib
+# export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):${HOME}/miniconda3/envs/omodel/lib/python3.9/site-packages/nvidia/cublas/lib/:$(HOME)/miniconda3/envs/omodel/lib/:${HOME}/miniconda3/lib/
+export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):$(HOME)/miniconda3/envs/omodel/lib/:${HOME}/miniconda3/lib/
 
 collect_data:
 	CUDA_VISIBLE_DEVICES=$(cuda) \

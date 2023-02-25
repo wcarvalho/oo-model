@@ -36,10 +36,15 @@ class MuZeroConfig(r2d2.R2D2Config):
   num_steps: int = 3e6
 
   # # Learner options
-  # burn_in_length: int = 40
+  burn_in_length: int = 4
   # trace_length: int = 80
   # sequence_period: int = 40
-  # learning_rate: float = 1e-3
+  learning_rate: float = 1e-3
+  learning_rate_decay: float = .1
+  lr_transition_steps: int = 100_000
+  weight_decay: float = 0.0
+  max_grad_norm: float = 5.0
+  warmup_steps: int = 1_000
   # bootstrap_n: int = 5
   # clip_rewards: bool = False
   # tx_pair: rlax.TxPair = rlax.SIGNED_HYPERBOLIC_PAIR
@@ -47,8 +52,8 @@ class MuZeroConfig(r2d2.R2D2Config):
   # # Replay options
   # samples_per_insert_tolerance_rate: float = 0.1
   # samples_per_insert: float = 4.0
-  min_replay_size: int = 100
-  # max_replay_size: int = 100_000
+  min_replay_size: int = 2_000
+  max_replay_size: int = 80_000
   # batch_size: int = 64
   prefetch_size: int = 0
   num_parallel_calls: int = 1
@@ -59,16 +64,31 @@ class MuZeroConfig(r2d2.R2D2Config):
   # priority_exponent: float = 0.9
   # max_priority_weight: float = 0.9
 
+  #Loss hps
+  num_bins: int = 301  # number of bins for two-hot rep
+  td_steps: int = 5
+
+  # MCTS hps
+  simulation_steps: int = 7
+  num_simulations: int = 50
+  maxvisit_init: int = 50
+  gumbel_scale: int = 1.0
+  q_normalize_epsilon: float = 0.01  # copied from `jax_muzero`
+
+  # Architecture
+  state_dim: int = 512
   vocab_size: int = 50  # vocab size for env
   word_dim: int = 32  # dimensionality of word embeddings
   sentence_dim: int = 32  # dimensionality of sentence embeddings
   resnet_transition_dim: int = 256  # dim of resnet for transition function
   num_blocks: int = 8  # number of resnet blocks
-  num_bins: int = 301  # number of bins for two-hot rep
-
-  simulation_steps: int = 4
+  seperate_model_nets: bool = True
   model_state_extract_fn: Callable[[Array], Array] = lambda state: state.hidden
-  num_simulations: int = 50
-  maxvisit_init: int = 50
-  gumbel_scale: int = 1.0
-  td_steps: int = 4
+
+  # actor hps
+  action_source: str = 'policy'  # 'policy', 'value', 'mcts'
+
+
+  policy_coef: float = 1.0
+  value_coef: float = 0.25
+  reward_coef: float = 1.0
