@@ -45,10 +45,11 @@ def open_kitchen_tasks_file(tasks_file: str='place', path: str='.'):
 
 def make_kitchen_environment(
   evaluation: bool = False,
-  room_size: int=10,
+  room_size: int=7,
   num_dists: int=2,
   partial_obs: bool = False,
   max_text_length=5,
+  tile_size=8,
   path='.',
   tasks_file='',
   debug=False,
@@ -79,11 +80,9 @@ def make_kitchen_environment(
         max_length=max_text_length)]
 
   if partial_obs:
-    tile_size = 8
     env_wrappers.append(functools.partial(RGBImgPartialObsWrapper,
       tile_size=tile_size))
   else:
-    tile_size = 5
     env_wrappers.append(functools.partial(RGBImgFullyObsWrapper,
       tile_size=tile_size))
 
