@@ -8,10 +8,12 @@ wandb_test?=0
 wandb?=1
 agent?=muzero
 search?=''
+nojit?=0
 
 export PYTHONPATH:=$(PYTHONPATH):.
 # export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):${HOME}/miniconda3/envs/omodel/lib/python3.9/site-packages/nvidia/cublas/lib/:$(HOME)/miniconda3/envs/omodel/lib/:${HOME}/miniconda3/lib/
 export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):$(HOME)/miniconda3/envs/omodel/lib/:${HOME}/miniconda3/lib/
+export JAX_DISABLE_JIT=$(nojit)
 
 collect_data:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
