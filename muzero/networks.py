@@ -34,7 +34,7 @@ import jax.numpy as jnp
 from modules import vision
 from modules import language
 from modules import embedding
-from modules.mlp_muzero import BasicMlp, Transition
+from modules.mlp_muzero import BasicMlp, Transition, ResMlp
 from muzero.arch import MuZeroArch
 from muzero.types import MuZeroNetworks
 from muzero.config import MuZeroConfig
@@ -90,32 +90,42 @@ def make_babyai_networks(
     return observation_fn(inputs)
 
   def make_core_module() -> MuZeroNetworks:
-    res_dim = config.resnet_transition_dim
-    root_value_fn=BasicMlp([res_dim, 128], config.num_bins)
-    root_policy_fn=BasicMlp([res_dim, 128], num_actions)
-    model_reward_fn=BasicMlp([res_dim, 128], config.num_bins)
+    state_dim = config.state_dim
+    res_dim = config.resnet_transition_dim or state_dim
+
+    root_value_fn=BasicMlp(config.vpi_mlps, config.num_bins)
+    root_policy_fn=BasicMlp(config.vpi_mlps, num_actions)
+    model_reward_fn=BasicMlp(config.reward_mlps, config.num_bins)
     if config.seperate_model_nets:
-      model_value_fn=BasicMlp([res_dim, 128], config.num_bins)
-      model_policy_fn=BasicMlp([res_dim, 128], num_actions)
+      model_value_fn=BasicMlp(config.vpi_mlps, config.num_bins)
+      model_policy_fn=BasicMlp(config.vpi_mlps, num_actions)
     else:
       model_value_fn=root_value_fn
       model_policy_fn=root_policy_fn
 
+    model_compute_r_v = config.action_source in ['value']
     return MuZeroArch(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
       observation_fn=hk.to_module(
         batch_observation_fn)(name="ObservationFn"),
-      state_fn=hk.LSTM(config.state_dim),
+      state_fn=hk.LSTM(state_dim),
       transition_fn=Transition(
         channels=res_dim,
-        num_blocks=config.num_blocks,
-      ),
+        num_blocks=config.transition_blocks,
+        action_dim=config.action_dim),
+      root_vpi_base=ResMlp(config.prediction_blocks),
       root_value_fn=root_value_fn,
       root_policy_fn=root_policy_fn,
+      model_vpi_base=ResMlp(config.prediction_blocks),
       model_reward_fn=model_reward_fn,
       model_value_fn=model_value_fn,
-      model_policy_fn=model_policy_fn)
+      model_policy_fn=model_policy_fn,
+      model_compute_r_v=model_compute_r_v,
+      tx_pair=config.tx_pair,
+      discount=config.discount,
+      num_bins=config.num_bins,
+      num_actions=num_actions)
 
   return make_unrollable_model_network(env_spec, make_core_module)
 

@@ -6,7 +6,7 @@ conda activate omodel
 
 conda env update --name omodel --file env.yaml
 
-# conda install -c anaconda -y cudnn==8.2.1
+# conda install -c anaconda -y cudnn
 ##############################################
 # BabyAI
 ##############################################

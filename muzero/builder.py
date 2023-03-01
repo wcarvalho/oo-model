@@ -97,7 +97,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
                   networks: r2d2_networks.R2D2Networks,
                   environment_spec: specs.EnvironmentSpec,
                   evaluation: bool = False) -> muzero_actor.R2D2Policy:
-
+    del environment_spec
     return muzero_actor.get_actor_core(networks,
-                                        evaluation=evaluation,
-                                        config=self._config)
+                                       evaluation=evaluation,
+                                       config=self._config)

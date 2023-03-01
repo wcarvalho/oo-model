@@ -9,7 +9,6 @@ class ResMlpBlock(hk.Module):
     def __init__(
         self,
         channels: int,
-        stride: int,
         use_projection: bool,
         name: str = "res_conv_block",
     ):
@@ -53,7 +52,7 @@ class Transition(hk.Module):
         self,
         channels: int,
         num_blocks: int,
-        action_dim: int = 128,
+        action_dim: int = 32,
         name: str = "transition",
     ):
         """Init transition function."""
@@ -80,15 +79,16 @@ class Transition(hk.Module):
         out += shortcut  # Residual link to maintain recurrent info flow.
 
         res_layers = [
-            ResMlpBlock(channels, stride=1, use_projection=False)
+            ResMlpBlock(channels, use_projection=False)
             for _ in range(self._num_blocks)
         ]
         out = hk.Sequential(res_layers)(out)
         return out
 
+
 class BasicMlp(hk.Module):
-  def __init__(self, mlp_layers, num_predictions, output_init: float = 1.0):
-    super().__init__(None)
+  def __init__(self, mlp_layers, num_predictions, output_init: float = 0.0):
+    super().__init__(name="basic_mlp")
     self._num_predictions = num_predictions
     self._mlp_layers = mlp_layers
     self._output_init = output_init
@@ -103,3 +103,16 @@ class BasicMlp(hk.Module):
       x = jax.nn.relu(x)
 
     return hk.Linear(self._num_predictions, w_init=output_init)(x)
+
+
+class ResMlp(hk.Module):
+  def __init__(self, num_blocks,):
+    super().__init__(name="res_mlp")
+    self._num_blocks = num_blocks
+
+  def __call__(self, x):
+    res_layers = [
+        ResMlpBlock(x.shape[-1], use_projection=False)
+        for _ in range(self._num_blocks)
+    ]
+    return hk.Sequential(res_layers)(x)

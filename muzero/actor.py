@@ -8,10 +8,10 @@ from acme.agents.jax import actor_core as actor_core_lib
 from acme.agents.jax.r2d2 import config as r2d2_config
 from acme.jax import networks as networks_lib
 import chex
+import distrax
 import jax
 import numpy as np
 import jax.numpy as jnp
-import rlax
 from muzero.utils import (
     logits_to_scalar,
 )
@@ -55,32 +55,20 @@ def value_select_action(
     observation: networks_lib.Observation,
     state: MuZeroActorState[actor_core_lib.RecurrentState],
     networks: types.MuZeroNetworks,
-    num_bins: int,
-    discount: float,
-    tx_pair: rlax.TxPair = rlax.SIGNED_HYPERBOLIC_PAIR,
-    evaluation: bool = True):
-  # TODO: jit this function if possible.
+    discount: float):
+  
   rng, policy_rng = jax.random.split(state.rng)
 
-  logits, recurrent_state = networks.apply(params.unroll, policy_rng, observation,
+  predictions, recurrent_state = networks.apply(params.unroll,
+                                           policy_rng,
+                                           observation,
                                            state.recurrent_state)
-  # V(s_t)
-  value = logits_to_scalar(logits.value_logits, num_bins)
-  value = tx_pair.apply_inv(value)
-
-  actions = jnp.arange(logits.policy_logits.shape[-1])
-  next_logits, _ = jax.vmap(
-    networks.apply_model, in_axes=(None, None, None, 0))(
-      params.model, policy_rng, recurrent_state.hidden, actions)
-
-  # r(s_t, a_t, s_t+1)
-  reward = logits_to_scalar(next_logits.reward_logits, num_bins)
-  reward = tx_pair.apply_inv(reward)
-
-  # Q(s_t, a_t) = V(s_t) + gamma*r(s_t, a_t, s_t+1)
-  q_values = value[None] + discount*reward
-
-  action = rlax.epsilon_greedy(state.epsilon).sample(policy_rng, q_values)
+  # assert predictions.q_values is not None, 'network needs to return q_values'
+  # Q(s_t, a_t) = r(s_t, a_t, s_t+1) + gamma*V(s_t+1)
+  q_values = predictions.next_reward + discount*predictions.next_value
+  rng, sample_rng = jax.random.split(rng)
+  action = distrax.EpsilonGreedy(
+    q_values, state.epsilon, dtype=jnp.int32).sample(seed=sample_rng)
 
   return action, MuZeroActorState(
       rng=rng,
@@ -106,8 +94,6 @@ def get_actor_core(
     evaluation_epsilon = config.evaluation_epsilon
     select_action = functools.partial(value_select_action,
                                       networks=networks,
-                                      tx_pair=config.tx_pair,
-                                      num_bins=config.num_bins,
                                       discount=config.discount)
   elif config.action_source == 'mcts':
     raise NotImplementedError
@@ -126,6 +112,7 @@ def get_actor_core(
                                     np.logspace(1, 3, num_epsilons, base=0.1))
     else:
       epsilon = None
+
     return MuZeroActorState(
         rng=rng,
         epsilon=epsilon,
@@ -136,26 +123,27 @@ def get_actor_core(
       state: MuZeroActorState[actor_core_lib.RecurrentState]) -> actor_core_lib.Extras:
     return {'core_state': state.prev_recurrent_state}
 
-  return actor_core_lib.ActorCore(init=init, select_action=select_action,
+  return actor_core_lib.ActorCore(init=init,
+                                  select_action=select_action,
                                   get_extras=get_extras)
 
 
-# TODO(wilka): Deprecate this in favour of MuZeroBuilder.make_policy.
-def make_behavior_policy(networks: types.MuZeroNetworks,
-                         config: r2d2_config.R2D2Config,
-                         evaluation: bool = False) -> actor_core_lib.RecurrentPolicy:
-  """Selects action according to the policy."""
+# # TODO(wilka): Deprecate this in favour of MuZeroBuilder.make_policy.
+# def make_behavior_policy(networks: types.MuZeroNetworks,
+#                          config: r2d2_config.R2D2Config,
+#                          evaluation: bool = False) -> actor_core_lib.RecurrentPolicy:
+#   """Selects action according to the policy."""
 
-  def behavior_policy(params: types.MuZeroParams,
-                      key: networks_lib.PRNGKey,
-                      observation: types.NestedArray,
-                      core_state: types.NestedArray):
-    logits, core_state = networks.apply(params.unroll, key, observation, core_state)
-    rng, policy_rng = jax.random.split(key)
-    if evaluation:
-      action = jnp.argmax(logits.policy_logits, axis=-1)
-    else:
-      action = jax.random.categorical(policy_rng, logits.policy_logits)
-    return action, core_state
+#   def behavior_policy(params: types.MuZeroParams,
+#                       key: networks_lib.PRNGKey,
+#                       observation: types.NestedArray,
+#                       core_state: types.NestedArray):
+#     logits, core_state = networks.apply(params.unroll, key, observation, core_state)
+#     rng, policy_rng = jax.random.split(key)
+#     if evaluation:
+#       action = jnp.argmax(logits.policy_logits, axis=-1)
+#     else:
+#       action = jax.random.categorical(policy_rng, logits.policy_logits)
+#     return action, core_state
 
-  return behavior_policy
+#   return behavior_policy

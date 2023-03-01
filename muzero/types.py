@@ -30,8 +30,10 @@ class MuZeroState:
 @chex.dataclass(frozen=True)
 class RootOutput:
   state: types.NestedArray
-  value_logits: types.NestedArray
-  policy_logits: types.NestedArray
+  value_logits: jnp.ndarray
+  policy_logits: jnp.ndarray
+  next_reward: Optional[jnp.ndarray] = None
+  next_value: Optional[jnp.ndarray] = None
 
 
 @chex.dataclass(frozen=True)

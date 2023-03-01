@@ -176,7 +176,7 @@ def main(_):
   folder = FLAGS.folder if FLAGS.folder else f"results/babyai"
   default_env_kwargs=dict(
     tasks_file='place_split_hard',
-    room_size=8,
+    room_size=7,
     num_dists=0,
     partial_obs=False,
     )

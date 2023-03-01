@@ -13,7 +13,7 @@
 # limitations under the License.
 
 """MuZero config."""
-from typing import Callable
+from typing import Callable, Tuple, Optional
 
 from acme.adders import reverb as adders_reverb
 from acme.agents.jax import r2d2
@@ -52,7 +52,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   # # Replay options
   # samples_per_insert_tolerance_rate: float = 0.1
   # samples_per_insert: float = 4.0
-  min_replay_size: int = 2_000
+  min_replay_size: int = 10_000
   max_replay_size: int = 80_000
   # batch_size: int = 64
   prefetch_size: int = 0
@@ -76,14 +76,18 @@ class MuZeroConfig(r2d2.R2D2Config):
   q_normalize_epsilon: float = 0.01  # copied from `jax_muzero`
 
   # Architecture
-  state_dim: int = 512
+  state_dim: int = 256
   vocab_size: int = 50  # vocab size for env
-  word_dim: int = 32  # dimensionality of word embeddings
-  sentence_dim: int = 32  # dimensionality of sentence embeddings
-  resnet_transition_dim: int = 256  # dim of resnet for transition function
-  num_blocks: int = 8  # number of resnet blocks
+  word_dim: int = 64  # dimensionality of word embeddings
+  sentence_dim: int = 64  # dimensionality of sentence embeddings
+  resnet_transition_dim: Optional[int] = None  # dim of resnet for transition function
+  transition_blocks: int = 2  # number of resnet blocks
+  prediction_blocks: int = 2  # number of resnet blocks
   seperate_model_nets: bool = True
   model_state_extract_fn: Callable[[Array], Array] = lambda state: state.hidden
+  reward_mlps: Tuple[int] = (32,)
+  vpi_mlps: Tuple[int] = (128, 32)
+  action_dim : int = 32
 
   # actor hps
   action_source: str = 'policy'  # 'policy', 'value', 'mcts'

@@ -103,9 +103,11 @@ def build_experiment_config(launch=False,
   # experiments via Launchpad.
   env_kwargs = env_kwargs or dict()
   if not launch: #DEBUG
+    config_kwargs['min_replay_size'] = 1000
     config_kwargs['seperate_model_nets'] = False
+    config_kwargs['burn_in_length'] = 0
+    config_kwargs['simulation_steps'] = 8
     config_kwargs['action_source'] = 'value'
-    config_kwargs['weight_decay'] = 0.0
   # tasks_file = FLAGS.tasks_file
 
   # Create an environment factory.
@@ -117,23 +119,25 @@ def build_experiment_config(launch=False,
 
   # Configure the agent.
   config = MuZeroConfig(
-      burn_in_length=8 if launch else 4,
-      trace_length=40 if launch else 10,
-      sequence_period=20 if launch else 10,
-      min_replay_size=10_000 if launch else 100,
-      batch_size=32,
-      prefetch_size=1,
-      samples_per_insert=1.0,
-      evaluation_epsilon=1e-3,
-      learning_rate=1e-4,
-      target_update_period=1200,
-      variable_update_period=100,
-      num_simulations = 50 if launch else 2
+      # burn_in_length=8 if launch else 4,
+      # trace_length=40 if launch else 10,
+      # # sequence_period=20 if launch else 10,
+      # min_replay_size=10_000 if launch else 100,
+      # batch_size=32,
+      # prefetch_size=1,
+      # samples_per_insert=1.0,
+      # evaluation_epsilon=1e-3,
+      # learning_rate=1e-4,
+      # target_update_period=1200,
+      # variable_update_period=100,
+      # num_simulations = 50 if launch else 2
   )
   # update with config kwargs
   for k, v in config_kwargs.items():
     setattr(config, k, v)
 
+  config.trace_length = config.burn_in_length + config.simulation_steps + config.td_steps + 1
+  config.sequence_period = config.trace_length - 1
   # TODO: implacing conv_kwargs
   # TODO: swapping based on agent
 

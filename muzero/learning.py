@@ -236,6 +236,10 @@ class MuZeroLearner(acme.Learner):
           steps=steps,
           random_key=key)
 
+      metrics.update({
+        'grad_norm': optax.global_norm(gradients),
+        'update_norm': optax.global_norm(updates)
+      })
       return new_state, priorities, metrics
 
     def update_priorities(
@@ -296,14 +300,17 @@ class MuZeroLearner(acme.Learner):
     ########################
     # Optimizer settings
     ########################
-    learning_rate = optax.warmup_exponential_decay_schedule(
-        init_value=0.0,
-        peak_value=config.learning_rate,
-        warmup_steps=config.warmup_steps,
-        transition_steps=config.lr_transition_steps,
-        decay_rate=config.learning_rate_decay,
-        staircase=True,
-    )
+    if config.warmup_steps > 0:
+      learning_rate = optax.warmup_exponential_decay_schedule(
+          init_value=0.0,
+          peak_value=config.learning_rate,
+          warmup_steps=config.warmup_steps,
+          transition_steps=config.lr_transition_steps,
+          decay_rate=config.learning_rate_decay,
+          staircase=True,
+      )
+    else:
+      learning_rate = config.learning_rate
     if config.weight_decay > 0.0:
       optimizer = optax.adamw(
           learning_rate=learning_rate,
