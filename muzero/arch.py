@@ -118,6 +118,7 @@ class MuZeroArch(hk.RNNCore):
     core_outputs, new_state = self._state_fn(embeddings, state)
     policy_out, value_out = self.root_predictions(core_outputs)
 
+    next_reward = next_value = None
     if self._model_compute_r_v:
       next_reward, next_value = self.model_compute_r_v(core_outputs)
 
@@ -145,7 +146,7 @@ class MuZeroArch(hk.RNNCore):
     embeddings = hk.BatchApply(self._observation_fn)(inputs)  # [T, B, D+A+1]
     core_outputs, new_states = hk.static_unroll(self._state_fn, embeddings, state)
     policy_out, value_out = hk.BatchApply(self.root_predictions)(core_outputs)
-    q_values = None
+    next_reward = next_value = None
     if self._model_compute_r_v:
       next_reward, next_value = jax.vmap(jax.vmap(self.model_compute_r_v))(
         core_outputs)
