@@ -10,6 +10,7 @@ class ResMlpBlock(hk.Module):
         self,
         channels: int,
         use_projection: bool,
+        ln: bool = True,
         name: str = "res_conv_block",
     ):
         """Init residual block."""
@@ -25,6 +26,9 @@ class ResMlpBlock(hk.Module):
         self._ln_1 = hk.LayerNorm(
             axis=(-1), create_scale=True, create_offset=True
         )
+        if not ln:
+           self._ln_0 = lambda o: o
+           self._ln_1 = lambda o: o
 
     def __call__(self, x: jnp.ndarray) -> jnp.ndarray:
         """Forward ResBlock."""
@@ -45,6 +49,7 @@ class ResMlpBlock(hk.Module):
         )(out)
         return shortcut + out
 
+
 class Transition(hk.Module):
     """Dynamics transition module."""
 
@@ -53,6 +58,7 @@ class Transition(hk.Module):
         channels: int,
         num_blocks: int,
         action_dim: int = 32,
+        ln: bool = True,
         name: str = "transition",
     ):
         """Init transition function."""
@@ -60,59 +66,74 @@ class Transition(hk.Module):
         self._channels = channels
         self._num_blocks = num_blocks
         self._action_dim = action_dim
+        self._ln = ln
 
     def __call__(
-        self, encoded_action: jnp.ndarray, prev_state: jnp.ndarray
+        self,
+        action_onehot: jnp.ndarray,
+        prev_state: jnp.ndarray,
     ) -> jnp.ndarray:
         """Forward transition function."""
         channels = prev_state.shape[-1]
         shortcut = prev_state
-
-        prev_state = hk.LayerNorm(
-            axis=(-1), create_scale=True, create_offset=True
-        )(prev_state)
+        
+        if self._ln:
+          prev_state = hk.LayerNorm(
+              axis=(-1), create_scale=True, create_offset=True
+          )(prev_state)
         prev_state = jax.nn.relu(prev_state)
 
-        encoded_action = hk.Linear(self._action_dim, with_bias=False)(encoded_action)
-        x_and_h = jnp.concatenate([prev_state, encoded_action], axis=-1)
+        action_w_init = hk.initializers.TruncatedNormal()
+        encoded_action = hk.Linear(channels,
+                                   w_init=action_w_init,
+                                   with_bias=False)(action_onehot)
+        x_and_h = prev_state + encoded_action
         out = hk.Linear(channels, with_bias=False)(x_and_h)
         out += shortcut  # Residual link to maintain recurrent info flow.
 
         res_layers = [
-            ResMlpBlock(channels, use_projection=False)
+            ResMlpBlock(channels, ln=self._ln, use_projection=False)
             for _ in range(self._num_blocks)
         ]
         out = hk.Sequential(res_layers)(out)
         return out
 
 
-class BasicMlp(hk.Module):
-  def __init__(self, mlp_layers, num_predictions, output_init: float = 0.0):
-    super().__init__(name="basic_mlp")
+class PredictionMlp(hk.Module):
+  def __init__(self,
+               mlp_layers,
+               num_predictions,
+               ln: bool = True,
+               output_init = None,
+               name="pred_mlp"):
+    super().__init__(name=name)
     self._num_predictions = num_predictions
     self._mlp_layers = mlp_layers
     self._output_init = output_init
+    self._ln = ln
 
   def __call__(self, x):
-    output_init = hk.initializers.VarianceScaling(scale=self._output_init)
-    x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
+    if self._ln:
+      x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
     x = jax.nn.relu(x)
     for l in self._mlp_layers:
       x = hk.Linear(l, with_bias=False)(x)
-      x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(x)
+      if self._ln:
+        x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(x)
       x = jax.nn.relu(x)
 
-    return hk.Linear(self._num_predictions, w_init=output_init)(x)
+    return hk.Linear(self._num_predictions, w_init=self._output_init)(x)
 
 
 class ResMlp(hk.Module):
-  def __init__(self, num_blocks,):
-    super().__init__(name="res_mlp")
+  def __init__(self, num_blocks, ln: bool = True, name="res_mlp"):
+    super().__init__(name=name)
     self._num_blocks = num_blocks
+    self._ln = ln
 
   def __call__(self, x):
     res_layers = [
-        ResMlpBlock(x.shape[-1], use_projection=False)
+        ResMlpBlock(x.shape[-1], ln=self._ln, use_projection=False)
         for _ in range(self._num_blocks)
     ]
     return hk.Sequential(res_layers)(x)

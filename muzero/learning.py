@@ -32,19 +32,24 @@ from acme.jax import utils
 from acme.utils import async_utils
 from acme.utils import counting
 from acme.utils import loggers
+
+import distrax
+import haiku as hk
 import jax
 import jax.numpy as jnp
-import haiku as hk
 import optax
 import reverb
 import rlax
 import tree
+import mctx
 
 from acme.agents.jax.r2d2 import networks as r2d2_networks
 from acme.agents.jax.dqn import learning_lib
 from muzero import types as muzero_types
 from muzero.config import MuZeroConfig
-from muzero.loss import muzero_loss
+from muzero.loss_improved import muzero_loss
+from muzero import ve_losses
+from muzero import utils as muzero_utils
 
 from pprint import pprint
 aprint = lambda a: pprint(jax.tree_map(lambda x:x.shape, a))
@@ -53,6 +58,18 @@ _PMAP_AXIS_NAME = 'data'
 # This type allows splitting a sample between the host and device, which avoids
 # putting item keys (uint64) on device for the purposes of priority updating.
 R2D2ReplaySample = utils.PrefetchingSplit
+
+
+def episode_mean(x, mask):
+  if len(mask.shape) < len(x.shape):
+    nx = len(x.shape)
+    nd = len(mask.shape)
+    extra = nx - nd
+    dims = list(range(nd, nd+extra))
+    batch_loss = jnp.multiply(x, jnp.expand_dims(mask, dims))
+  else:
+    batch_loss = jnp.multiply(x, mask)
+  return (batch_loss.sum(0))/(mask.sum(0)+1e-5)
 
 class TrainingState(NamedTuple):
   """Holds the agent's training state."""
@@ -77,32 +94,49 @@ class MuZeroLearner(acme.Learner):
                target_update_period: int,
                iterator: Iterator[R2D2ReplaySample],
                config: MuZeroConfig,
-              #  bootstrap_n: int = 5,
-               tx_pair: rlax.TxPair = rlax.SIGNED_HYPERBOLIC_PAIR,
-              #  clip_rewards: bool = False,
-              #  max_abs_reward: float = 1.,
+               discretizer: muzero_utils.Discretizer,
                use_core_state: bool = True,
-              #  prefetch_size: int = 2,
                loss_fn = muzero_loss,
                replay_client: Optional[reverb.Client] = None,
                counter: Optional[counting.Counter] = None,
                logger: Optional[loggers.Logger] = None):
     """Initializes the learner."""
-
+    self._config = config
     simulation_steps = config.simulation_steps
-    num_bins = config.num_bins
-    model_state_extract_fn = config.model_state_extract_fn
 
     num_simulations = config.num_simulations
-    maxvisit_init = config.maxvisit_init
-    gumbel_scale = config.gumbel_scale
 
     td_steps = config.td_steps
     policy_coef = config.policy_coef
     value_coef = config.value_coef
     reward_coef = config.reward_coef
-    q_normalize_epsilon = config.q_normalize_epsilon
+    ema_update = config.ema_update
+    show_gradients = config.show_gradients > 0
 
+    if config.action_source == "value" or not config.seperate_model_nets:
+      self._model_unroll_share_params = True
+    else:
+      self._model_unroll_share_params = False
+
+    assert config.muzero_policy in ["muzero", "gumbel_muzero"]
+    if config.muzero_policy == "muzero":
+      muzero_policy = functools.partial(
+          mctx.muzero_policy,
+          dirichlet_fraction=config.dirichlet_fraction,
+          dirichlet_alpha=config.dirichlet_alpha,
+          pb_c_init=config.pb_c_init,
+          pb_c_base=config.pb_c_base,
+          temperature=config.temperature)
+      policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
+    elif config.muzero_policy == "gumbel_muzero":
+      muzero_policy = functools.partial(
+          mctx.gumbel_muzero_policy,
+          gumbel_scale=config.gumbel_scale)
+      # def kl_divergence(p, l):
+        # return distrax.Categorical(probs=p).kl_divergence(distrax.Categorical(logits=l))
+        # return distrax.Categorical(logits=l).kl_divergence(distrax.Categorical(probs=p))
+      # policy_loss_fn = jax.vmap(kl_divergence)
+      policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
     def loss(
         params: muzero_types.MuZeroParams,
         target_params: muzero_types.MuZeroParams,
@@ -110,6 +144,13 @@ class MuZeroLearner(acme.Learner):
         sample: reverb.ReplaySample
     ) -> Tuple[jnp.ndarray, Tuple[jnp.ndarray, jnp.ndarray]]:
       """Computes loss for a batch of sequences."""
+
+      if self._model_unroll_share_params:
+        params_unroll = params
+        target_params_unroll = target_params
+      else:
+        params_unroll = params.unroll
+        target_params_unroll = target_params.unroll
 
       #####################
       # Initialize + Burn-in state
@@ -132,9 +173,9 @@ class MuZeroLearner(acme.Learner):
         burn_obs = jax.tree_map(lambda x: x[:burn_in_length], data.observation)
         key_grad, key1, key2 = jax.random.split(key_grad, 3)
         _, online_state = networks.unroll(
-          params.unroll, key1, burn_obs, online_state)
+          params_unroll, key1, burn_obs, online_state)
         _, target_state = networks.unroll(
-          target_params.unroll, key2, burn_obs, target_state)
+          target_params_unroll, key2, burn_obs, target_state)
 
       #####################
       # Compute state + quantities for rest of trajectory
@@ -145,36 +186,46 @@ class MuZeroLearner(acme.Learner):
       # Unroll on sequences to get online and target Q-Values.
       key_grad, key1, key2 = jax.random.split(key_grad, 3)
       online_outputs, online_state = networks.unroll(
-        params.unroll, key1, data.observation, online_state)
+        params_unroll, key1, data.observation, online_state)
       target_outputs, target_state = networks.unroll(
-        target_params.unroll, key2, data.observation, target_state)
+        target_params_unroll, key2, data.observation, target_state)
 
-      loss_fn_ = functools.partial(loss_fn,
+      ve_loss_fn = ve_losses.ValueEquivalentLoss(
         networks=networks,
         params=params,
         target_params=target_params,
-        rng_key=key_grad,
         simulation_steps=simulation_steps,
-        num_bins=num_bins,
-        model_state_extract_fn=model_state_extract_fn,
+        # tx_pair=tx_pair,
+        discretizer=discretizer,
         num_simulations=num_simulations,
-        maxvisit_init=maxvisit_init,
-        gumbel_scale=gumbel_scale,
         discount=discount,
         td_steps=td_steps,
-        tx_pair=tx_pair,
+        muzero_policy=muzero_policy,
+        model_coef=config.model_coef,
         policy_coef=policy_coef,
         value_coef=value_coef,
         reward_coef=reward_coef,
-        q_normalize_epsilon=q_normalize_epsilon,
-        )
-      loss_fn_ = jax.vmap(loss_fn_, in_axes=(1, 1, 1, 0, 0), out_axes=1) # vmap over batch dimension
+        policy_loss_fn=policy_loss_fn,
+        v_target_source=config.v_target_source,
+        model_share_params=self._model_unroll_share_params,
+      )
+      ve_loss_fn = jax.vmap(ve_loss_fn, in_axes=(1, 1, 1, 1, 1, 0, 0, None), out_axes=0) # vmap over batch dimension
+
       # [T, B]
-      batch_loss, metrics = loss_fn_(data,
-                                     online_outputs,
-                                     target_outputs,
-                                     online_state,
-                                     target_state)
+      B = data.discount.shape[1]
+      in_episode = jnp.concatenate((jnp.ones((2, B)), data.discount[:-2]), axis=0)
+      is_terminal_mask = jnp.concatenate(
+        (jnp.ones((1, B)), data.discount[:-1]), axis=0) == 0.0
+      
+      # [B], B
+      batch_loss, metrics = ve_loss_fn(data,
+                                       in_episode,
+                                       is_terminal_mask,
+                                       online_outputs,
+                                       target_outputs,
+                                       online_state,
+                                       target_state,
+                                       key_grad)
 
       # Importance weighting.
       probs = sample.info.probability
@@ -193,7 +244,11 @@ class MuZeroLearner(acme.Learner):
       mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
       priorities = (max_priority + mean_priority)
 
+      if importance_sampling_exponent == 0.0:
+        priorities = jnp.ones_like(priorities)
+
       metrics = jax.tree_map(lambda x: x.mean(), metrics)
+      metrics.update(in_episode=in_episode.mean())
       extra = learning_lib.LossExtra(metrics=metrics,
                                      reverb_priorities=priorities)
 
@@ -221,13 +276,17 @@ class MuZeroLearner(acme.Learner):
       gradients = jax.lax.pmean(gradients, _PMAP_AXIS_NAME)
 
       # Apply optimizer updates.
-      updates, new_opt_state = optimizer.update(gradients, state.opt_state)
+      updates, new_opt_state = optimizer.update(gradients, state.opt_state, state.params)
       new_params = optax.apply_updates(state.params, updates)
 
       # Periodically update target networks.
       steps = state.steps + 1
-      target_params = optax.periodic_update(new_params, state.target_params,
-                                            steps, self._target_update_period)
+      if ema_update is not None and ema_update > 0:
+        target_params = optax.incremental_update(new_params, state.target_params,
+                                                 ema_update)
+      else:
+        target_params = optax.periodic_update(new_params, state.target_params,
+                                              steps, self._target_update_period)
 
       new_state = TrainingState(
           params=new_params,
@@ -237,9 +296,14 @@ class MuZeroLearner(acme.Learner):
           random_key=key)
 
       metrics.update({
-        'grad_norm': optax.global_norm(gradients),
-        'update_norm': optax.global_norm(updates)
+        "0.0.total_loss": loss_value,
+        '0.grad_norm': optax.global_norm(gradients),
+        '0.update_norm': optax.global_norm(updates),
+        '0.param_norm': optax.global_norm(state.params),
       })
+      if show_gradients:
+        metrics['mean_grad'] = jax.tree_map(lambda x:x.mean(), gradients)
+
       return new_state, priorities, metrics
 
     def update_priorities(
@@ -272,63 +336,43 @@ class MuZeroLearner(acme.Learner):
     # Initialise and internalise training state (parameters/optimiser state).
     ########################
     random_key, key_init1, key_init2 = jax.random.split(random_key, 3)
-    unroll_params = networks.unroll_init(key_init1)
-    model_params =  networks.model_init(key_init2)
-    unroll_params_mask = hk.data_structures.map(
-        lambda module_name, name, value: True if name == "w" else False,
-        unroll_params,
-    )
-    model_params_mask = hk.data_structures.map(
-        lambda module_name, name, value: True if name == "w" else False,
-        model_params,
-    )
-    if not config.seperate_model_nets:
-      unroll_params = model_params = hk.data_structures.merge(unroll_params, model_params)
-      model_params_mask = hk.data_structures.map(
-          lambda module_name, name, value: False,
-          model_params,
-      )
 
-    initial_params = muzero_types.MuZeroParams(
-      unroll=unroll_params,
-      model=model_params,
-    )
-    weight_decay_mask = muzero_types.MuZeroParams(
-      unroll=unroll_params_mask,
-      model=model_params_mask,
-    )
-    ########################
-    # Optimizer settings
-    ########################
-    if config.warmup_steps > 0:
-      learning_rate = optax.warmup_exponential_decay_schedule(
-          init_value=0.0,
-          peak_value=config.learning_rate,
-          warmup_steps=config.warmup_steps,
-          transition_steps=config.lr_transition_steps,
-          decay_rate=config.learning_rate_decay,
-          staircase=True,
+    if self._model_unroll_share_params:
+      initial_params = networks.unroll_init(key_init1)
+      weight_decay_mask = hk.data_structures.map(
+          lambda module_name, name, value: True if name == "w" else False,
+          initial_params,
       )
+      if config.warmup_steps > 0:
+        learning_rate = optax.warmup_exponential_decay_schedule(
+            init_value=0.0,
+            peak_value=config.learning_rate,
+            warmup_steps=config.warmup_steps,
+            transition_steps=config.lr_transition_steps,
+            decay_rate=config.learning_rate_decay,
+            staircase=True,
+        )
+      else:
+        learning_rate = config.learning_rate
+      if config.weight_decay > 0.0:
+        optimizer = optax.adamw(
+            learning_rate=learning_rate,
+            weight_decay=config.weight_decay,
+            mask=weight_decay_mask,
+        )
+      else:
+        optimizer = optax.adam(learning_rate=learning_rate)
+      if config.max_grad_norm:
+        optimizer = optax.chain(optax.clip_by_global_norm(
+            config.max_grad_norm), optimizer)
+
+      opt_state = optimizer.init(initial_params)
+  
+      # Log how many parameters the network has.
+      sizes = tree.map_structure(jnp.size, initial_params)
+      logging.info('Total number of params: %.3g', sum(tree.flatten(sizes.values())))
     else:
-      learning_rate = config.learning_rate
-    if config.weight_decay > 0.0:
-      optimizer = optax.adamw(
-          learning_rate=learning_rate,
-          weight_decay=config.weight_decay,
-          mask=weight_decay_mask,
-      )
-    else:
-      optimizer = optax.adam(learning_rate=learning_rate)
-    if config.max_grad_norm:
-      optimizer = optax.chain(optax.clip_by_global_norm(config.max_grad_norm), optimizer)
-
-    opt_state = optimizer.init(initial_params)
-
-    # Log how many parameters the network has.
-    sizes = tree.map_structure(jnp.size, initial_params)
-    logging.info('Total number of params: %.3g',
-                 sum(tree.flatten(sizes.unroll.values())) + 
-                 sum(tree.flatten(sizes.model.values())))
+      raise NotImplementedError
 
     state = TrainingState(
         params=initial_params,
@@ -355,9 +399,18 @@ class MuZeroLearner(acme.Learner):
     self._state, priorities, metrics = self._sgd_step(self._state, samples)
     # Take metrics from first replica.
     metrics = utils.get_from_first_device(metrics)
+
+    if self._config.show_gradients:
+      if self._state.steps[0] % self._config.show_gradients == 0:
+        for k, v in metrics['mean_grad'].items():
+          metrics['mean_grad'][k] = float(next(iter(v.values())))
+      else:
+        if 'mean_grad' in metrics:
+          metrics.pop('mean_grad')
+
     # Update our counts and record it.
     time_elapsed = time.time() - start
-    metrics['LearnerDuraction'] = time_elapsed
+    metrics['LearnerDuration'] = time_elapsed
     counts = self._counter.increment(steps=1, time_elapsed=time_elapsed)
 
     # Update priorities in replay.

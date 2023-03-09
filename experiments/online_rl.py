@@ -44,6 +44,7 @@ from acme.agents.jax import r2d2
 from muzero.config import MuZeroConfig
 from muzero.builder import MuZeroBuilder
 from muzero import networks
+from muzero import utils as muzero_utils
 # from muzero import config
 
 from experiments import helpers
@@ -66,7 +67,7 @@ flags.DEFINE_string('agent', 'muzero', 'which agent.')
 flags.DEFINE_bool(
     'run_distributed', False, 'Should an agent be executed in a distributed '
     'way. If False, will run single-threaded.')
-flags.DEFINE_string('tasks_file', 'place_split_hard', 'tasks_file')
+flags.DEFINE_string('tasks_file', 'pickup', 'tasks_file')
 flags.DEFINE_integer('seed', 0, 'Random seed (experiment).')
 flags.DEFINE_integer('num_steps', 1_000_000,
                      'Number of environment steps to run for.')
@@ -90,24 +91,36 @@ FLAGS = flags.FLAGS
 def build_experiment_config(launch=False,
                             agent='muzero',
                             config_kwargs: dict = None,
+                            save_config_dict: dict = None,
                             env_kwargs: dict = None,
                             log_dir: str = None,
                             path: str = '.',
                             log_every: int = 30.0,
+                            debug: bool = False,
                             log_with_key: Optional[str] = None,
                             wandb_init_kwargs = None):
-  """Builds R2D2 experiment config which can be executed in different ways."""
+  """Builds R2D2 experiment config which can be executed in diferent ways."""
 
   # The env_name must be dereferenced outside the environment factory as FLAGS
   # cannot be pickled and pickling is necessary when launching distributed
   # experiments via Launchpad.
   env_kwargs = env_kwargs or dict()
   if not launch: #DEBUG
-    config_kwargs['min_replay_size'] = 1000
+    config_kwargs['min_replay_size'] = 100
+    config_kwargs["samples_per_insert"] = 1.0
     config_kwargs['seperate_model_nets'] = False
+    config_kwargs['batch_size'] = 2
+    config_kwargs['trace_length'] = 6
+    config_kwargs['discount'] = .99
+    config_kwargs['simulation_steps'] = 2
+    config_kwargs['num_simulations'] = 1
+    config_kwargs['td_steps'] = 3
     config_kwargs['burn_in_length'] = 0
-    config_kwargs['simulation_steps'] = 8
-    config_kwargs['action_source'] = 'value'
+    config_kwargs['policy_coef'] = 0
+    config_kwargs['model_coef'] = 0
+    config_kwargs['v_target_source'] = 'q_learning'
+    config_kwargs['show_gradients'] = 0
+    config_kwargs['policy_source'] = 'value'
   # tasks_file = FLAGS.tasks_file
 
   # Create an environment factory.
@@ -115,31 +128,35 @@ def build_experiment_config(launch=False,
     del seed
     return helpers.make_kitchen_environment(
       path=path,
+      debug=debug,
       **env_kwargs)
 
-  # Configure the agent.
-  config = MuZeroConfig(
-      # burn_in_length=8 if launch else 4,
-      # trace_length=40 if launch else 10,
-      # # sequence_period=20 if launch else 10,
-      # min_replay_size=10_000 if launch else 100,
-      # batch_size=32,
-      # prefetch_size=1,
-      # samples_per_insert=1.0,
-      # evaluation_epsilon=1e-3,
-      # learning_rate=1e-4,
-      # target_update_period=1200,
-      # variable_update_period=100,
-      # num_simulations = 50 if launch else 2
-  )
-  # update with config kwargs
+  # Configure the agent & update with config kwargs
+  if agent == 'muzero':
+    config = MuZeroConfig()
+  else:
+    # TODO: swapping based on agent
+    raise NotImplementedError
   for k, v in config_kwargs.items():
+    if not hasattr(config, k):
+      raise RuntimeError(f"Attempting to set unknown attribute '{k}'")
     setattr(config, k, v)
-
-  config.trace_length = config.burn_in_length + config.simulation_steps + config.td_steps + 1
+  
+  if config.trace_length is None:
+    config.trace_length = config.burn_in_length + config.simulation_steps + config.td_steps + 1
   config.sequence_period = config.trace_length - 1
-  # TODO: implacing conv_kwargs
-  # TODO: swapping based on agent
+
+  if config.batch_size is None:
+    batch_dim = round(config.target_batch_size/config.trace_length)
+    config.batch_size = batch_dim
+
+  discretizer = muzero_utils.Discretizer(
+      num_bins=config.num_bins,
+      step_size=config.scalar_step_size,
+      max_value=config.max_scalar_value,
+      tx_pair=config.tx_pair,
+  )
+  config.num_bins = discretizer._num_bins
 
   # -----------------------
   # wandb setup
@@ -149,7 +166,14 @@ def build_experiment_config(launch=False,
     import wandb
     # add config to wandb
     wandb_config = wandb_init_kwargs.get("config", {})
-    # wandb_config.update(save_config_dict)
+    save_config_dict = save_config_dict or dict()
+    save_config_dict.update(config.__dict__)
+    save_config_dict.update(
+      agent=agent,
+      group=wandb_init_kwargs.get('group', None),
+      **env_kwargs,
+    )
+    wandb_config.update(save_config_dict)
     wandb_init_kwargs['config'] = wandb_config
     if launch:  # distributed
       wandb.init(
@@ -157,6 +181,7 @@ def build_experiment_config(launch=False,
         reinit=True, **wandb_init_kwargs)
     else:
       wandb.init(**wandb_init_kwargs)
+
 
   # -----------------------
   # create logger factory
@@ -197,10 +222,17 @@ def build_experiment_config(launch=False,
           use_wandb=use_wandb,
           asynchronous=True)
 
+  if config.network_fn == 'babyai':
+    network_fn = networks.make_babyai_networks
+  elif config.network_fn == "simple_babyai":
+    network_fn = networks.make_simple_babyai_networks
+  else:
+    raise NotImplementedError(config.network_fn)
+
   return experiments.ExperimentConfig(
-      builder=MuZeroBuilder(config),
+      builder=MuZeroBuilder(config, discretizer=discretizer),
       network_factory=functools.partial(
-        networks.make_babyai_networks, config=config),
+          network_fn, config=config, discretizer=discretizer),
       environment_factory=environment_factory,
       seed=config.seed,
       max_num_actor_steps=config.num_steps,
@@ -269,6 +301,7 @@ def main(_):
       wandb_init_kwargs=wandb_init_kwargs,
       env_kwargs=env_kwargs,
       config_kwargs=config_kwargs,
+      debug=FLAGS.debug,
       )
     experiments.run_experiment(experiment=config)
 

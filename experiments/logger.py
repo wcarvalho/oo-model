@@ -226,7 +226,7 @@ class WandbLogger(base.Logger):
         else: 
           if 'grad' in key.lower():
           # e.g. [MeanGrad/FarmSharedOutput/~/FeatureAttention/Conv2D1] --> [Loss/MeanGrad-FarmSharedOutput-~-FeatureAttention-Conv2D1]
-            name = f'grads/{_format_key(key)}'
+            name = f'z.grads/{_format_key(key)}'
           else: # e.g. [r2d1/xyz] --> [Loss_r2d1/xyz]
             name = f'{self.label}_{_format_loss(key)}'
       else: # e.g. [actor_SmallL2NoDist]

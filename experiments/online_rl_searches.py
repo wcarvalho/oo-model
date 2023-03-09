@@ -1,58 +1,83 @@
 from ray import tune
+import rlax
 
 def get(search: str = '', agent: str = ''):
-  if search == 'sanity':
+  if search == 'ema_step_size':
     space = [
         {
-          "seed": tune.grid_search([4]),
+          "seed": tune.grid_search([2]),
           "tasks_file": tune.grid_search(['pickup']),
-          "importance_sampling_exponent": tune.grid_search([0]),
-          "burn_in_length": tune.grid_search([0]),
-          "simulation_steps": tune.grid_search([8]),
-          # "reward_mlps": tune.grid_search([(128, 32), (32,)]),
-          # "vpi_mlps": tune.grid_search([(128, 32), (32,)]),
+          "room_size": tune.grid_search([5]),
+          "v_target_source": tune.grid_search(['q_learning']),
           "action_source": tune.grid_search(['value']),
-          "variable_update_period": tune.grid_search([25, 50, 100, 200]),
-          # "trace_length": tune.grid_search([12]),
-          # "num_blocks": tune.grid_search([4, 8]),
-          "batch_size": tune.grid_search([128]),
-          # "seperate_model_nets": tune.grid_search([False]),
-          # "action_source": tune.grid_search(['policy']),
-          "group": tune.grid_search(['sanity_check5']),
+          "policy_coef": tune.grid_search([0.0]),
+          "ema_update": tune.grid_search([0.0, 0.1, 0.01, 0.001]),
+          "value_coef": tune.grid_search([1.0]),
+          "step_size": tune.grid_search([.25]),
+          "max_value": tune.grid_search([10.0]),
         }
     ]
-  elif search == 'sanity2':
+  elif search == 'bins5':
     space = [
         {
-          "seed": tune.grid_search([4]),
+          "seed": tune.grid_search([2]),
           "tasks_file": tune.grid_search(['pickup']),
-          "importance_sampling_exponent": tune.grid_search([0]),
-          "burn_in_length": tune.grid_search([0]),
-          "simulation_steps": tune.grid_search([7]),
-          "variable_update_period": tune.grid_search([200, 400]),
+          "room_size": tune.grid_search([5]),
+          "v_target_source": tune.grid_search(['q_learning']),
           "action_source": tune.grid_search(['value']),
-          "group": tune.grid_search(['sanity_check3']),
-        }
-      ]
-  elif search == 'sanity3':
-    space = [
-        {
-          "seed": tune.grid_search([4]),
-          "tasks_file": tune.grid_search(['pickup']),
-          "importance_sampling_exponent": tune.grid_search([0]),
-          "burn_in_length": tune.grid_search([0]),
-          "simulation_steps": tune.grid_search([8]),
-          # "reward_mlps": tune.grid_search([(128, 32), (32,)]),
-          # "vpi_mlps": tune.grid_search([(128, 32), (32,)]),
-          "variable_update_period": tune.grid_search([25, 50, 100, 200]),
-          "warmup_steps": tune.grid_search([0]),
-          # "num_blocks": tune.grid_search([4, 8]),
-          # "batch_size": tune.grid_search([64, 128]),
-          # "seperate_model_nets": tune.grid_search([False]),
-          # "action_source": tune.grid_search(['policy']),
-          "group": tune.grid_search(['sanity_check4']),
+          "policy_coef": tune.grid_search([0.0]),
+          "ema_update": tune.grid_search([0.0]),
+          "value_coef": tune.grid_search([1.0]),
+          "step_size": tune.grid_search([.25, 1.0]),
+          "max_value": tune.grid_search([10.0, 50.0]),
         }
     ]
+  elif search == 'dqn6':
+    space = [
+        {
+          "seed": tune.grid_search([2]),
+          "tasks_file": tune.grid_search(['pickup']),
+          "room_size": tune.grid_search([5]),
+          "v_target_source": tune.grid_search(['q_learning']),
+          "action_source": tune.grid_search(['value']),
+          "samples_per_insert": tune.grid_search([4.0, 50.0]),
+          "policy_coef": tune.grid_search([0.0]),
+          "model_coef": tune.grid_search([0.0]),
+          "ema_update": tune.grid_search([0.0]),
+          "value_coef": tune.grid_search([1.0]),
+          "scalar_step_size": tune.grid_search([.25, 1.0]),
+          "max_scalar_value": tune.grid_search([50.0]),
+        }
+    ]
+  elif search == 'muzero6':
+    space = [
+        {
+          "seed": tune.grid_search([2]),
+          "tasks_file": tune.grid_search(['pickup']),
+          "room_size": tune.grid_search([5]),
+          "samples_per_insert": tune.grid_search([25.0, 50.0]),
+          "label": tune.grid_search(['cat']),
+        }
+    ]
+
+  elif search == 'grads5':
+    space = [
+        {
+          "seed": tune.grid_search([2]),
+          "tasks_file": tune.grid_search(['pickup']),
+          "room_size": tune.grid_search([5]),
+          "v_target_source": tune.grid_search(['q_learning']),
+          "action_source": tune.grid_search(['value']),
+          "samples_per_insert": tune.grid_search([4.0]),
+          "policy_coef": tune.grid_search([0.0]),
+          "model_coef": tune.grid_search([0.0]),
+          # "ema_update": tune.grid_search([0.0]),
+          "show_grads": tune.grid_search([1]),
+          # "step_size": tune.grid_search([.25, 1.0]),
+          # "max_value": tune.grid_search([10.0, 50.0]),
+        }
+    ]
+
   else:
     raise NotImplementedError(search)
 

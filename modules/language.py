@@ -9,7 +9,7 @@ class LanguageEncoder(hk.Module):
                vocab_size: int,
                word_dim: int,
                sentence_dim: int,
-               compress: str = 'sum'):
+               compress: str = 'last'):
     super(LanguageEncoder, self).__init__()
     self.vocab_size = vocab_size
     self.word_dim = word_dim

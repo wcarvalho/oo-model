@@ -57,8 +57,7 @@ def create_and_run_program(
   # if cuda:
   #   os.environ['CUDA_VISIBLE_DEVICES']=str(cuda)
 
-  # TODO: keep this variable?
-  # save_config_dict=dict()
+  save_config_dict=dict()
 
   # -----------------------
   # add env kwargs to path desc
@@ -76,7 +75,7 @@ def create_and_run_program(
       env_path[k]=v
   if label:
     env_path['L']=label
-    # save_config_dict['label'] = label
+    save_config_dict['label'] = label
 
   # -----------------------
   # get log dir for experiment

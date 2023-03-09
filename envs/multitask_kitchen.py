@@ -146,6 +146,7 @@ class MultitaskKitchen(dm_env.Environment):
   def step(self, action: int) -> dm_env.TimeStep:
     """Updates the environment according to the action."""
     obs, reward, done, info = self.env.step(action)
+    del info
     obs = convert_rawobs(obs, symbolic=self.symbolic)
     if self.step_penalty:
       reward = reward - self.step_penalty

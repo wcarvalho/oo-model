@@ -34,6 +34,7 @@ class RootOutput:
   policy_logits: jnp.ndarray
   next_reward: Optional[jnp.ndarray] = None
   next_value: Optional[jnp.ndarray] = None
+  q_value: Optional[jnp.ndarray] = None
 
 
 @chex.dataclass(frozen=True)

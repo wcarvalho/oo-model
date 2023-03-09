@@ -10,9 +10,7 @@ import jax.numpy as jnp
 import rlax
 
 from muzero import types as muzero_types
-from muzero.utils import (
-    logits_to_scalar,
-)
+from muzero.utils import Discretizer
 
 
 
@@ -33,13 +31,15 @@ class MuZeroArch(hk.RNNCore):
                model_value_fn: hk.Module,
                model_policy_fn: hk.Module,
                model_compute_r_v: bool = False,
-               tx_pair: rlax.TxPair = rlax.SIGNED_HYPERBOLIC_PAIR,
                discount: float = 1.0,
-               num_bins: Optional[int] = None,
+               discretizer: Optional[Discretizer] = None,
+              #  tx_pair: rlax.TxPair = rlax.SIGNED_HYPERBOLIC_PAIR,
+              #  num_bins: Optional[int] = None,
                num_actions: Optional[int] = None,
                ):
     super().__init__(name='muzero_network')
     self._action_encoder = action_encoder
+    self._discretizer = discretizer
     self._observation_fn = observation_fn
     self._state_fn = state_fn
     self._transition_fn = transition_fn
@@ -53,12 +53,10 @@ class MuZeroArch(hk.RNNCore):
 
     # for computing Q-values with model
     self._model_compute_r_v = model_compute_r_v
-    self._tx_pair = tx_pair
     self._discount = discount
     if model_compute_r_v:
-      assert num_bins is not None, "need this for computing r, v"
-      assert num_actions is not None, "need this for computing r, v"
-    self._num_bins = num_bins
+      assert discretizer is not None, "need this for computing r, v, q"
+      assert num_actions is not None, "need this for computing r, v, q"
     self._num_actions = num_actions
 
   def initial_state(self, batch_size: Optional[int],
@@ -67,9 +65,9 @@ class MuZeroArch(hk.RNNCore):
 
   def root_predictions(self, state):
     state = self._root_vpi_base(state)
-    policy_out = self._root_policy_fn(state)
-    value_out = self._root_value_fn(state)
-    return policy_out, value_out
+    policy_logits = self._root_policy_fn(state)
+    value_logits = self._root_value_fn(state)
+    return policy_logits, value_logits
 
   def model_compute_r_v(self, state):
     """Compute Q(s,a) = r(s,a,s') + gamma*Value(s').
@@ -92,14 +90,11 @@ class MuZeroArch(hk.RNNCore):
     # [A, ...]
     next_logits, _ = apply_model(state, actions)
 
-    value = logits_to_scalar(next_logits.value_logits, self._num_bins)
-    value = self._tx_pair.apply_inv(value)
+    value = self._discretizer.logits_to_scalar(next_logits.value_logits)
+    reward = self._discretizer.logits_to_scalar(next_logits.reward_logits)
 
-    # r(s_t, a_t, s_t+1) [A, N] --> [A]
-    reward = logits_to_scalar(next_logits.reward_logits, self._num_bins)
-    reward = self._tx_pair.apply_inv(reward)
-
-    return reward, value
+    q_value = reward + self._discount*value
+    return q_value, reward, value
 
   def __call__(
       self,
@@ -116,18 +111,19 @@ class MuZeroArch(hk.RNNCore):
     """
     embeddings = self._observation_fn(inputs)  # [B, D+A+1]
     core_outputs, new_state = self._state_fn(embeddings, state)
-    policy_out, value_out = self.root_predictions(core_outputs)
+    policy_logits, value_logits = self.root_predictions(core_outputs)
 
-    next_reward = next_value = None
+    q_value = next_reward = next_value = None
     if self._model_compute_r_v:
-      next_reward, next_value = self.model_compute_r_v(core_outputs)
+      q_value, next_reward, next_value = self.model_compute_r_v(core_outputs)
 
     return muzero_types.RootOutput(
       state=core_outputs,
-      value_logits=value_out,
-      policy_logits=policy_out,
+      value_logits=value_logits,
+      policy_logits=policy_logits,
       next_reward=next_reward,
       next_value=next_value,
+      q_value=q_value,
     ), new_state
 
   def unroll(
@@ -145,18 +141,19 @@ class MuZeroArch(hk.RNNCore):
     """
     embeddings = hk.BatchApply(self._observation_fn)(inputs)  # [T, B, D+A+1]
     core_outputs, new_states = hk.static_unroll(self._state_fn, embeddings, state)
-    policy_out, value_out = hk.BatchApply(self.root_predictions)(core_outputs)
-    next_reward = next_value = None
+    policy_logits, value_logits = hk.BatchApply(self.root_predictions)(core_outputs)
+    q_value = next_reward = next_value = None
     if self._model_compute_r_v:
-      next_reward, next_value = jax.vmap(jax.vmap(self.model_compute_r_v))(
+      q_value, next_reward, next_value = jax.vmap(jax.vmap(self.model_compute_r_v))(
         core_outputs)
 
     return muzero_types.RootOutput(
         state=core_outputs,
-        value_logits=value_out,
-        policy_logits=policy_out,
+        value_logits=value_logits,
+        policy_logits=policy_logits,
         next_reward=next_reward,
         next_value=next_value,
+        q_value=q_value,
     ), new_states
 
   def apply_model(
@@ -172,19 +169,21 @@ class MuZeroArch(hk.RNNCore):
     Returns:
         Tuple[muzero_types.ModelOutput, muzero_types.MuZeroState]: _description_
     """
-    action_onehot=self._action_encoder(action)
+    action_onehot = self._action_encoder(action)
     new_state = self._transition_fn(
-        encoded_action=action_onehot,
+        action_onehot=action_onehot,
         prev_state=state)
+
     reward_out = self._model_reward_fn(new_state)
+
     x = self._model_vpi_base(new_state)
-    value_out = self._model_value_fn(x)
-    policy_out = self._model_policy_fn(x)
+    value_logits = self._model_value_fn(x)
+    policy_logits = self._model_policy_fn(x)
 
     return muzero_types.ModelOutput(
       new_state=new_state,
-      value_logits=value_out,
-      policy_logits=policy_out,
+      value_logits=value_logits,
+      policy_logits=policy_logits,
       reward_logits=reward_out,
     ), new_state
 

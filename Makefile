@@ -1,4 +1,6 @@
 cuda?=3
+actors?=4
+gpus?=1
 debug?=0
 skip?=1
 data_file?='data/place.debug.pkl'
@@ -38,6 +40,7 @@ online_sync:
 		--wandb_project=muzero_debug \
 		--wandb_entity=wcarvalho92 \
 		--wandb_group=$(group) \
+		--debug=$(debug) \
 		--wandb_notes=$(notes)
 
 online_async:
@@ -64,4 +67,6 @@ online_many:
 		--wandb_notes=$(notes) \
 		--skip=$(skip) \
 		--debug=$(debug) \
-		--search=$(search)
+		--search=$(search) \
+		--num_actors=$(actors) \
+		--num_gpus=$(gpus)

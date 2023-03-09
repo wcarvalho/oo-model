@@ -2,4 +2,6 @@ train:
 
   - name: pickup
     task_kinds: pickup
+    taskarg_options:
+      x: lettuce
     num_dists: 0

@@ -35,10 +35,12 @@ def policy_select_action(
     observation: networks_lib.Observation,
     state: MuZeroActorState[actor_core_lib.RecurrentState],
     networks: types.MuZeroNetworks,
+    model_share_params: bool=True,
     evaluation: bool = True):
   rng, policy_rng = jax.random.split(state.rng)
 
-  logits, recurrent_state = networks.apply(params.unroll, policy_rng, observation,
+  params = params if model_share_params else params.unroll
+  logits, recurrent_state = networks.apply(params, policy_rng, observation,
                                               state.recurrent_state)
   if evaluation:
     action = jnp.argmax(logits.policy_logits, axis=-1)
@@ -56,19 +58,18 @@ def value_select_action(
     state: MuZeroActorState[actor_core_lib.RecurrentState],
     networks: types.MuZeroNetworks,
     discount: float):
-  
+  del discount
   rng, policy_rng = jax.random.split(state.rng)
 
-  predictions, recurrent_state = networks.apply(params.unroll,
-                                           policy_rng,
-                                           observation,
-                                           state.recurrent_state)
+  predictions, recurrent_state = networks.apply(params,
+                                                policy_rng,
+                                                observation,
+                                                state.recurrent_state)
   # assert predictions.q_values is not None, 'network needs to return q_values'
   # Q(s_t, a_t) = r(s_t, a_t, s_t+1) + gamma*V(s_t+1)
-  q_values = predictions.next_reward + discount*predictions.next_value
   rng, sample_rng = jax.random.split(rng)
   action = distrax.EpsilonGreedy(
-    q_values, state.epsilon, dtype=jnp.int32).sample(seed=sample_rng)
+    predictions.q_value, state.epsilon, dtype=jnp.int32).sample(seed=sample_rng)
 
   return action, MuZeroActorState(
       rng=rng,
@@ -86,12 +87,12 @@ def get_actor_core(
   
   assert config.action_source in ['policy', 'value', 'mcts']
   if config.action_source == 'policy':
+    model_share_params = config.action_source == "value" or not config.seperate_model_nets
     select_action = functools.partial(policy_select_action,
                                       networks=networks,
-                                      evaluation=evaluation)
+                                      evaluation=evaluation,
+                                      model_share_params=model_share_params)
   elif config.action_source == 'value':
-    num_epsilons = config.num_epsilons
-    evaluation_epsilon = config.evaluation_epsilon
     select_action = functools.partial(value_select_action,
                                       networks=networks,
                                       discount=config.discount)
@@ -105,11 +106,11 @@ def get_actor_core(
     initial_core_state = networks.init_recurrent_state(state_rng, None)
     if config.action_source == 'value':
       if evaluation:
-        epsilon = evaluation_epsilon
+        epsilon = config.evaluation_epsilon
       else:
         rng, epsilon_rng = jax.random.split(rng, 2)
         epsilon = jax.random.choice(epsilon_rng,
-                                    np.logspace(1, 3, num_epsilons, base=0.1))
+                                    np.logspace(config.epsilon_min, config.epsilon_max, config.num_epsilons, base=0.1))
     else:
       epsilon = None
 

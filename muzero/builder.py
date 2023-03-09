@@ -45,6 +45,7 @@ from acme.agents.jax import r2d2
 
 from muzero.learning import MuZeroLearner
 from muzero import actor as muzero_actor
+from muzero.utils import Discretizer
 
 
 class MuZeroBuilder(r2d2.R2D2Builder):
@@ -55,9 +56,10 @@ class MuZeroBuilder(r2d2.R2D2Builder):
   https://openreview.net/pdf?id=r1lyTjAqYX.
   """
 
-  def __init__(self, config: r2d2_config.R2D2Config):
+  def __init__(self, config: r2d2_config.R2D2Config, discretizer : Discretizer):
     """Creates a R2D2 learner, a behavior policy and an eval actor."""
     self._config = config
+    self._discretizer = discretizer
     self._sequence_length = (
         self._config.burn_in_length + self._config.trace_length + 1)
 
@@ -85,8 +87,9 @@ class MuZeroBuilder(r2d2.R2D2Builder):
         max_priority_weight=self._config.max_priority_weight,
         target_update_period=self._config.target_update_period,
         iterator=dataset,
+        discretizer=self._discretizer,
         # bootstrap_n=self._config.bootstrap_n,
-        tx_pair=self._config.tx_pair,
+        # tx_pair=self._config.tx_pair,
         # clip_rewards=self._config.clip_rewards,
         replay_client=replay_client,
         counter=counter,
