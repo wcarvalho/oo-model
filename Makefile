@@ -11,10 +11,12 @@ wandb?=1
 agent?=muzero
 search?=''
 nojit?=0
+task?=pickup
 
 export PYTHONPATH:=$(PYTHONPATH):.
-# export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):${HOME}/miniconda3/envs/omodel/lib/python3.9/site-packages/nvidia/cublas/lib/:$(HOME)/miniconda3/envs/omodel/lib/:${HOME}/miniconda3/lib/
-export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):$(HOME)/miniconda3/envs/omodel/lib/:${HOME}/miniconda3/lib/
+
+export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):/usr/local/cuda/targets/x86_64-linux/lib/:/usr/lib/x86_64-linux-gnu/:$(HOME)/miniconda3/envs/omodel/lib/:${HOME}/miniconda3/lib/
+
 export JAX_DISABLE_JIT=$(nojit)
 
 collect_data:
@@ -41,6 +43,7 @@ online_sync:
 		--wandb_entity=wcarvalho92 \
 		--wandb_group=$(group) \
 		--debug=$(debug) \
+		--tasks_file=$(task) \
 		--wandb_notes=$(notes)
 
 online_async:
@@ -67,6 +70,7 @@ online_many:
 		--wandb_notes=$(notes) \
 		--skip=$(skip) \
 		--debug=$(debug) \
+		--tasks_file=$(task) \
 		--search=$(search) \
 		--num_actors=$(actors) \
 		--num_gpus=$(gpus)

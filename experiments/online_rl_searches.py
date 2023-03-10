@@ -49,14 +49,23 @@ def get(search: str = '', agent: str = ''):
           "max_scalar_value": tune.grid_search([50.0]),
         }
     ]
-  elif search == 'muzero6':
+  elif search == 'harder_task':
+    space = [
+        {
+          "seed": tune.grid_search([2]),
+          "tasks_file": tune.grid_search(['pickup']),
+          "room_size": tune.grid_search([9]),
+          "agent": tune.grid_search(['r2d2', 'muzero']),
+          "samples_per_insert": tune.grid_search([50.0]),
+        }
+    ]
+  elif search == 'r2d28':
     space = [
         {
           "seed": tune.grid_search([2]),
           "tasks_file": tune.grid_search(['pickup']),
           "room_size": tune.grid_search([5]),
-          "samples_per_insert": tune.grid_search([25.0, 50.0]),
-          "label": tune.grid_search(['cat']),
+          "samples_per_insert": tune.grid_search([4.0, 50.0]),
         }
     ]
 

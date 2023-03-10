@@ -94,6 +94,7 @@ def create_and_run_program(
     **log_path_config
     )
 
+
   print("="*50)
   if os.path.exists(log_dir) and skip:
     print(f"SKIPPING\n{log_dir}")
@@ -111,7 +112,7 @@ def create_and_run_program(
     wandb_init_kwargs['name']=name # short display name for run
     if group is not None:
       wandb_init_kwargs['group']=group # short display name for run
-
+    wandb_init_kwargs['dir'] = folder
   # needed for various services (wandb, etc.)
   os.chdir(root_path)
 
@@ -172,7 +173,7 @@ def main(_):
   # -----------------------
   # env setup
   # -----------------------
-  folder = FLAGS.folder if FLAGS.folder else f"results/babyai"
+  folder = FLAGS.folder if FLAGS.folder else f"../results/oo-model/babyai"
   default_env_kwargs=dict(
     tasks_file='place_split_hard',
     room_size=7,

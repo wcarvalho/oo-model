@@ -1,0 +1,9 @@
+train:
+
+  - name: pickup
+    task_kinds: pickup
+    num_dists: 2
+
+  - name: place
+    task_kinds: place
+    num_dists: 2

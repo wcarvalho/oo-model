@@ -152,8 +152,8 @@ def make_logger(
 
   if log_with_key is not None:
     logger = HasKeyFilter(logger, key=log_with_key)
-
-  logger = filters.TimeFilter(logger, time_delta)
+  if time_delta > 0:
+    logger = filters.TimeFilter(logger, time_delta)
 
   return logger
 

@@ -49,6 +49,10 @@ from muzero import utils as muzero_utils
 
 from experiments import helpers
 from experiments import logger as wandb_logger 
+from experiments.muzero_utils import make_muzero_builder
+from experiments.r2d2_utils import make_r2d2_builder
+from experiments.observers import LevelAvgReturnObserver
+
 
 
 # -----------------------
@@ -67,7 +71,7 @@ flags.DEFINE_string('agent', 'muzero', 'which agent.')
 flags.DEFINE_bool(
     'run_distributed', False, 'Should an agent be executed in a distributed '
     'way. If False, will run single-threaded.')
-flags.DEFINE_string('tasks_file', 'pickup', 'tasks_file')
+flags.DEFINE_string('tasks_file', 'pickup_place', 'tasks_file')
 flags.DEFINE_integer('seed', 0, 'Random seed (experiment).')
 flags.DEFINE_integer('num_steps', 1_000_000,
                      'Number of environment steps to run for.')
@@ -97,7 +101,7 @@ def build_experiment_config(launch=False,
                             path: str = '.',
                             log_every: int = 30.0,
                             debug: bool = False,
-                            log_with_key: Optional[str] = None,
+                            log_with_key: Optional[str] = 'log_data',
                             wandb_init_kwargs = None):
   """Builds R2D2 experiment config which can be executed in diferent ways."""
 
@@ -105,24 +109,6 @@ def build_experiment_config(launch=False,
   # cannot be pickled and pickling is necessary when launching distributed
   # experiments via Launchpad.
   env_kwargs = env_kwargs or dict()
-  if not launch: #DEBUG
-    config_kwargs['min_replay_size'] = 100
-    config_kwargs["samples_per_insert"] = 1.0
-    config_kwargs['seperate_model_nets'] = False
-    config_kwargs['batch_size'] = 2
-    config_kwargs['trace_length'] = 6
-    config_kwargs['discount'] = .99
-    config_kwargs['simulation_steps'] = 2
-    config_kwargs['num_simulations'] = 1
-    config_kwargs['td_steps'] = 3
-    config_kwargs['burn_in_length'] = 0
-    config_kwargs['policy_coef'] = 0
-    config_kwargs['model_coef'] = 0
-    config_kwargs['v_target_source'] = 'q_learning'
-    config_kwargs['show_gradients'] = 0
-    config_kwargs['policy_source'] = 'value'
-  # tasks_file = FLAGS.tasks_file
-
   # Create an environment factory.
   def environment_factory(seed: int) -> dm_env.Environment:
     del seed
@@ -132,11 +118,17 @@ def build_experiment_config(launch=False,
       **env_kwargs)
 
   # Configure the agent & update with config kwargs
-  if agent == 'muzero':
-    config = MuZeroConfig()
+  if agent == 'r2d2':
+    config, builder, network_factory = make_r2d2_builder(
+      launch=launch,
+      config_kwargs=config_kwargs)
+  elif agent == 'muzero':
+    config, builder, network_factory = make_muzero_builder(
+      launch=launch,
+      config_kwargs=config_kwargs)
   else:
-    # TODO: swapping based on agent
     raise NotImplementedError
+
   for k, v in config_kwargs.items():
     if not hasattr(config, k):
       raise RuntimeError(f"Attempting to set unknown attribute '{k}'")
@@ -149,14 +141,6 @@ def build_experiment_config(launch=False,
   if config.batch_size is None:
     batch_dim = round(config.target_batch_size/config.trace_length)
     config.batch_size = batch_dim
-
-  discretizer = muzero_utils.Discretizer(
-      num_bins=config.num_bins,
-      step_size=config.scalar_step_size,
-      max_value=config.max_scalar_value,
-      tx_pair=config.tx_pair,
-  )
-  config.num_bins = discretizer._num_bins
 
   # -----------------------
   # wandb setup
@@ -199,7 +183,7 @@ def build_experiment_config(launch=False,
       return wandb_logger.make_logger(
           log_dir=log_dir,
           label='actor',
-          time_delta=log_every,
+          time_delta=0.0,
           log_with_key=log_with_key,
           steps_key=steps_key,
           save_data=task_id == 0,
@@ -208,7 +192,7 @@ def build_experiment_config(launch=False,
       return wandb_logger.make_logger(
           log_dir=log_dir,
           label='evaluator',
-          time_delta=log_every,
+          time_delta=0.0,
           log_with_key=log_with_key,
           steps_key=steps_key,
           use_wandb=use_wandb)
@@ -217,25 +201,19 @@ def build_experiment_config(launch=False,
           log_dir=log_dir,
           label='learner',
           time_delta=log_every,
-          log_with_key=log_with_key,
           steps_key=steps_key,
           use_wandb=use_wandb,
           asynchronous=True)
 
-  if config.network_fn == 'babyai':
-    network_fn = networks.make_babyai_networks
-  elif config.network_fn == "simple_babyai":
-    network_fn = networks.make_simple_babyai_networks
-  else:
-    raise NotImplementedError(config.network_fn)
+  observers = [LevelAvgReturnObserver(reset=100 if launch else 10)]
 
   return experiments.ExperimentConfig(
-      builder=MuZeroBuilder(config, discretizer=discretizer),
-      network_factory=functools.partial(
-          network_fn, config=config, discretizer=discretizer),
+      builder=builder,
+      network_factory=network_factory,
       environment_factory=environment_factory,
       seed=config.seed,
       max_num_actor_steps=config.num_steps,
+      observers=observers,
       logger_factory=logger_factory)
 
 def make_distributed_program(num_actors: int = 4, **kwargs):
@@ -270,12 +248,14 @@ def main(_):
         agent=FLAGS.seed,
         seed=FLAGS.seed,
         return_kwpath=True)
+  folder = FLAGS.folder or "../results/oo-model/babyai"
   if FLAGS.run_distributed:
-    log_dir, config_path_str = log_dir_fn("results/babyai/debug_async")
+    log_dir, config_path_str = log_dir_fn(f"{folder}/debug_async")
   else:
-    log_dir, config_path_str = log_dir_fn("results/babyai/debug_async")
+    log_dir, config_path_str = log_dir_fn(f"{folder}/debug_async")
   if wandb_init_kwargs is not None:
     wandb_init_kwargs['name'] = config_path_str
+    wandb_init_kwargs['dir'] = folder
 
   env_kwargs = dict(
       tasks_file=FLAGS.tasks_file,
@@ -289,6 +269,7 @@ def main(_):
       wandb_init_kwargs=wandb_init_kwargs,
       env_kwargs=env_kwargs,
       config_kwargs=config_kwargs,
+      agent=FLAGS.agent,
       )
     lp.launch(program,
               lp.LaunchType.LOCAL_MULTI_PROCESSING,
@@ -301,6 +282,7 @@ def main(_):
       wandb_init_kwargs=wandb_init_kwargs,
       env_kwargs=env_kwargs,
       config_kwargs=config_kwargs,
+      agent=FLAGS.agent,
       debug=FLAGS.debug,
       )
     experiments.run_experiment(experiment=config)

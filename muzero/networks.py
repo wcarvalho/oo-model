@@ -33,6 +33,7 @@ import jax.numpy as jnp
 
 from modules import vision
 from modules import language
+from modules import vision_language
 from modules import simple_mlp_muzero
 from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
 from modules.conv_muzero import VisionTorso as MuZeroVisionTorso
@@ -46,48 +47,6 @@ from muzero.utils import Discretizer
 NetworkOutput = networks_lib.NetworkOutput
 RecurrentState = networks_lib.RecurrentState
 
-class Torso(hk.Module):
-
-  def __init__(self,
-               num_actions: int,
-               task_encoder: hk.Module,
-               vision_torso: hk.Module,
-               image_dim: int = 0,
-               name='torso'):
-    super().__init__(name=name)
-    self._num_actions = num_actions
-    self._task_encoder = task_encoder
-    self._vision_torso = vision_torso
-    self._image_dim = image_dim
-
-  def __call__(self, inputs: observation_action_reward.OAR):
-    batched = len(inputs.observation.image.shape) == 4
-    observation_fn = self.unbatched
-    if batched:
-      observation_fn = jax.vmap(observation_fn)
-    return observation_fn(inputs)
-
-  def unbatched(self, inputs: observation_action_reward.OAR):
-    """_no_ batch [B] dimension."""
-    # compute task encoding
-    task = self._task_encoder(inputs.observation.mission)
-    action = jax.nn.one_hot(
-      inputs.action, num_classes=self._num_actions)
-
-    # compute image encoding
-    inputs = jax.tree_map(lambda x: x.astype(jnp.float32), inputs)
-    image = self._vision_torso(inputs.observation.image/255.0)
-    image = jnp.reshape(image, (-1))
-    if self._image_dim and self._image_dim > 0:
-      image = hk.Linear(self._image_dim)(image)
-
-    # Map rewards -> [-1, 1].
-    # reward = jnp.tanh(inputs.reward)
-    reward = jnp.expand_dims(inputs.reward, axis=-1)
-
-    combined = jnp.concatenate((image, task, action, reward), axis=-1)
-
-    return combined
 
 
 def make_babyai_networks(
@@ -110,7 +69,7 @@ def make_babyai_networks(
     elif config.vision_torso == 'muzero':
       vision_torso = MuZeroVisionTorso(channels=64, num_blocks=6)
 
-    observation_fn = Torso(
+    observation_fn = vision_language.Torso(
       num_actions=num_actions,
       vision_torso=vision_torso,
       task_encoder=language.LanguageEncoder(
@@ -196,7 +155,7 @@ def make_simple_babyai_networks(
     elif config.vision_torso == 'muzero':
       vision_torso = MuZeroVisionTorso(channels=64, num_blocks=6)
 
-    observation_fn = Torso(
+    observation_fn = vision_language.Torso(
       num_actions=num_actions,
       vision_torso=vision_torso,
       task_encoder = language.LanguageEncoder(

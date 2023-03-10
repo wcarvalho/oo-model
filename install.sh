@@ -39,5 +39,10 @@ cd ..
 
 #############################################
 # jax
+# https://github.com/google/jax
 #############################################
-pip install "jax[cuda11_cudnn82]" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/cuda/targets/x86_64-linux/lib/
+pip install "jax[cuda11_cudnn82]==0.4.4" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+# test whether jax installed properly...
+python -c "import jax; jax.random.split(jax.random.PRNGKey(42), 2); print('hello world')"

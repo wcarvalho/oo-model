@@ -47,7 +47,6 @@ from acme.agents.jax.r2d2 import networks as r2d2_networks
 from acme.agents.jax.dqn import learning_lib
 from muzero import types as muzero_types
 from muzero.config import MuZeroConfig
-from muzero.loss_improved import muzero_loss
 from muzero import ve_losses
 from muzero import utils as muzero_utils
 
@@ -96,7 +95,7 @@ class MuZeroLearner(acme.Learner):
                config: MuZeroConfig,
                discretizer: muzero_utils.Discretizer,
                use_core_state: bool = True,
-               loss_fn = muzero_loss,
+               LossFn = ve_losses.ValueEquivalentLoss,
                replay_client: Optional[reverb.Client] = None,
                counter: Optional[counting.Counter] = None,
                logger: Optional[loggers.Logger] = None):
@@ -190,12 +189,11 @@ class MuZeroLearner(acme.Learner):
       target_outputs, target_state = networks.unroll(
         target_params_unroll, key2, data.observation, target_state)
 
-      ve_loss_fn = ve_losses.ValueEquivalentLoss(
+      ve_loss_fn = LossFn(
         networks=networks,
         params=params,
         target_params=target_params,
         simulation_steps=simulation_steps,
-        # tx_pair=tx_pair,
         discretizer=discretizer,
         num_simulations=num_simulations,
         discount=discount,
