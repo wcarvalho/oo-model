@@ -12,11 +12,6 @@ from acme.wrappers import observation_action_reward
 import dataclasses
 import haiku as hk
 
-from muzero import utils as muzero_utils
-from muzero.builder import MuZeroBuilder
-from muzero import networks as muzero_networks
-from muzero.config import MuZeroConfig
-
 from modules import vision
 from modules import language
 from modules import vision_language
@@ -39,7 +34,7 @@ class R2D2Config(r2d2.R2D2Config):
   # samples_per_insert_tolerance_rate: float = 0.1
   min_replay_size: int = 1_000
   max_replay_size: int = 80_000
-  batch_size: Optional[int] = 64
+  batch_size: Optional[int] = 32
   trace_length: Optional[int] = 40
   prefetch_size: int = 0
   num_parallel_calls: int = 1
@@ -93,7 +88,7 @@ class R2D2Arch(hk.RNNCore):
 
 def make_r2d2_babyai_networks(
         env_spec: specs.EnvironmentSpec,
-        config: MuZeroConfig,) -> r2d2.R2D2Networks:
+        config: r2d2.R2D2Config) -> r2d2.R2D2Networks:
   """Builds default R2D2 networks for Atari games."""
 
   num_actions = env_spec.actions.num_values

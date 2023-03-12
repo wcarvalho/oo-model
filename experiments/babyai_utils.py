@@ -53,7 +53,7 @@ def make_kitchen_environment(
   path='.',
   tasks_file='',
   debug=False,
-  nseeds=1000,
+  nseeds=0,
   return_gym_env=False,
   **kwargs,
   ) -> dm_env.Environment:
@@ -82,9 +82,14 @@ def make_kitchen_environment(
   if partial_obs:
     env_wrappers.append(functools.partial(RGBImgPartialObsWrapper,
       tile_size=tile_size))
+    # shape: always 56 x 56 x 3
   else:
     env_wrappers.append(functools.partial(RGBImgFullyObsWrapper,
       tile_size=tile_size))
+    # room-size=10 --> image: 80 x 80  x 3
+    # room-size=8  --> image: 64 x 64  x 3
+    # room-size=7  --> image: 56 x 56  x 3
+    # room-size=5  --> image: 40 x 40  x 3
 
   nseeds=0 if evaluation else nseeds
 
@@ -94,12 +99,10 @@ def make_kitchen_environment(
     tile_size=tile_size,
     path=path,
     num_dists=num_dists,
-    # task_reps=task_reps,
     room_size=room_size,
     wrappers=env_wrappers,
     debug=debug,
     nseeds=nseeds,
-    # **env_kwargs,
     **kwargs
     )
 

@@ -124,6 +124,7 @@ def create_and_run_program(
                             log_dir=log_dir,
                             path=root_path,
                             log_every=log_every,
+                            agent=agent,
                             wandb_init_kwargs=wandb_init_kwargs)
 
   # TODO: check that ray
@@ -176,7 +177,7 @@ def main(_):
   folder = FLAGS.folder if FLAGS.folder else f"../results/oo-model/babyai"
   default_env_kwargs=dict(
     tasks_file='place_split_hard',
-    room_size=7,
+    room_size=8,
     num_dists=0,
     partial_obs=False,
     )

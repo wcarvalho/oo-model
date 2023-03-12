@@ -4,7 +4,7 @@ from absl import flags
 
 import envlogger
 
-from experiments import helpers
+from experiments import babyai_utils
 from tqdm import tqdm
 
 from acme.utils import paths
@@ -85,7 +85,7 @@ def make_directory(tasks_file, evaluation: bool = False, debug: bool = False):
 def main(unused_argv):
 
   for evaluation in [False, True]:
-    dm_env, gym_env = helpers.make_kitchen_environment(
+    dm_env, gym_env = babyai_utils.make_kitchen_environment(
       tasks_file=FLAGS.tasks_file,
       evaluation=evaluation,
       return_gym_env=True)

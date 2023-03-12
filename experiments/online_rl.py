@@ -47,7 +47,7 @@ from muzero import networks
 from muzero import utils as muzero_utils
 # from muzero import config
 
-from experiments import helpers
+from experiments import babyai_utils
 from experiments import logger as wandb_logger 
 from experiments.muzero_utils import make_muzero_builder
 from experiments.r2d2_utils import make_r2d2_builder
@@ -112,7 +112,7 @@ def build_experiment_config(launch=False,
   # Create an environment factory.
   def environment_factory(seed: int) -> dm_env.Environment:
     del seed
-    return helpers.make_kitchen_environment(
+    return babyai_utils.make_kitchen_environment(
       path=path,
       debug=debug,
       **env_kwargs)
@@ -205,7 +205,7 @@ def build_experiment_config(launch=False,
           use_wandb=use_wandb,
           asynchronous=True)
 
-  observers = [LevelAvgReturnObserver(reset=100 if launch else 10)]
+  observers = [LevelAvgReturnObserver(reset=50 if launch else 5)]
 
   return experiments.ExperimentConfig(
       builder=builder,

@@ -1,5 +1,5 @@
 
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 from acme import types
 
@@ -11,7 +11,6 @@ import rlax
 
 from muzero import types as muzero_types
 from muzero.utils import Discretizer
-
 
 
 class MuZeroArch(hk.RNNCore):
@@ -30,6 +29,8 @@ class MuZeroArch(hk.RNNCore):
                model_reward_fn: hk.Module,
                model_value_fn: hk.Module,
                model_policy_fn: hk.Module,
+               prep_state_input: Callable[[types.NestedArray], types.NestedArray],
+               model_combine_state_task: str = 'none',
                model_compute_r_v: bool = False,
                discount: float = 1.0,
                discretizer: Optional[Discretizer] = None,
@@ -50,7 +51,7 @@ class MuZeroArch(hk.RNNCore):
     self._model_reward_fn = model_reward_fn
     self._model_value_fn = model_value_fn
     self._model_policy_fn = model_policy_fn
-
+    self._prep_state_input = prep_state_input
     # for computing Q-values with model
     self._model_compute_r_v = model_compute_r_v
     self._discount = discount
@@ -58,6 +59,7 @@ class MuZeroArch(hk.RNNCore):
       assert discretizer is not None, "need this for computing r, v, q"
       assert num_actions is not None, "need this for computing r, v, q"
     self._num_actions = num_actions
+    self._model_combine_state_task = model_combine_state_task.lower()
 
   def initial_state(self, batch_size: Optional[int],
                     **unused_kwargs) -> muzero_types.MuZeroState:
@@ -110,15 +112,19 @@ class MuZeroArch(hk.RNNCore):
         Tuple[muzero_types.RootOutput, muzero_types.MuZeroState]: _description_
     """
     embeddings = self._observation_fn(inputs)  # [B, D+A+1]
-    core_outputs, new_state = self._state_fn(embeddings, state)
+    state_input = self._prep_state_input(embeddings)
+    core_outputs, new_state = self._state_fn(state_input, state)
     policy_logits, value_logits = self.root_predictions(core_outputs)
 
+    muzero_state = muzero_types.MuZeroState(
+        state=core_outputs,
+        task=embeddings.task)
     q_value = next_reward = next_value = None
     if self._model_compute_r_v:
-      q_value, next_reward, next_value = self.model_compute_r_v(core_outputs)
+      q_value, next_reward, next_value = self.model_compute_r_v(muzero_state)
 
     return muzero_types.RootOutput(
-      state=core_outputs,
+      state=muzero_state,
       value_logits=value_logits,
       policy_logits=policy_logits,
       next_reward=next_reward,
@@ -140,15 +146,23 @@ class MuZeroArch(hk.RNNCore):
         Tuple[muzero_types.RootOutput, muzero_types.MuZeroState]: _description_
     """
     embeddings = hk.BatchApply(self._observation_fn)(inputs)  # [T, B, D+A+1]
-    core_outputs, new_states = hk.static_unroll(self._state_fn, embeddings, state)
+    state_input = self._prep_state_input(embeddings)
+
+    core_outputs, new_states = hk.static_unroll(
+        self._state_fn, state_input, state)
+
+    muzero_state = muzero_types.MuZeroState(
+        state=core_outputs,
+        task=embeddings.task)
+
     policy_logits, value_logits = hk.BatchApply(self.root_predictions)(core_outputs)
     q_value = next_reward = next_value = None
     if self._model_compute_r_v:
       q_value, next_reward, next_value = jax.vmap(jax.vmap(self.model_compute_r_v))(
-        core_outputs)
+        muzero_state)
 
     return muzero_types.RootOutput(
-        state=core_outputs,
+        state=muzero_state,
         value_logits=value_logits,
         policy_logits=policy_logits,
         next_reward=next_reward,
@@ -158,8 +172,8 @@ class MuZeroArch(hk.RNNCore):
 
   def apply_model(
       self,
-      state: jnp.ndarray,  # [[B], ...]
-      action: jnp.ndarray,  # [[B]]
+      state: muzero_types.MuZeroState,
+      action: jnp.ndarray,
   ) -> Tuple[muzero_types.ModelOutput, muzero_types.MuZeroState]:
     """_summary_
 
@@ -169,10 +183,22 @@ class MuZeroArch(hk.RNNCore):
     Returns:
         Tuple[muzero_types.ModelOutput, muzero_types.MuZeroState]: _description_
     """
+    state_dim = state.state.shape[-1]
     action_onehot = self._action_encoder(action)
+    if self._model_combine_state_task == 'concat':
+      prev_state = jnp.concatenate((state.state, state.task), axis=-1)
+      prev_state = hk.Linear(state_dim, with_bias=False)(prev_state)
+    elif self._model_combine_state_task == 'add':
+      prev_state = state.state + hk.Linear(state_dim, with_bias=False)(state.task)
+      prev_state = hk.Linear(state_dim, with_bias=False)(prev_state)
+    elif self._model_combine_state_task == 'none':
+      prev_state = state.state
+    else:
+      raise RuntimeError(self._model_combine_state_task)
+
     new_state = self._transition_fn(
         action_onehot=action_onehot,
-        prev_state=state)
+        prev_state=prev_state)
 
     reward_out = self._model_reward_fn(new_state)
 
@@ -180,10 +206,15 @@ class MuZeroArch(hk.RNNCore):
     value_logits = self._model_value_fn(x)
     policy_logits = self._model_policy_fn(x)
 
-    return muzero_types.ModelOutput(
+    model_output = muzero_types.ModelOutput(
       new_state=new_state,
       value_logits=value_logits,
       policy_logits=policy_logits,
       reward_logits=reward_out,
-    ), new_state
+    )
+    new_state = muzero_types.MuZeroState(
+      state=new_state,
+      task=state.task,
+    )
+    return model_output, new_state
 

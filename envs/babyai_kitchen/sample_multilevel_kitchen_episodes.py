@@ -23,7 +23,7 @@ def main():
         default="envs/babyai_kitchen/tasks/default_sets.yaml")
     parser.add_argument('--missions', help='# of unique missions',
         default=10)
-    parser.add_argument('--room-size', type=int, default=7)
+    parser.add_argument('--room-size', type=int, default=8)
     parser.add_argument('--agent-view-size', type=int, default=5)
     parser.add_argument('--random-object-state', type=int, default=0)
     parser.add_argument('--num-rows', type=int, default=1)
@@ -65,8 +65,9 @@ def main():
         level_kwargs['num_cols'] = args.num_rows
 
     key = 'train' if args.train else 'test'
+    task_dicts = tasks[key] if key in tasks else tasks['train']
     level_kwargs = babyai_utils.constuct_kitchenmultilevel_kwargs(
-        task_dicts=tasks[key],
+        task_dicts=task_dicts,
         level_kwargs=level_kwargs,
         sets=sets)
 

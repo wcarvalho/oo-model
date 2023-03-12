@@ -390,7 +390,10 @@ def model_unroll(
         model_outputs, next_state = networks.apply_model(
             params, model_key, state, action,
         )
-        next_state = scale_gradient(next_state, 0.5)
+        next_state=muzero_types.MuZeroState(
+          state=scale_gradient(next_state.state, 0.5),
+          task=next_state.task,
+        )
         return next_state, model_outputs
 
     fn = functools.partial(fn, rng_key=rng_key)

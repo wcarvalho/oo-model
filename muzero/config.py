@@ -35,11 +35,12 @@ class MuZeroConfig(r2d2.R2D2Config):
   epsilon_max: float = 1
   # variable_update_period: int = 400
   seed: int = 1234
-  num_steps: int = 1e6
+  num_steps: int = 3e6
 
-  # # Learner options
+  # Learner options
   burn_in_length: int = 0
-  # trace_length: int = 80
+  batch_size: Optional[int] = 32
+  trace_length: Optional[int] = 40
   # sequence_period: int = 40
   learning_rate: float = 1e-3
   learning_rate_decay: float = .1
@@ -57,8 +58,6 @@ class MuZeroConfig(r2d2.R2D2Config):
   samples_per_insert: float = 50.0
   min_replay_size: int = 1_000
   max_replay_size: int = 80_000
-  batch_size: Optional[int] = 32
-  trace_length: Optional[int] = 20
   target_batch_size: int = 1024
   prefetch_size: int = 0
   num_parallel_calls: int = 1
@@ -99,9 +98,10 @@ class MuZeroConfig(r2d2.R2D2Config):
   output_init: Optional[float] = None
   vision_torso: str = 'babyai'
   network_fn: str = 'babyai'
+  model_combine_state_task: str = 'none'
   state_dim: int = 256
   vocab_size: int = 50  # vocab size for env
-  word_dim: int = 64  # dimensionality of word embeddings
+  word_dim: int = 128  # dimensionality of word embeddings
   sentence_dim: int = 128  # dimensionality of sentence embeddings
   resnet_transition_dim: Optional[int] = None  # dim of resnet for transition function
   transition_blocks: int = 6  # number of resnet blocks

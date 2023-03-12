@@ -47,6 +47,12 @@ from muzero.utils import Discretizer
 NetworkOutput = networks_lib.NetworkOutput
 RecurrentState = networks_lib.RecurrentState
 
+def concat_embeddings(embeddings):
+  return jnp.concatenate((
+    embeddings.image,
+    embeddings.action,
+    embeddings.reward,
+    embeddings.task), axis=-1)
 
 
 def make_babyai_networks(
@@ -78,6 +84,7 @@ def make_babyai_networks(
           sentence_dim=config.sentence_dim,
       ),
       image_dim=state_dim,
+      output_fn=vision_language.struct_output,
     )
 
     if config.output_init is not None:
@@ -117,6 +124,7 @@ def make_babyai_networks(
         a, num_classes=num_actions),
       discretizer=discretizer,
       observation_fn=observation_fn,
+      prep_state_input=concat_embeddings,
       state_fn=hk.LSTM(state_dim),
       transition_fn=Transition(
         channels=res_dim,
@@ -132,6 +140,7 @@ def make_babyai_networks(
       model_policy_fn=model_policy_fn,
       model_compute_r_v=True,
       discount=config.discount,
+      model_combine_state_task=config.model_combine_state_task,
       num_actions=num_actions)
 
   return make_unrollable_model_network(env_spec, make_core_module)
@@ -164,6 +173,7 @@ def make_simple_babyai_networks(
           sentence_dim=config.sentence_dim,
       ),
       image_dim=state_dim,
+      output_fn=vision_language.struct_output,
     )
     
     if config.output_init is not None:
@@ -199,6 +209,7 @@ def make_simple_babyai_networks(
         a, num_classes=num_actions),
       discretizer=discretizer,
       observation_fn=observation_fn,
+      prep_state_input=concat_embeddings,
       state_fn=hk.LSTM(state_dim),
       transition_fn=simple_mlp_muzero.Transition(
         num_blocks=2),

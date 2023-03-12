@@ -22,7 +22,7 @@ import haiku as hk
 import launchpad as lp
 import numpy as np
 
-from experiments import helpers
+from experiments import babyai_utils
 from experiments import collect_data
 
 FLAGS = flags.FLAGS
@@ -72,7 +72,7 @@ def _make_environment_factory(env_name: str) -> jax_types.EnvironmentFactory:
 
   def environment_factory(seed: int) -> dm_env.Environment:
     del seed
-    return helpers.make_environment(task=env_name)
+    return babyai_utils.make_environment(task=env_name)
 
   return environment_factory
 
@@ -130,7 +130,7 @@ def build_experiment_config():
   """Returns a config for BC experiments."""
 
   # Create an environment, grab the spec, and use it to create networks.
-  environment = helpers.make_kitchen_environment(
+  environment = babyai_utils.make_kitchen_environment(
     tasks_file=FLAGS.tasks_file)
   environment_spec = specs.make_environment_spec(environment)
 
