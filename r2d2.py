@@ -146,13 +146,14 @@ def make_r2d2_babyai_networks(
   """Builds default R2D2 networks for Atari games."""
 
   num_actions = env_spec.actions.num_values
-  vision_torso = vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim, flatten=False)
-  task_encoder = language.LanguageEncoder(
-          vocab_size=config.vocab_size,
-          word_dim=config.word_dim,
-          sentence_dim=config.sentence_dim,
-      )
   def make_core_module() -> R2D2Arch:
+    vision_torso = vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim,
+                                            flatten=False)
+    task_encoder = language.LanguageEncoder(
+            vocab_size=config.vocab_size,
+            word_dim=config.word_dim,
+            sentence_dim=config.sentence_dim,
+        )
     observation_fn = vision_language.Torso(
       num_actions=num_actions,
       vision_torso=vision_torso,
