@@ -206,6 +206,7 @@ class MuZeroLearner(acme.Learner):
         policy_loss_fn=policy_loss_fn,
         v_target_source=config.v_target_source,
         model_share_params=self._model_unroll_share_params,
+        metrics=config.metrics,
       )
       ve_loss_fn = jax.vmap(ve_loss_fn, in_axes=(1, 1, 1, 1, 1, 0, 0, None), out_axes=0) # vmap over batch dimension
 
@@ -225,25 +226,27 @@ class MuZeroLearner(acme.Learner):
                                        target_state,
                                        key_grad)
 
-      # Importance weighting.
-      probs = sample.info.probability
-      importance_weights = (1. / (probs + 1e-6)).astype(batch_loss.dtype)
-      importance_weights **= importance_sampling_exponent
-      importance_weights /= jnp.max(importance_weights)
-      mean_loss = jnp.mean(importance_weights * batch_loss)
-
-      # Calculate priorities as a mixture of max and mean sequence errors.
-      value_target = metrics['2.value_target']
-      value_prediction = metrics['2.value_prediction']
-      batch_td_error = value_target - value_prediction
-
-      abs_td_error = jnp.abs(batch_td_error).astype(batch_loss.dtype)
-      max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
-      mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
-      priorities = (max_priority + mean_priority)
 
       if importance_sampling_exponent == 0.0:
-        priorities = jnp.ones_like(priorities)
+        priorities = jnp.ones_like(batch_loss)
+        mean_loss = jnp.mean(batch_loss)
+      else:
+        # Importance weighting.
+        probs = sample.info.probability
+        importance_weights = (1. / (probs + 1e-6)).astype(batch_loss.dtype)
+        importance_weights **= importance_sampling_exponent
+        importance_weights /= jnp.max(importance_weights)
+        mean_loss = jnp.mean(importance_weights * batch_loss)
+
+        # Calculate priorities as a mixture of max and mean sequence errors.
+        value_target = metrics['2.value_target']
+        value_prediction = metrics['2.value_prediction']
+        batch_td_error = value_target - value_prediction
+
+        abs_td_error = jnp.abs(batch_td_error).astype(batch_loss.dtype)
+        max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
+        mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
+        priorities = (max_priority + mean_priority)
 
       metrics = jax.tree_map(lambda x: x.mean(), metrics)
       metrics.update(in_episode=in_episode.mean())
@@ -355,11 +358,12 @@ class MuZeroLearner(acme.Learner):
       if config.weight_decay > 0.0:
         optimizer = optax.adamw(
             learning_rate=learning_rate,
+            eps=config.adam_eps,
             weight_decay=config.weight_decay,
             mask=weight_decay_mask,
         )
       else:
-        optimizer = optax.adam(learning_rate=learning_rate)
+        optimizer = optax.adam(learning_rate=learning_rate, eps=config.adam_eps)
       if config.max_grad_norm:
         optimizer = optax.chain(optax.clip_by_global_norm(
             config.max_grad_norm), optimizer)

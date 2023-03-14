@@ -127,24 +127,3 @@ def get_actor_core(
   return actor_core_lib.ActorCore(init=init,
                                   select_action=select_action,
                                   get_extras=get_extras)
-
-
-# # TODO(wilka): Deprecate this in favour of MuZeroBuilder.make_policy.
-# def make_behavior_policy(networks: types.MuZeroNetworks,
-#                          config: r2d2_config.R2D2Config,
-#                          evaluation: bool = False) -> actor_core_lib.RecurrentPolicy:
-#   """Selects action according to the policy."""
-
-#   def behavior_policy(params: types.MuZeroParams,
-#                       key: networks_lib.PRNGKey,
-#                       observation: types.NestedArray,
-#                       core_state: types.NestedArray):
-#     logits, core_state = networks.apply(params.unroll, key, observation, core_state)
-#     rng, policy_rng = jax.random.split(key)
-#     if evaluation:
-#       action = jnp.argmax(logits.policy_logits, axis=-1)
-#     else:
-#       action = jax.random.categorical(policy_rng, logits.policy_logits)
-#     return action, core_state
-
-#   return behavior_policy

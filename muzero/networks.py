@@ -24,8 +24,6 @@ from acme.jax import types as jax_types
 from acme.jax import utils as jax_utils
 
 
-from acme.wrappers import observation_action_reward
-
 import haiku as hk
 import jax
 import jax.numpy as jnp
@@ -84,6 +82,7 @@ def make_babyai_networks(
           sentence_dim=config.sentence_dim,
       ),
       image_dim=state_dim,
+      task_dim=config.task_dim,
       output_fn=vision_language.struct_output,
     )
 
@@ -129,7 +128,6 @@ def make_babyai_networks(
       transition_fn=Transition(
         channels=res_dim,
         num_blocks=config.transition_blocks,
-        action_dim=config.action_dim,
         ln=config.ln),
       root_vpi_base=root_vpi_base,
       root_value_fn=root_value_fn,
@@ -173,6 +171,7 @@ def make_simple_babyai_networks(
           sentence_dim=config.sentence_dim,
       ),
       image_dim=state_dim,
+      task_dim=config.task_dim,
       output_fn=vision_language.struct_output,
     )
     

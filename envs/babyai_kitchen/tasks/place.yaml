@@ -2,4 +2,3 @@ train:
 
   - name: place
     task_kinds: place
-    num_dists: 2

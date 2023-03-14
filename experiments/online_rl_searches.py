@@ -17,45 +17,50 @@ def get(search: str = '', agent: str = ''):
           "max_value": tune.grid_search([10.0]),
         }
     ]
-  elif search == 'muzero_task_model_room5':
+  elif search == 'r2d2_room8':
     space = [
         {
           "seed": tune.grid_search([2]),
-          "tasks_file": tune.grid_search(['pickup', 'pickup_sanity']),
-          "room_size": tune.grid_search([5]),
-          "trace_length": tune.grid_search([20]),
-          "model_combine_state_task": tune.grid_search(['add']),
-          "batch_size": tune.grid_search([32]),
-          "variable_update_period": tune.grid_search([750, 1000]),
-        }
-    ]
-  elif search == 'r2d2_room5':
-    space = [
-        {
-          "seed": tune.grid_search([2]),
-          "tasks_file": tune.grid_search(['pickup', 'pickup_sanity']),
+          "tasks_file": tune.grid_search(['pickup']),
           "agent": tune.grid_search(['r2d2']),
           "room_size": tune.grid_search([5]),
-          "trace_length": tune.grid_search([20]),
-          "samples_per_insert": tune.grid_search([4.0]),
+          "num_dists": tune.grid_search([2]),
+          "batch_size": tune.grid_search([32]),
+          "trace_length": tune.grid_search([20, 40]),
+          # "adam_eps": tune.grid_search([1e-8, 1e-3]),
         }
     ]
-  elif search == 'dqn6':
+  elif search == 'muzero_task_model_room8':
+    space = [
+        {
+          "seed": tune.grid_search([2]),
+          "tasks_file": tune.grid_search(['pickup']),
+          "agent": tune.grid_search(['muzero']),
+          "room_size": tune.grid_search([5]),
+          "num_dists": tune.grid_search([2]),
+          # "trace_length": tune.grid_search([20]),
+          # "model_combine_state_task": tune.grid_search(['add_state_bias',
+          #                                               'add_head', 'add_head_bias',]),
+          "max_grad_norm": tune.grid_search([5.0, 80.0]),
+          "adam_eps": tune.grid_search([1e-8, 1e-3]),
+          # "variable_update_period": tune.grid_search([750, 1000, 1250, 1500]),
+        }
+    ]
+  elif search == 'speed2':
     space = [
         {
           "seed": tune.grid_search([2]),
           "tasks_file": tune.grid_search(['pickup']),
           "room_size": tune.grid_search([5]),
-          "v_target_source": tune.grid_search(['q_learning']),
-          "action_source": tune.grid_search(['value']),
-          "samples_per_insert": tune.grid_search([4.0, 50.0]),
-          "policy_coef": tune.grid_search([0.0]),
-          "model_coef": tune.grid_search([0.0]),
-          "ema_update": tune.grid_search([0.0]),
-          "value_coef": tune.grid_search([1.0]),
-          "scalar_step_size": tune.grid_search([.25, 1.0]),
-          "max_scalar_value": tune.grid_search([50.0]),
-        }
+          "batch_size": tune.grid_search([64]),
+          "samples_per_insert": tune.grid_search([25.0, 50.0, 15.0]),
+        },
+        # {
+        #   "seed": tune.grid_search([2]),
+        #   "tasks_file": tune.grid_search(['pickup']),
+        #   "room_size": tune.grid_search([5]),
+        #   "max_grad_norm": tune.grid_search([0.0]),
+        # }
     ]
   elif search == 'pickup2':
     space = [

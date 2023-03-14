@@ -185,24 +185,35 @@ class MuZeroArch(hk.RNNCore):
     """
     state_dim = state.state.shape[-1]
     action_onehot = self._action_encoder(action)
-    if self._model_combine_state_task == 'concat':
-      prev_state = jnp.concatenate((state.state, state.task), axis=-1)
-      prev_state = hk.Linear(state_dim, with_bias=False)(prev_state)
-    elif self._model_combine_state_task == 'add':
-      prev_state = state.state + hk.Linear(state_dim, with_bias=False)(state.task)
-      prev_state = hk.Linear(state_dim, with_bias=False)(prev_state)
-    elif self._model_combine_state_task == 'none':
-      prev_state = state.state
+    
+
+    assert self._model_combine_state_task in [
+      'add_state', 'add_state_bias',
+      'add_head', 'add_head_bias',
+      'none',
+      ]
+    if 'bias' in self._model_combine_state_task:
+      linear = lambda x: hk.Linear(state_dim, with_bias=True)(x)
     else:
-      raise RuntimeError(self._model_combine_state_task)
+      linear = lambda x: hk.Linear(state_dim, with_bias=False)(x)
+
+    prev_state = state.state
+    if 'add_state' in self._model_combine_state_task:
+      prev_state = linear(prev_state) + linear(state.task)
+    # else:
+    #   raise RuntimeError(self._model_combine_state_task)
 
     new_state = self._transition_fn(
         action_onehot=action_onehot,
         prev_state=prev_state)
+    
+    pred_input = new_state
+    if 'add_head' in self._model_combine_state_task:
+      pred_input = linear(pred_input) + linear(state.task)
 
-    reward_out = self._model_reward_fn(new_state)
+    reward_out = self._model_reward_fn(pred_input)
 
-    x = self._model_vpi_base(new_state)
+    x = self._model_vpi_base(pred_input)
     value_logits = self._model_value_fn(x)
     policy_logits = self._model_policy_fn(x)
 

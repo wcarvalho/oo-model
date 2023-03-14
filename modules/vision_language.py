@@ -45,6 +45,7 @@ class Torso(hk.Module):
                task_encoder: hk.Module,
                vision_torso: hk.Module,
                image_dim: int = 0,
+               task_dim: int = 0,
                output_fn: Callable[[Image, Task, Action, Reward], Array] = concat,
                name='torso'):
     super().__init__(name=name)
@@ -53,6 +54,7 @@ class Torso(hk.Module):
     self._vision_torso = vision_torso
     self._image_dim = image_dim
     self._output_fn = output_fn
+    self._task_dim = task_dim
 
   def __call__(self, inputs: observation_action_reward.OAR):
     batched = len(inputs.observation.image.shape) == 4
@@ -65,6 +67,8 @@ class Torso(hk.Module):
     """_no_ batch [B] dimension."""
     # compute task encoding
     task = self._task_encoder(inputs.observation.mission)
+    if self._task_dim and self._task_dim > 0:
+      task = hk.Linear(self._task_dim)(task)
 
     # get action one-hot
     action = jax.nn.one_hot(

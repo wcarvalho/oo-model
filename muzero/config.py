@@ -27,7 +27,7 @@ Array = acme_types.NestedArray
 @dataclasses.dataclass
 class MuZeroConfig(r2d2.R2D2Config):
   """Configuration options for MuZero agent."""
-  discount: float = 0.997**4
+  discount: float = 0.997**4  # from paper
   # target_update_period: int = 2500
   # evaluation_epsilon: float = 0.
   num_epsilons: int = 10
@@ -39,8 +39,8 @@ class MuZeroConfig(r2d2.R2D2Config):
 
   # Learner options
   burn_in_length: int = 0
-  batch_size: Optional[int] = 32
-  trace_length: Optional[int] = 40
+  batch_size: Optional[int] = 64
+  trace_length: Optional[int] = 20
   # sequence_period: int = 40
   learning_rate: float = 1e-3
   learning_rate_decay: float = .1
@@ -49,11 +49,13 @@ class MuZeroConfig(r2d2.R2D2Config):
   max_grad_norm: float = 5.0
   warmup_steps: int = 0
   ema_update: float = 0.0
+  metrics: str = 'dense'
   # bootstrap_n: int = 5
   # clip_rewards: bool = False
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
+  adam_eps: float = 1e-3
 
-  # # Replay options
+  # Replay options
   # samples_per_insert_tolerance_rate: float = 0.1
   samples_per_insert: float = 50.0
   min_replay_size: int = 1_000
@@ -63,7 +65,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   num_parallel_calls: int = 1
   # replay_table_name: str = adders_reverb.DEFAULT_PRIORITY_TABLE
 
-  # # Priority options
+  # Priority options
   importance_sampling_exponent: float = 0.0
   priority_exponent: float = 0.0
   # max_priority_weight: float = 0.9
@@ -103,6 +105,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   vocab_size: int = 50  # vocab size for env
   word_dim: int = 128  # dimensionality of word embeddings
   sentence_dim: int = 128  # dimensionality of sentence embeddings
+  task_dim: int = 128  # projection of task to lower dimension
   resnet_transition_dim: Optional[int] = None  # dim of resnet for transition function
   transition_blocks: int = 6  # number of resnet blocks
   prediction_blocks: int = 2  # number of resnet blocks
@@ -110,7 +113,6 @@ class MuZeroConfig(r2d2.R2D2Config):
   model_state_extract_fn: Callable[[Array], Array] = lambda state: state.hidden
   reward_mlps: Tuple[int] = (32,)
   vpi_mlps: Tuple[int] = (128, 32)
-  action_dim : int = 128
 
   # actor hps
   action_source: str = 'policy'  # 'policy', 'value', 'mcts'

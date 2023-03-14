@@ -71,6 +71,7 @@ class ValueEquivalentLoss:
                model_coef: float = 1.0,
                model_share_params: bool = True,
                v_target_source: str = 'return',
+               metrics: str = 'sparse',
                ):
     self._networks = networks
     self._params = params
@@ -88,6 +89,8 @@ class ValueEquivalentLoss:
     self._policy_loss_fn = policy_loss_fn
     self._v_target_source = v_target_source
     self._model_share_params = model_share_params
+    self._metrics = metrics
+    assert metrics in ('sparse', 'dense')
     assert v_target_source in ('mcts', 'return', 'q_learning')
 
   def __call__(self,
@@ -215,6 +218,16 @@ class ValueEquivalentLoss:
         self._reward_coef * reward_loss +
         self._value_coef * value_loss + 
         self._policy_coef * policy_loss)
+    
+    if self._metrics == 'sparse':
+      metrics = {
+        '0.1.root_policy_loss': root_policy_loss, # T
+        '0.1.model_policy_loss': model_policy_loss,  # T
+        '0.2.model_reward_loss': reward_loss,  # T
+        '0.3.root_value_loss': root_value_loss,  # T
+        '0.3.model_value_loss': model_value_loss,  # T
+      }
+      return total_loss, metrics
 
     # metrics
     max_entropy = distrax.Categorical(probs=uniform_policy[0]).entropy()

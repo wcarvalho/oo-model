@@ -2,4 +2,3 @@ train:
 
   - name: pickup
     task_kinds: pickup
-    num_dists: 2

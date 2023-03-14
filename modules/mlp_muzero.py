@@ -57,7 +57,6 @@ class Transition(hk.Module):
         self,
         channels: int,
         num_blocks: int,
-        action_dim: int = 32,
         ln: bool = True,
         name: str = "transition",
     ):
@@ -65,7 +64,6 @@ class Transition(hk.Module):
         super().__init__(name=name)
         self._channels = channels
         self._num_blocks = num_blocks
-        self._action_dim = action_dim
         self._ln = ln
 
     def __call__(

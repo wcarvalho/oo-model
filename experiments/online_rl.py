@@ -50,7 +50,7 @@ from muzero import utils as muzero_utils
 from experiments import babyai_utils
 from experiments import logger as wandb_logger 
 from experiments.muzero_utils import make_muzero_builder
-from experiments.r2d2_utils import make_r2d2_builder
+from r2d2 import make_r2d2_builder
 from experiments.observers import LevelAvgReturnObserver
 
 
