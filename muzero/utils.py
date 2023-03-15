@@ -23,8 +23,6 @@ def scale_gradient(g: Array, scale: float) -> Array:
     """
     return g * scale + jax.lax.stop_gradient(g) * (1.0 - scale)
 
-# create class
-
 class Discretizer:
   def __init__(self,
                max_value,
@@ -62,81 +60,3 @@ class Discretizer:
         max_value=self._max_value,
         num_bins=self._num_bins)
      return probs
-
-def scalar_to_two_hot(x: Array,
-                      num_bins: int,
-                      max_value: float = 50.0) -> Array:
-    """A categorical representation of real values.
-
-    Ref: https://www.nature.com/articles/s41586-020-03051-4.pdf.
-
-    Args:
-        x (Array): Scalar data.
-        num_bins (int): Number of bins.
-
-    Returns:
-        Array: Distributional data.
-    """
-    return rlax.transform_to_2hot(x, -max_value, max_value, num_bins)
-    # max_val = (num_bins - 1) // 2
-    # x = jnp.clip(x, -max_val, max_val)
-    # x_low = jnp.floor(x).astype(jnp.int32)
-    # x_high = jnp.ceil(x).astype(jnp.int32)
-    # p_high = x - x_low
-    # p_low = 1.0 - p_high
-    # idx_low = x_low + max_val
-    # idx_high = x_high + max_val
-    # cat_low = jax.nn.one_hot(idx_low, num_bins) * p_low[..., None]
-    # cat_high = jax.nn.one_hot(idx_high, num_bins) * p_high[..., None]
-    # return cat_low + cat_high
-
-
-def logits_to_scalar(logits: Array,
-                     num_bins: int,
-                     max_value: float = 50.0) -> Array:
-    """The inverse of the scalar_to_two_hot function above.
-
-    Args:
-        logits (Array): Distributional logits.
-        num_bins (int): Number of bins.
-
-    Returns:
-        Array: Scalar data.
-    """
-    return rlax.transform_from_2hot(jax.nn.softmax(logits), -max_value, max_value, num_bins)
-    # chex.assert_equal(num_bins, logits.shape[-1])
-    # max_val = (num_bins - 1) // 2
-    # x = jnp.sum((jnp.arange(num_bins) - max_val) * jax.nn.softmax(logits), axis=-1)
-    # return x
-
-
-def value_transform(x: Array, epsilon: float = 1e-3) -> Array:
-    """A non-linear value transformation for variance reduction.
-
-    Ref: https://arxiv.org/abs/1805.11593.
-
-    Args:
-        x (Array): Data.
-        epsilon (float, optional): Epsilon. Defaults to 1e-3.
-
-    Returns:
-        Array: Transformed data.
-    """
-    return jnp.sign(x) * (jnp.sqrt(jnp.abs(x) + 1) - 1) + epsilon * x
-
-
-def inv_value_transform(x: Array, epsilon: float = 1e-3) -> Array:
-    """The inverse of the non-linear value transformation above.
-
-    Args:
-        x (Array): Data.
-        epsilon (float, optional): Epsilon. Defaults to 1e-3.
-
-    Returns:
-        Array: Inversely transformed data.
-    """
-    return jnp.sign(x) * (
-        ((jnp.sqrt(1 + 4 * epsilon * (jnp.abs(x) + 1 + epsilon)) - 1) / (2 * epsilon))
-        ** 2
-        - 1
-    )
