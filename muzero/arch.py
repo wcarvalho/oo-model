@@ -10,13 +10,13 @@ import jax.numpy as jnp
 from muzero import types as muzero_types
 from muzero.utils import Discretizer
 
-State = types.NestedArray
+MuZeroState = muzero_types.MuZeroState
 RewardLogits = jnp.ndarray
 PolicyLogits = jnp.ndarray
 ValueLogits = jnp.ndarray
 
-RootFn = Callable[[State], Tuple[PolicyLogits, ValueLogits]]
-ModelFn = Callable[[State], Tuple[RewardLogits, PolicyLogits, ValueLogits]]
+RootFn = Callable[[MuZeroState], Tuple[PolicyLogits, ValueLogits]]
+ModelFn = Callable[[MuZeroState], Tuple[RewardLogits, PolicyLogits, ValueLogits]]
 
 class MuZeroArch(hk.RNNCore):
   """MuZero Network Architecture.
@@ -30,7 +30,6 @@ class MuZeroArch(hk.RNNCore):
                root_pred_fn: RootFn,
                model_pred_fn: ModelFn,
                prep_state_input: Callable[[types.NestedArray], types.NestedArray] = lambda x: x,
-               model_combine_state_task: str = 'none',
                model_compute_r_v: bool = True,
                discount: float = 1.0,
                discretizer: Optional[Discretizer] = None,
@@ -50,7 +49,6 @@ class MuZeroArch(hk.RNNCore):
     self._model_compute_r_v = model_compute_r_v
     self._discount = discount
     self._num_actions = num_actions
-    self._model_combine_state_task = model_combine_state_task.lower()
 
   def initial_state(self, batch_size: Optional[int],
                     **unused_kwargs) -> muzero_types.MuZeroState:
@@ -101,11 +99,11 @@ class MuZeroArch(hk.RNNCore):
 
     # [N, D]
     core_outputs, new_state = self._state_fn(state_input, state)
-    policy_logits, value_logits = self._root_pred_fn(core_outputs)
-
     muzero_state = muzero_types.MuZeroState(
         state=core_outputs,
         task=embeddings.task)
+
+    policy_logits, value_logits = self._root_pred_fn(muzero_state)
 
     q_value = next_reward = next_value = None
     if self._model_compute_r_v:
@@ -143,7 +141,7 @@ class MuZeroArch(hk.RNNCore):
         state=core_outputs,
         task=embeddings.task)
 
-    policy_logits, value_logits = hk.BatchApply(self._root_pred_fn)(core_outputs)
+    policy_logits, value_logits = hk.BatchApply(self._root_pred_fn)(muzero_state)
     q_value = next_reward = next_value = None
     if self._model_compute_r_v:
       q_value, next_reward, next_value = jax.vmap(jax.vmap(self.model_compute_r_v))(
@@ -171,43 +169,23 @@ class MuZeroArch(hk.RNNCore):
     Returns:
         Tuple[muzero_types.ModelOutput, muzero_types.MuZeroState]: _description_
     """
-    state_dim = state.state.shape[-1]
     action_onehot = self._action_encoder(action)
-    
-
-    assert self._model_combine_state_task in [
-      'add_state', 'add_state_bias',
-      'add_head', 'add_head_bias',
-      'none',
-      ]
-    if 'bias' in self._model_combine_state_task:
-      linear = lambda x: hk.Linear(state_dim, with_bias=True)(x)
-    else:
-      linear = lambda x: hk.Linear(state_dim, with_bias=False)(x)
-
-    prev_state = state.state
-    if 'add_state' in self._model_combine_state_task:
-      prev_state = linear(prev_state) + linear(state.task)
-
     new_state = self._transition_fn(
         action_onehot=action_onehot,
-        prev_state=prev_state)
-    
-    pred_input = new_state
-    if 'add_head' in self._model_combine_state_task:
-      pred_input = linear(pred_input) + linear(state.task)
+        prev_state=state.state)
 
-    reward_logits, policy_logits, value_logits = self._model_pred_fn(pred_input)
+    new_state = muzero_types.MuZeroState(
+      state=new_state,
+      task=state.task,
+    )
+
+    reward_logits, policy_logits, value_logits = self._model_pred_fn(new_state)
 
     model_output = muzero_types.ModelOutput(
       new_state=new_state,
       value_logits=value_logits,
       policy_logits=policy_logits,
       reward_logits=reward_logits,
-    )
-    new_state = muzero_types.MuZeroState(
-      state=new_state,
-      task=state.task,
     )
     return model_output, new_state
 

@@ -30,12 +30,14 @@ class MuZeroConfig(r2d2.R2D2Config):
   discount: float = 0.997**4  # from paper
   # target_update_period: int = 2500
   # evaluation_epsilon: float = 0.
-  num_epsilons: int = 10
-  epsilon_min: float = 1e-2
-  epsilon_max: float = 1
   # variable_update_period: int = 400
   seed: int = 1234
   num_steps: int = 3e6
+
+  # value-based action-selection options
+  num_epsilons: int = 10
+  epsilon_min: float = 1e-2
+  epsilon_max: float = 1
 
   # Learner options
   burn_in_length: int = 0
