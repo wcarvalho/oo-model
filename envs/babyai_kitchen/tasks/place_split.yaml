@@ -2,14 +2,12 @@ train:
 
   - name: lettuce_on_y
     task_kinds: place
-    num_dists: 2
     taskarg_options:
       x: lettuce
       y: can_contain
 
   - name: x_on_fridge
     task_kinds: place
-    num_dists: 2
     taskarg_options:
       x: pickupable
       y: fridge

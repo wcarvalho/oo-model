@@ -41,7 +41,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   burn_in_length: int = 0
   batch_size: Optional[int] = 64
   trace_length: Optional[int] = 20
-  # sequence_period: int = 40
+  sequence_period: Optional[int] = None
   learning_rate: float = 1e-3
   learning_rate_decay: float = .1
   lr_transition_steps: int = 100_000

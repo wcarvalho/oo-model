@@ -30,26 +30,16 @@ from typing import Optional
 from absl import flags
 from absl import app
 from acme.jax import experiments
-from acme.utils import lp_utils
-from acme.utils import experiment_utils
 from acme.utils import loggers
 import dm_env
 import launchpad as lp
 from launchpad.nodes.python.local_multi_processing import PythonProcess
 
-import functools
-
-from acme.agents.jax import r2d2
-
-from muzero.config import MuZeroConfig
-from muzero.builder import MuZeroBuilder
-from muzero import networks
-from muzero import utils as muzero_utils
-# from muzero import config
 
 from experiments import babyai_utils
 from experiments import logger as wandb_logger 
 from experiments.muzero_utils import make_muzero_builder
+from experiments.factored_muzero_utils import make_factored_muzero_builder
 from r2d2 import make_r2d2_builder
 from experiments.observers import LevelAvgReturnObserver
 
@@ -126,6 +116,10 @@ def build_experiment_config(launch=False,
     config, builder, network_factory = make_muzero_builder(
       launch=launch,
       config_kwargs=config_kwargs)
+  elif agent == 'factored':
+    config, builder, network_factory = make_factored_muzero_builder(
+      launch=launch,
+      config_kwargs=config_kwargs)
   else:
     raise NotImplementedError
 
@@ -136,7 +130,8 @@ def build_experiment_config(launch=False,
   
   if config.trace_length is None:
     config.trace_length = config.burn_in_length + config.simulation_steps + config.td_steps + 1
-  config.sequence_period = config.trace_length - 1
+  if config.sequence_period is None:
+    config.sequence_period = config.trace_length
 
   if config.batch_size is None:
     batch_dim = round(config.target_batch_size/config.trace_length)

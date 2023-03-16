@@ -49,8 +49,8 @@ def rolling_window(a, size: int):
     return jax.vmap(lambda start: jax.lax.dynamic_slice(a, (start,), (size,)))(starts)
 
 def masked_mean(x, mask):
-  batch_loss = jnp.multiply(x, mask)
-  return (batch_loss.sum(0))/(mask.sum(0)+1e-5)
+  z = jnp.multiply(x, mask)
+  return (z.sum(0))/(mask.sum(0)+1e-5)
 
 class ValueEquivalentLoss:
 
@@ -107,8 +107,9 @@ class ValueEquivalentLoss:
     del target_state
     nsteps = data.reward.shape[0]  # [T]
 
+    metrics = {}
     # [T], [T/T-1], [T]
-    policy_probs_target, returns, reward_probs_target = self.compute_target(
+    policy_probs_target, value_probs_target, reward_probs_target, target_metrics = self.compute_target(
       data=data,
       in_episode=in_episode,
       is_terminal_mask=is_terminal_mask,
@@ -116,17 +117,13 @@ class ValueEquivalentLoss:
       target_outputs=target_outputs,
       rng_key=rng_key,
     )
-    # Value targets for the absorbing state and the states after are 0.
-    dim_return = returns.shape[0]
-    value_target = jax.lax.select(
-        is_terminal_mask[:dim_return], jnp.zeros_like(returns), returns)
-    value_probs_target = self._discretizer.scalar_to_probs(value_target)
-    value_probs_target = jax.lax.stop_gradient(value_probs_target)
+    metrics.update(target_metrics)
 
     ###############################
     # Root losses
     ###############################
     # [T/T-1]
+    dim_return = len(value_probs_target)
     root_value_loss = jax.vmap(rlax.categorical_cross_entropy)(
         value_probs_target, online_outputs.value_logits[:dim_return])
     # []
@@ -136,13 +133,14 @@ class ValueEquivalentLoss:
     root_policy_loss = self._policy_loss_fn(policy_probs_target, online_outputs.policy_logits)
     # []
     root_policy_loss = masked_mean(root_policy_loss, in_episode)
+
     ###############################
     # Model losses
     ###############################
     #------------
-    # create targets
+    # prepare targets for model predictions
     #------------
-    # fill predictions with dummy predictions for simulation 
+    # add dummy values to targets for out-of-bounds simulation predictions
     npreds = nsteps + self._simulation_steps
     num_actions = online_outputs.policy_logits.shape[-1]
     uniform_policy = jnp.ones((self._simulation_steps, num_actions)) / num_actions
@@ -159,15 +157,17 @@ class ValueEquivalentLoss:
     dummy_zeros = self._discretizer.scalar_to_probs(jnp.zeros(nz))
     value_model_target = jnp.concatenate((value_probs_target, dummy_zeros))
 
+    # for every timestep t=0,...T,  we have predictions for t+1, ..., t+k where k = simulation_steps
+    # use rolling window to create T x k prediction targets
     vmap_roll = jax.vmap(functools.partial(rolling_window, size=self._simulation_steps), 1,2)
-    policy_model_target = vmap_roll(policy_model_target[1:])
-    value_model_target = vmap_roll(value_model_target[1:])
-    reward_model_target = vmap_roll(reward_model_target)
+    policy_model_target = vmap_roll(policy_model_target[1:])  # [T, k, actions]
+    value_model_target = vmap_roll(value_model_target[1:])    # [T, k, bins]
+    reward_model_target = vmap_roll(reward_model_target)      # [T, k, bins]
 
     #------------
     # get masks for losses
     #------------
-    # if dim_return is same as number of predictions (i.e. one for each prediction), smaller extra v mask
+    # if dim_return is LESS than number of predictions, then have extra target, so mask it
     extra_v = self._simulation_steps + int(dim_return < npreds)
     value_mask = jnp.concatenate((in_episode[1:dim_return], jnp.zeros(extra_v)))
     policy_mask = jnp.concatenate((in_episode[1:], jnp.zeros(self._simulation_steps)))
@@ -190,11 +190,14 @@ class ValueEquivalentLoss:
     )
     simulation_actions = rolling_window(simulation_actions, self._simulation_steps)
 
+    #------------
+    # compute loss
+    #------------
     model_loss_fn = jax.vmap(self.model_loss,
                              in_axes=(0,0,0,0,0,0,0,0,None), out_axes=0)
 
     rng_key, model_key = jax.random.split(rng_key)
-    model_reward_loss, model_value_loss, model_policy_loss, reward_logits, metrics = model_loss_fn(
+    model_reward_loss, model_value_loss, model_policy_loss, reward_logits, model_metrics = model_loss_fn(
       online_outputs,      # [T]
       simulation_actions,  # [T]
       policy_model_target, # [T]
@@ -205,6 +208,7 @@ class ValueEquivalentLoss:
       rolling_window(policy_mask, self._simulation_steps),
       model_key,
     )
+    metrics.update(model_metrics)
 
     # all are []
     model_policy_loss = self._model_coef * \
@@ -249,13 +253,6 @@ class ValueEquivalentLoss:
     }
     metrics.update(prediction_metrics)
 
-    value_metrics = {
-      '2.value_prediction': self._discretizer.logits_to_scalar(online_outputs.value_logits[:-1]),  # T
-      '2.value_target': value_target,  # T-1
-      '2.raw_return': returns,  # T-1
-    }
-    value_metrics = jax.tree_map(lambda x: masked_mean(x, in_episode[:-1]), value_metrics)
-    metrics.update(value_metrics)
     metrics.update({
       '0.1.root_policy_loss': root_policy_loss, # T
       '0.3.root_value_loss': root_value_loss,  # T
@@ -338,9 +335,24 @@ class ValueEquivalentLoss:
 
     returns = jax.lax.stop_gradient(returns)
 
-    self._discretizer.probs_to_scalar(self._discretizer.scalar_to_probs(returns))
+    # Value targets for the absorbing state and the states after are 0.
+    dim_return = returns.shape[0]
+    value_target = jax.lax.select(
+        is_terminal_mask[:dim_return], jnp.zeros_like(returns), returns)
+    value_probs_target = self._discretizer.scalar_to_probs(value_target)
+    value_probs_target = jax.lax.stop_gradient(value_probs_target)
 
-    return policy_probs_target, returns, reward_probs_target
+    value_metrics = {}
+    if self._metrics == 'dense':
+      value_metrics = {
+        '2.value_prediction': self._discretizer.logits_to_scalar(online_outputs.value_logits[:-1]),  # T
+        '2.value_target': value_target,  # T-1
+        '2.raw_return': returns,  # T-1
+      }
+      value_metrics = jax.tree_map(
+          lambda x: masked_mean(x, in_episode[:-1]), value_metrics)
+
+    return policy_probs_target, value_probs_target, reward_probs_target, value_metrics
 
   def model_loss(self,
                  starting_outputs: Array,
@@ -375,13 +387,15 @@ class ValueEquivalentLoss:
 
     policy_loss = self._policy_loss_fn(policy_probs_target, model_output.policy_logits)
     policy_loss = masked_mean(policy_loss, policy_mask)
-    metrics = {
-        '0.1.model_policy_loss': self._model_coef*policy_loss, # T
-        '0.2.model_reward_loss': reward_loss, # T
-        '0.3.model_value_loss': self._model_coef*value_loss, # T
-        # [T, A] --> T
-        '3.reward_logits': masked_mean(model_output.reward_logits.mean(-1), reward_mask),
-    }
+    metrics = {}
+    if self._metrics != 'sparse':
+      metrics = {
+          '0.1.model_policy_loss': self._model_coef*policy_loss, # T
+          '0.2.model_reward_loss': reward_loss, # T
+          '0.3.model_value_loss': self._model_coef*value_loss, # T
+          # [T, A] --> T
+          '3.reward_logits': masked_mean(model_output.reward_logits.mean(-1), reward_mask),
+      }
 
     return reward_loss, value_loss, policy_loss, model_output.reward_logits[0], metrics
 

@@ -17,16 +17,21 @@ def get(search: str = '', agent: str = ''):
           "max_value": tune.grid_search([10.0]),
         }
     ]
-  elif search == 'r2d2_room8':
+  elif search == 'long2':
     space = [
         {
           "seed": tune.grid_search([2]),
-          "tasks_file": tune.grid_search(['pickup']),
-          "agent": tune.grid_search(['r2d2']),
-          "room_size": tune.grid_search([5]),
+          "tasks_file": tune.grid_search(['long', 'pickup_place']),
+          "agent": tune.grid_search(['r2d2', 'muzero']),
+          "room_size": tune.grid_search([8]),
           "num_dists": tune.grid_search([2]),
-          "batch_size": tune.grid_search([32]),
-          "trace_length": tune.grid_search([20, 40]),
+          "num_steps": tune.grid_search([30e6]),
+          # "samples_per_insert": tune.grid_search([6.0, 10.0]),
+          # "discount": tune.grid_search([.997]),
+          # "sentence_dim": tune.grid_search([64]),
+          # "word_dim": tune.grid_search([64]),
+          # "task_dim": tune.grid_search([0, 64]),
+          # "trace_length": tune.grid_search([20, 40]),
           # "adam_eps": tune.grid_search([1e-8, 1e-3]),
         }
     ]
@@ -34,14 +39,13 @@ def get(search: str = '', agent: str = ''):
     space = [
         {
           "seed": tune.grid_search([2]),
-          "tasks_file": tune.grid_search(['pickup']),
+          "tasks_file": tune.grid_search(['place']),
           "agent": tune.grid_search(['muzero']),
           "room_size": tune.grid_search([5]),
           "num_dists": tune.grid_search([2]),
           # "trace_length": tune.grid_search([20]),
           # "model_combine_state_task": tune.grid_search(['add_state_bias',
           #                                               'add_head', 'add_head_bias',]),
-          "max_grad_norm": tune.grid_search([5.0, 80.0]),
           "adam_eps": tune.grid_search([1e-8, 1e-3]),
           # "variable_update_period": tune.grid_search([750, 1000, 1250, 1500]),
         }

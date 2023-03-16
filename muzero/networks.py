@@ -35,7 +35,7 @@ from modules import vision_language
 from modules import simple_mlp_muzero
 from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
 from modules.conv_muzero import VisionTorso as MuZeroVisionTorso
-from muzero.arch import MuZeroArch
+from muzero.arch import MuZeroArch, RootPredictor, ModelPredictor
 from muzero.types import MuZeroNetworks
 from muzero.config import MuZeroConfig
 from muzero.utils import Discretizer
@@ -65,13 +65,8 @@ def make_babyai_networks(
     state_dim = config.state_dim
     res_dim = config.resnet_transition_dim or state_dim
 
-    assert config.vision_torso in ('babyai', 'atari', 'muzero')
-    if config.vision_torso == 'babyai':
-      vision_torso = vision.BabyAIVisionTorso(conv_dim=0, flatten=False)
-    elif config.vision_torso == 'atari':
-      vision_torso = vision.AtariVisionTorso(conv_dim=0, flatten=False)
-    elif config.vision_torso == 'muzero':
-      vision_torso = MuZeroVisionTorso(channels=64, num_blocks=6)
+    assert config.vision_torso in ('babyai')
+    vision_torso = vision.BabyAIVisionTorso(conv_dim=0, flatten=False)
 
     observation_fn = vision_language.Torso(
       num_actions=num_actions,
@@ -117,7 +112,19 @@ def make_babyai_networks(
       model_policy_fn=root_policy_fn
       model_vpi_base = root_vpi_base
 
-    # model_compute_r_v = config.action_source in ['value']
+    def root_predictor(state):
+      state = root_vpi_base(state)
+      policy_logits = root_policy_fn(state)
+      value_logits = root_value_fn(state)
+      return policy_logits, value_logits
+
+    def model_predictor(state):
+      reward_logits = model_reward_fn(state)
+      state = model_vpi_base(state)
+      policy_logits = model_policy_fn(state)
+      value_logits = model_value_fn(state)
+      return reward_logits, policy_logits, value_logits
+
     return MuZeroArch(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
@@ -129,13 +136,8 @@ def make_babyai_networks(
         channels=res_dim,
         num_blocks=config.transition_blocks,
         ln=config.ln),
-      root_vpi_base=root_vpi_base,
-      root_value_fn=root_value_fn,
-      root_policy_fn=root_policy_fn,
-      model_vpi_base=model_vpi_base,
-      model_reward_fn=model_reward_fn,
-      model_value_fn=model_value_fn,
-      model_policy_fn=model_policy_fn,
+      root_pred_fn=root_predictor,
+      model_pred_fn=model_predictor,
       model_compute_r_v=True,
       discount=config.discount,
       model_combine_state_task=config.model_combine_state_task,
@@ -143,87 +145,87 @@ def make_babyai_networks(
 
   return make_unrollable_model_network(env_spec, make_core_module)
 
-def make_simple_babyai_networks(
-  env_spec: specs.EnvironmentSpec,
-  config: MuZeroConfig,
-  discretizer: Discretizer) -> MuZeroNetworks:
-  """Builds default MuZero networks for BabyAI tasks."""
+# def make_simple_babyai_networks(
+#   env_spec: specs.EnvironmentSpec,
+#   config: MuZeroConfig,
+#   discretizer: Discretizer) -> MuZeroNetworks:
+#   """Builds default MuZero networks for BabyAI tasks."""
 
-  num_actions = env_spec.actions.num_values
+#   num_actions = env_spec.actions.num_values
 
-  def make_core_module() -> MuZeroNetworks:
-    state_dim = config.state_dim
+#   def make_core_module() -> MuZeroNetworks:
+#     state_dim = config.state_dim
 
-    assert config.vision_torso in ('babyai', 'atari', 'muzero')
-    if config.vision_torso == 'babyai':
-      vision_torso = vision.BabyAIVisionTorso(conv_dim=0, flatten=False)
-    elif config.vision_torso == 'atari':
-      vision_torso = vision.AtariVisionTorso(conv_dim=0, flatten=False)
-    elif config.vision_torso == 'muzero':
-      vision_torso = MuZeroVisionTorso(channels=64, num_blocks=6)
+#     assert config.vision_torso in ('babyai', 'atari', 'muzero')
+#     if config.vision_torso == 'babyai':
+#       vision_torso = vision.BabyAIVisionTorso(conv_dim=0, flatten=False)
+#     elif config.vision_torso == 'atari':
+#       vision_torso = vision.AtariVisionTorso(conv_dim=0, flatten=False)
+#     elif config.vision_torso == 'muzero':
+#       vision_torso = MuZeroVisionTorso(channels=64, num_blocks=6)
 
-    observation_fn = vision_language.Torso(
-      num_actions=num_actions,
-      vision_torso=vision_torso,
-      task_encoder = language.LanguageEncoder(
-          vocab_size=config.vocab_size,
-          word_dim=config.word_dim,
-          sentence_dim=config.sentence_dim,
-      ),
-      image_dim=state_dim,
-      task_dim=config.task_dim,
-      output_fn=vision_language.struct_output,
-    )
+#     observation_fn = vision_language.Torso(
+#       num_actions=num_actions,
+#       vision_torso=vision_torso,
+#       task_encoder = language.LanguageEncoder(
+#           vocab_size=config.vocab_size,
+#           word_dim=config.word_dim,
+#           sentence_dim=config.sentence_dim,
+#       ),
+#       image_dim=state_dim,
+#       task_dim=config.task_dim,
+#       output_fn=vision_language.struct_output,
+#     )
     
-    if config.output_init is not None:
-      output_init = hk.initializers.VarianceScaling(scale=config.output_init)
-    else:
-      output_init = None
-    root_vpi_base = hk.Linear(state_dim, name='root')
-    root_value_fn = simple_mlp_muzero.PredictionMlp(
-      [state_dim], config.num_bins, output_init=output_init,
-      name='root_value')
-    root_policy_fn = simple_mlp_muzero.PredictionMlp(
-      [state_dim], num_actions, output_init=output_init,
-      name='root_policy')
-    model_reward_fn = simple_mlp_muzero.PredictionMlp(
-      [state_dim], config.num_bins, output_init=output_init,
-      name='model_reward')
+#     if config.output_init is not None:
+#       output_init = hk.initializers.VarianceScaling(scale=config.output_init)
+#     else:
+#       output_init = None
+#     root_vpi_base = hk.Linear(state_dim, name='root')
+#     root_value_fn = simple_mlp_muzero.PredictionMlp(
+#       [state_dim], config.num_bins, output_init=output_init,
+#       name='root_value')
+#     root_policy_fn = simple_mlp_muzero.PredictionMlp(
+#       [state_dim], num_actions, output_init=output_init,
+#       name='root_policy')
+#     model_reward_fn = simple_mlp_muzero.PredictionMlp(
+#       [state_dim], config.num_bins, output_init=output_init,
+#       name='model_reward')
 
-    if config.seperate_model_nets:
-      raise NotImplementedError
-      # model_vpi_base = ResMlp(config.prediction_blocks)
-      # model_value_fn = simple_mlp_muzero.PredictionMlp(
-      #   config.vpi_mlps, config.num_bins, output_init=output_init)
-      # model_policy_fn = simple_mlp_muzero.PredictionMlp(
-      #   config.vpi_mlps, num_actions, output_init=output_init)
-    else:
-      model_value_fn=root_value_fn
-      model_policy_fn=root_policy_fn
-      model_vpi_base = root_vpi_base
+#     if config.seperate_model_nets:
+#       raise NotImplementedError
+#       # model_vpi_base = ResMlp(config.prediction_blocks)
+#       # model_value_fn = simple_mlp_muzero.PredictionMlp(
+#       #   config.vpi_mlps, config.num_bins, output_init=output_init)
+#       # model_policy_fn = simple_mlp_muzero.PredictionMlp(
+#       #   config.vpi_mlps, num_actions, output_init=output_init)
+#     else:
+#       model_value_fn=root_value_fn
+#       model_policy_fn=root_policy_fn
+#       model_vpi_base = root_vpi_base
 
-    # model_compute_r_v = config.action_source in ['value']
-    return MuZeroArch(
-      action_encoder=lambda a: jax.nn.one_hot(
-        a, num_classes=num_actions),
-      discretizer=discretizer,
-      observation_fn=observation_fn,
-      prep_state_input=concat_embeddings,
-      state_fn=hk.LSTM(state_dim),
-      transition_fn=simple_mlp_muzero.Transition(
-        num_blocks=2),
-      root_vpi_base=root_vpi_base,
-      root_value_fn=root_value_fn,
-      root_policy_fn=root_policy_fn,
-      model_vpi_base=model_vpi_base,
-      model_reward_fn=model_reward_fn,
-      model_value_fn=model_value_fn,
-      model_policy_fn=model_policy_fn,
-      model_compute_r_v=True,
-      discount=config.discount,
-      num_actions=num_actions)
+#     # model_compute_r_v = config.action_source in ['value']
+#     return MuZeroArch(
+#       action_encoder=lambda a: jax.nn.one_hot(
+#         a, num_classes=num_actions),
+#       discretizer=discretizer,
+#       observation_fn=observation_fn,
+#       prep_state_input=concat_embeddings,
+#       state_fn=hk.LSTM(state_dim),
+#       transition_fn=simple_mlp_muzero.Transition(
+#         num_blocks=2),
+#       root_vpi_base=root_vpi_base,
+#       root_value_fn=root_value_fn,
+#       root_policy_fn=root_policy_fn,
+#       model_vpi_base=model_vpi_base,
+#       model_reward_fn=model_reward_fn,
+#       model_value_fn=model_value_fn,
+#       model_policy_fn=model_policy_fn,
+#       model_compute_r_v=True,
+#       discount=config.discount,
+#       num_actions=num_actions)
 
-  return make_unrollable_model_network(env_spec, make_core_module)
+#   return make_unrollable_model_network(env_spec, make_core_module)
 
 def make_unrollable_model_network(
         environment_spec: specs.EnvironmentSpec,

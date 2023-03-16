@@ -43,7 +43,8 @@ def make_muzero_builder(
   if config.network_fn == 'babyai':
     network_fn = muzero_networks.make_babyai_networks
   elif config.network_fn == "simple_babyai":
-    network_fn = muzero_networks.make_simple_babyai_networks
+    raise NotImplementedError
+    # network_fn = muzero_networks.make_simple_babyai_networks
   else:
     raise NotImplementedError(config.network_fn)
 

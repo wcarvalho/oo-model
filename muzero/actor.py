@@ -12,9 +12,6 @@ import distrax
 import jax
 import numpy as np
 import jax.numpy as jnp
-from muzero.utils import (
-    logits_to_scalar,
-)
 
 from muzero import types
 from muzero.config import MuZeroConfig

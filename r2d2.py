@@ -38,15 +38,15 @@ class R2D2Config(r2d2.R2D2Config):
   # Learner options
   discount: float = 0.99
   burn_in_length: int = 0
-  trace_length: int = 20
+  sequence_period: Optional[int] = None
   num_steps: int = 3e6
   seed: int = 1
-  max_gradient_norm: float = 80.0
+  max_grad_norm: float = 80.0
   adam_eps: float = 1e-3
 
   # Replay options
   # samples_per_insert_tolerance_rate: float = 0.1
-  samples_per_insert: float = 50.0
+  samples_per_insert: float = 10.0
   min_replay_size: int = 1_000
   max_replay_size: int = 80_000
   batch_size: Optional[int] = 64
@@ -56,7 +56,7 @@ class R2D2Config(r2d2.R2D2Config):
 
   # Priority options
   importance_sampling_exponent: float = 0.0
-  priority_exponent: float = 0.9
+  priority_exponent: float = 0.0
 
 
 class R2D2Arch(hk.RNNCore):
@@ -115,10 +115,12 @@ class R2D2Builder(r2d2.R2D2Builder):
       counter: Optional[counting.Counter] = None,
   ) -> core.Learner:
     del environment_spec
-    optimizer_chain = [  # Change: adding clipping + eps
-        optax.clip_by_global_norm(self._config.max_gradient_norm),
-        optax.adam(self._config.learning_rate, eps=self._config.adam_eps),
-    ]
+    optimizer_chain = []
+    if self._config.max_grad_norm:
+      optimizer_chain.append(
+        optax.clip_by_global_norm(self._config.max_grad_norm))
+    optimizer_chain.append(
+      optax.adam(self._config.learning_rate, eps=self._config.adam_eps)),
     # The learner updates the parameters (and initializes them).
     return r2d2_learning.R2D2Learner(
         networks=networks,
