@@ -35,7 +35,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   num_steps: int = 3e6
 
   # value-based action-selection options
-  num_epsilons: int = 10
+  num_epsilons: int = 256
   epsilon_min: float = 1e-2
   epsilon_max: float = 1
 
@@ -48,7 +48,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   learning_rate_decay: float = .1
   lr_transition_steps: int = 100_000
   weight_decay: float = 1e-4
-  max_grad_norm: float = 5.0
+  max_grad_norm: float = 80.0
   warmup_steps: int = 0
   ema_update: float = 0.0
   metrics: str = 'dense'
@@ -115,6 +115,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   model_state_extract_fn: Callable[[Array], Array] = lambda state: state.hidden
   reward_mlps: Tuple[int] = (32,)
   vpi_mlps: Tuple[int] = (128, 32)
+  conv_out_dim: int = 0
 
   # actor hps
   action_source: str = 'policy'  # 'policy', 'value', 'mcts'

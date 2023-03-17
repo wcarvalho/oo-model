@@ -17,54 +17,80 @@ def get(search: str = '', agent: str = ''):
           "max_value": tune.grid_search([10.0]),
         }
     ]
-  elif search == 'r2d2_harder2':
+  elif search == 'r2d2_harder5':
     space = [
         {
           "seed": tune.grid_search([2]),
-          "tasks_file": tune.grid_search(['long', 'pickup_place']),
+          "tasks_file": tune.grid_search(['pickup']),
           "agent": tune.grid_search(['r2d2']),
-          "room_size": tune.grid_search([8]),
+          "room_size": tune.grid_search([7]),
           "num_dists": tune.grid_search([2]),
-          "num_steps": tune.grid_search([30e6]),
-          # "samples_per_insert": tune.grid_search([6.0, 10.0]),
-          # "discount": tune.grid_search([.997]),
-          # "sentence_dim": tune.grid_search([64]),
-          # "word_dim": tune.grid_search([64]),
-          # "task_dim": tune.grid_search([0, 64]),
-          # "trace_length": tune.grid_search([20, 40]),
-        }
-    ]
-  elif search == 'muzero_eps_harder2':
-    space = [
-        {
-          "seed": tune.grid_search([2]),
-          "tasks_file": tune.grid_search(['long', 'pickup_place']),
-          "agent": tune.grid_search(['muzero']),
-          "room_size": tune.grid_search([8]),
-          "num_dists": tune.grid_search([2]),
-          "adam_eps": tune.grid_search([1e-3]),
-          "max_grad_norm": tune.grid_search([80.0]),
+          "num_steps": tune.grid_search([5e6]),
+          "samples_per_insert": tune.grid_search([6.0]),
         },
         {
           "seed": tune.grid_search([2]),
-          "tasks_file": tune.grid_search(['long', 'pickup_place']),
-          "agent": tune.grid_search(['muzero']),
-          "room_size": tune.grid_search([8]),
+          "tasks_file": tune.grid_search(['pickup']),
+          "agent": tune.grid_search(['r2d2']),
+          "room_size": tune.grid_search([7]),
           "num_dists": tune.grid_search([2]),
-          "adam_eps": tune.grid_search([1e-8]),
-          "max_grad_norm": tune.grid_search([5.0]),
+          "num_steps": tune.grid_search([5e6]),
+          "samples_per_insert": tune.grid_search([6.0]),
+          "epsilon_min": tune.grid_search([1]),
+          "epsilon_max": tune.grid_search([8]),
+          "epsilon_base": tune.grid_search([.4]),
         }
     ]
-  elif search == 'muzero_bs_harder2':
+  elif search == 'muzero_harder3':
     space = [
         {
           "seed": tune.grid_search([2]),
-          "tasks_file": tune.grid_search(['long', 'pickup_place']),
+          "tasks_file": tune.grid_search(['pickup_place']),
           "agent": tune.grid_search(['muzero']),
-          "room_size": tune.grid_search([8]),
+          "room_size": tune.grid_search([7]),
+          "num_dists": tune.grid_search([0]),
+          "adam_eps": tune.grid_search([1e-3]),
+          "max_grad_norm": tune.grid_search([80.0]),
+          "num_steps": tune.grid_search([5e6]),
+        },
+        {
+          "seed": tune.grid_search([2]),
+          "tasks_file": tune.grid_search(['pickup_place']),
+          "agent": tune.grid_search(['muzero']),
+          "room_size": tune.grid_search([7]),
+          "num_dists": tune.grid_search([0]),
+          "adam_eps": tune.grid_search([1e-8]),
+          "max_grad_norm": tune.grid_search([5.0]),
+          "num_steps": tune.grid_search([5e6]),
+        }
+    ]
+  elif search == 'double_check3':
+    space = [
+        {
+          "seed": tune.grid_search([2]),
+          "tasks_file": tune.grid_search(['pickup']),
+          "agent": tune.grid_search(['muzero', 'r2d2']),
+          "room_size": tune.grid_search([7]),
           "num_dists": tune.grid_search([2]),
-          "batch_size": tune.grid_search([64, 128]),
-          "samples_per_insert": tune.grid_search([50, 75]),
+          "conv_out_dim": tune.grid_search([0, 32]),
+          # "batch_size": tune.grid_search([64]),
+          # "samples_per_insert": tune.grid_search([50, 75]),
+          # "adam_eps": tune.grid_search([1e-3]),
+          # "max_grad_norm": tune.grid_search([80.0]),
+        },
+    ]
+  elif search == 'double_check4':
+    space = [
+        {
+          "seed": tune.grid_search([2]),
+          "tasks_file": tune.grid_search(['pickup']),
+          "agent": tune.grid_search(['muzero']),
+          "room_size": tune.grid_search([7]),
+          "num_dists": tune.grid_search([2]),
+          "vpi_mlps": tune.grid_search([(512,), (128, 32)]),
+          "reward_mlps": tune.grid_search([(512,), (32,)]),
+          # "batch_size": tune.grid_search([64]),
+          # "samples_per_insert": tune.grid_search([50, 75]),
           # "adam_eps": tune.grid_search([1e-3]),
           # "max_grad_norm": tune.grid_search([80.0]),
         },

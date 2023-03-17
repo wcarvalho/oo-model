@@ -60,7 +60,7 @@ online_async:
 
 online_many:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
-	python -m ipdb -c continue experiments/train_many.py \
+	python experiments/train_many.py \
 		--agent=$(agent) \
 		--spaces="experiments.online_rl_searches" \
 		--use_wandb=$(wandb) \
