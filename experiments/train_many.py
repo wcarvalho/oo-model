@@ -9,15 +9,19 @@ import multiprocessing as mp
 import os
 import time
 
+
 from pathlib import Path
 from ray import tune
+import subprocess
 
 from launchpad.nodes.python.local_multi_processing import PythonProcess
 import launchpad as lp
 
+from acme.utils import paths
+
 from experiments import online_rl  # gets FLAGS arguments
 from experiments import logger as wandb_logger 
-
+from experiments import utils as exp_utils
 
 flags.DEFINE_string('search', 'default', 'which search to use.')
 flags.DEFINE_string('spaces', '', 'which search space to use.')
@@ -26,11 +30,36 @@ flags.DEFINE_integer('num_actors', 0, 'number of actors.')
 flags.DEFINE_integer('num_cpus', 4, 'number of cpus.')
 flags.DEFINE_integer('num_gpus', 1, 'number of gpus.')
 flags.DEFINE_bool('skip', True, 'whether to skip things that have already run.')
+flags.DEFINE_bool('subprocess', True, 'whether to run as subprocess.')
 
 FLAGS = flags.FLAGS
 
 DEFAULT_NUM_ACTORS = 4
 DEFAULT_LABEL = ''
+
+def make_program_command(
+    agent: str,
+    wandb_project: str,
+    wandb_entity: str,
+    wandb_group: str,
+    wandb_name: str,
+    folder: str,
+    agent_config: str,
+    env_config: str,
+  ):
+  return f"""python experiments/online_rl.py
+		--agent={agent}
+		--use_wandb=True
+		--wandb_project={wandb_project}
+		--wandb_entity={wandb_entity}
+		--wandb_group={wandb_group}
+    --wandb_name={wandb_name}
+    --folder={folder}
+    --agent_config={agent_config}
+    --env_config={env_config}
+    --run_distributed=True
+  """
+
 
 def create_and_run_program(
     config,
@@ -43,7 +72,8 @@ def create_and_run_program(
     terminal: str = 'current_terminal',
     skip: bool = True,
     debug: bool = False,
-    log_every: float = 30.0):
+    log_every: float = 30.0,
+    make_subprocess: bool = False):
   """Create and run launchpad program
   """
 
@@ -119,15 +149,45 @@ def create_and_run_program(
   # -----------------------
   # launch experiment
   # -----------------------
-  program, local_resources = make_program_fn(config_kwargs=config,
-                            env_kwargs=env_kwargs,
-                            log_dir=log_dir,
-                            path=root_path,
-                            log_every=log_every,
-                            agent=agent,
-                            wandb_init_kwargs=wandb_init_kwargs)
+  if make_subprocess:
+    if debug:
+      config['num_steps'] = 100e3
+    agent_config_file = f'{log_dir}/agent_config_kw.pkl'
+    env_config_file = f'{log_dir}/env_config_kw.pkl'
+    paths.process_path(log_dir)
+    exp_utils.save_config(agent_config_file, config)
+    exp_utils.save_config(env_config_file, env_kwargs)
 
-  # TODO: check that ray
+    command = make_program_command(
+      agent=agent,
+      wandb_project=wandb_init_kwargs['project'],
+      wandb_group=wandb_init_kwargs['group'],
+      wandb_name=wandb_init_kwargs['name'],
+      wandb_entity=wandb_init_kwargs['entity'],
+      folder=log_dir,
+      agent_config=agent_config_file,
+      env_config=env_config_file,
+    )
+    print(command)
+    command = command.replace("\n", '')
+    cuda_env = os.environ.copy()
+    if cuda:
+      cuda_env["CUDA_VISIBLE_DEVICES"] = str(cuda)
+    process = subprocess.Popen(command, env=cuda_env, shell=True)
+    process.wait()
+    return
+
+
+
+  program, local_resources = make_program_fn(
+    config_kwargs=config,
+    env_kwargs=env_kwargs,
+    log_dir=log_dir,
+    path=root_path,
+    log_every=log_every,
+    agent=agent,
+    wandb_init_kwargs=wandb_init_kwargs)
+
   if cuda:
     local_resources['learner'] = PythonProcess(
       env={"CUDA_VISIBLE_DEVICES": str(cuda)})
@@ -193,6 +253,7 @@ def main(_):
   num_actors = FLAGS.num_actors or DEFAULT_NUM_ACTORS
   root_path = str(Path().absolute())
 
+  subprocess = FLAGS.subprocess
   def train_function(config):
     """Run inside threads and creates new process.
     """
@@ -205,6 +266,7 @@ def main(_):
         root_path=root_path,
         folder=folder,
         group=group,
+        make_subprocess=subprocess,
         wandb_init_kwargs=wandb_init_kwargs if use_wandb else None,
         default_env_kwargs=default_env_kwargs,
         terminal=terminal,

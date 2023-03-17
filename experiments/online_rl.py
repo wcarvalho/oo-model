@@ -18,6 +18,8 @@ Example runing model-based agents on discrete control tasks.
 Copied from: https://github.com/deepmind/acme/blob/master/examples/baselines/rl_discrete/run_r2d2.py
 """
 # Do not preallocate GPU memory for JAX.
+from launchpad.nodes.python.local_multi_processing import PythonProcess
+import pickle
 import os
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 # https://github.com/google/jax/issues/8302
@@ -33,7 +35,6 @@ from acme.jax import experiments
 from acme.utils import loggers
 import dm_env
 import launchpad as lp
-from launchpad.nodes.python.local_multi_processing import PythonProcess
 
 
 from experiments import babyai_utils
@@ -42,7 +43,7 @@ from experiments.muzero_utils import make_muzero_builder
 from experiments.factored_muzero_utils import make_factored_muzero_builder
 from r2d2 import make_r2d2_builder
 from experiments.observers import LevelAvgReturnObserver
-
+from experiments import utils as exp_utils
 
 
 # -----------------------
@@ -58,10 +59,12 @@ flags.DEFINE_string('agent', 'muzero', 'which agent.')
 # flags.DEFINE_bool('init_only', False, 'whether to only init arch.')
 
 # Flags which modify the behavior of the launcher.
+flags.DEFINE_string('agent_config', '', 'config file')
+flags.DEFINE_string('env_config', '', 'config file')
+flags.DEFINE_string('tasks_file', 'pickup_place', 'tasks_file')
 flags.DEFINE_bool(
     'run_distributed', False, 'Should an agent be executed in a distributed '
     'way. If False, will run single-threaded.')
-flags.DEFINE_string('tasks_file', 'pickup_place', 'tasks_file')
 flags.DEFINE_integer('seed', 0, 'Random seed (experiment).')
 flags.DEFINE_integer('num_steps', 1_000_000,
                      'Number of environment steps to run for.')
@@ -76,8 +79,9 @@ flags.DEFINE_bool('use_wandb', False, 'whether to log.')
 flags.DEFINE_string('wandb_project', None, 'wand project.')
 flags.DEFINE_string('wandb_entity', None, 'wandb entity')
 flags.DEFINE_string('wandb_group', '', 'same as wandb group. way to group runs.')
+flags.DEFINE_string('wandb_name', '', 'name of run. way to group runs.')
 flags.DEFINE_string('wandb_notes', '', 'notes for wandb.')
-flags.DEFINE_string('folder', '', 'notes for wandb.')
+flags.DEFINE_string('folder', '', 'folder for experiments.')
 
 FLAGS = flags.FLAGS
 
@@ -137,6 +141,7 @@ def build_experiment_config(launch=False,
     batch_dim = round(config.target_batch_size/config.trace_length)
     config.batch_size = batch_dim
 
+  exp_utils.save_config(f'{log_dir}/config.pkl', config.__dict__)
   # -----------------------
   # wandb setup
   # -----------------------
@@ -234,30 +239,36 @@ def main(_):
     group=FLAGS.wandb_group if FLAGS.wandb_group else FLAGS.agent,
     notes=FLAGS.wandb_notes,
   )
+  if FLAGS.wandb_name:
+    wandb_init_kwargs['name'] = FLAGS.wandb_name
 
   wandb_init_kwargs = wandb_init_kwargs if FLAGS.use_wandb else None
-  log_dir_fn = lambda b: wandb_logger.gen_log_dir(
-        base_dir=b,
-        date=True,
-        hourminute=True,
-        agent=FLAGS.seed,
-        seed=FLAGS.seed,
-        return_kwpath=True)
-  folder = FLAGS.folder or "../results/oo-model/babyai"
-  if FLAGS.run_distributed:
-    log_dir, config_path_str = log_dir_fn(f"{folder}/debug_async")
+  
+  if FLAGS.folder:
+    log_dir = FLAGS.folder
+    if wandb_init_kwargs is not None:
+      wandb_init_kwargs['dir'] = log_dir
   else:
-    log_dir, config_path_str = log_dir_fn(f"{folder}/debug_async")
-  if wandb_init_kwargs is not None:
-    wandb_init_kwargs['name'] = config_path_str
-    wandb_init_kwargs['dir'] = folder
+    folder = "../results/oo-model/babyai"
+    log_dir, config_path_str = wandb_logger.gen_log_dir(
+          base_dir=f"{folder}/debug",
+          date=True,
+          hourminute=True,
+          agent=FLAGS.seed,
+          seed=FLAGS.seed,
+          return_kwpath=True)
+    if wandb_init_kwargs is not None:
+      wandb_init_kwargs['name'] = FLAGS.wandb_name or config_path_str
+      wandb_init_kwargs['dir'] = folder
 
-  env_kwargs = dict(
-      tasks_file=FLAGS.tasks_file,
-  )
-  config_kwargs = dict(
-      num_steps=FLAGS.num_steps,
-  )
+  config_kwargs = dict(num_steps=FLAGS.num_steps)
+  if FLAGS.agent_config:
+    config_kwargs.update(exp_utils.load_config(FLAGS.agent_config))
+
+  env_kwargs = dict(tasks_file=FLAGS.tasks_file)
+  if FLAGS.env_config:
+    env_kwargs.update(exp_utils.load_config(FLAGS.env_config))
+
   if FLAGS.run_distributed:
     program, local_resources = make_distributed_program(
       log_dir=log_dir,
