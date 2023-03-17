@@ -2,6 +2,7 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 
+from muzero.utils import scale_gradient
 
 class ResMlpBlock(hk.Module):
     """A residual convolutional block in pre-activation style."""
@@ -58,6 +59,8 @@ class Transition(hk.Module):
         channels: int,
         num_blocks: int,
         ln: bool = True,
+        rnn_return: bool = False,
+        scale_grad: bool = True,
         name: str = "transition",
     ):
         """Init transition function."""
@@ -65,6 +68,8 @@ class Transition(hk.Module):
         self._channels = channels
         self._num_blocks = num_blocks
         self._ln = ln
+        self._rnn_return = rnn_return
+        self._scale_grad = scale_grad
 
     def __call__(
         self,
@@ -94,6 +99,12 @@ class Transition(hk.Module):
             for _ in range(self._num_blocks)
         ]
         out = hk.Sequential(res_layers)(out)
+
+        if self._scale_grad:
+          out = scale_gradient(out, 0.5)
+        if self._rnn_return:
+           return out, out
+
         return out
 
 

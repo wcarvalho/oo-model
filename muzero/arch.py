@@ -8,15 +8,15 @@ import jax
 import jax.numpy as jnp
 
 from muzero import types as muzero_types
-from muzero.utils import Discretizer
+from muzero.utils import TaskAwareRNN
 
-MuZeroState = muzero_types.MuZeroState
+State = types.NestedArray
 RewardLogits = jnp.ndarray
 PolicyLogits = jnp.ndarray
 ValueLogits = jnp.ndarray
 
-RootFn = Callable[[MuZeroState], Tuple[PolicyLogits, ValueLogits]]
-ModelFn = Callable[[MuZeroState], Tuple[RewardLogits, PolicyLogits, ValueLogits]]
+RootFn = Callable[[State], Tuple[PolicyLogits, ValueLogits]]
+ModelFn = Callable[[State], Tuple[RewardLogits, PolicyLogits, ValueLogits]]
 
 class MuZeroArch(hk.RNNCore):
   """MuZero Network Architecture.
@@ -25,167 +25,152 @@ class MuZeroArch(hk.RNNCore):
   def __init__(self,
                action_encoder,
                observation_fn: hk.Module,
-               state_fn: hk.RNNCore,
-               transition_fn: hk.Module,
+               state_fn: TaskAwareRNN,
+               transition_fn: TaskAwareRNN,
                root_pred_fn: RootFn,
                model_pred_fn: ModelFn,
-               prep_state_input: Callable[[types.NestedArray], types.NestedArray] = lambda x: x,
-               model_compute_r_v: bool = True,
-               discount: float = 1.0,
-               discretizer: Optional[Discretizer] = None,
-               num_actions: Optional[int] = None,
+               prep_state_input: Callable[
+                  [types.NestedArray], types.NestedArray] = lambda x: x,
+               prep_model_state_input: Callable[
+                  [types.NestedArray], types.NestedArray] = lambda x: x,
                ):
     super().__init__(name='muzero_network')
     self._action_encoder = action_encoder
-    self._discretizer = discretizer
     self._observation_fn = observation_fn
     self._state_fn = state_fn
     self._transition_fn = transition_fn
     self._root_pred_fn = root_pred_fn
     self._model_pred_fn = model_pred_fn
     self._prep_state_input = prep_state_input
-
-    # for computing Q-values with model
-    self._model_compute_r_v = model_compute_r_v
-    self._discount = discount
-    self._num_actions = num_actions
+    self._prep_model_state_input = prep_model_state_input
 
   def initial_state(self, batch_size: Optional[int],
-                    **unused_kwargs) -> muzero_types.MuZeroState:
+                    **unused_kwargs) -> State:
     return self._state_fn.initial_state(batch_size)
-
-  def model_compute_r_v(self, state):
-    """Compute Q(s,a) = r(s,a,s') + gamma*Value(s').
-
-    Unroll 1-step model, compute value at next-time, and combine
-    with current reward.
-
-    Args:
-        state (jnp.ndarray): [D]
-        value_logits (jnp.ndarray): [N]
-        policy_logits (jnp.ndarray): [A]
-
-    Returns:
-        jnp.ndarray: Q(s,a) [A]
-    """
-    actions = jnp.arange(self._num_actions, dtype=jnp.int32)
-    # vmap over action dimension, to get 1 estimate per action
-    apply_model = jax.vmap(self.apply_model, in_axes=(None, 0))
-
-    # [A, ...]
-    next_logits, _ = apply_model(state, actions)
-
-    value = self._discretizer.logits_to_scalar(next_logits.value_logits)
-    reward = self._discretizer.logits_to_scalar(next_logits.reward_logits)
-
-    q_value = reward + self._discount*value
-    return q_value, reward, value
 
   def __call__(
       self,
       inputs: types.NestedArray,  # [...]
-      state: muzero_types.MuZeroState  # [...]
-  ) -> Tuple[muzero_types.RootOutput, muzero_types.MuZeroState]:
-    """Predict value and policy for time-step.
+      state: State  # [...]
+  ) -> Tuple[muzero_types.RootOutput, State]:
+    """Apply state function over input.
+
+    In theory, this function can be applied to a batch but this has not been tested.
 
     Args:
-        inputs (types.NestedArray): _description_
+        inputs (types.NestedArray): typically observation.
+        state (State): state to apply function to.
 
     Returns:
-        Tuple[muzero_types.RootOutput, muzero_types.MuZeroState]: _description_
+        Tuple[muzero_types.RootOutput, State]: single muzero output and single new state.
     """
+
     embeddings = self._observation_fn(inputs)  # [D+A+1]
     state_input = self._prep_state_input(embeddings)
 
-    # [N, D]
-    core_outputs, new_state = self._state_fn(state_input, state)
-    muzero_state = muzero_types.MuZeroState(
-        state=core_outputs,
-        task=embeddings.task)
+    # [D], [D]
+    hidden, new_state = self._state_fn(state_input, state)
+    policy_logits, value_logits = self._root_pred_fn(hidden)
 
-    policy_logits, value_logits = self._root_pred_fn(muzero_state)
-
-    q_value = next_reward = next_value = None
-    if self._model_compute_r_v:
-      q_value, next_reward, next_value = self.model_compute_r_v(muzero_state)
-
-    return muzero_types.RootOutput(
-      state=muzero_state,
+    root_outputs = muzero_types.RootOutput(
+      state=hidden,
       value_logits=value_logits,
       policy_logits=policy_logits,
-      next_reward=next_reward,
-      next_value=next_value,
-      q_value=q_value,
-    ), new_state
+    )
+    return root_outputs, new_state
 
   def unroll(
       self,
       inputs: types.NestedArray,  # [T, B, ...]
-      state: muzero_types.MuZeroState  # [T, ...]
-  ) -> Tuple[muzero_types.RootOutput, muzero_types.MuZeroState]:
-    """Apply model
+      state: State  # [T, ...]
+  ) -> Tuple[muzero_types.RootOutput, State]:
+    """Unroll state function over inputs.
 
     Args:
-        inputs (types.NestedArray): _description_
+        inputs (types.NestedArray): typically observations.
+        state (State): state to begin unroll at.
 
     Returns:
-        Tuple[muzero_types.RootOutput, muzero_types.MuZeroState]: _description_
+        Tuple[muzero_types.RootOutput, State]: muzero outputs and single new state.
     """
     embeddings = hk.BatchApply(self._observation_fn)(inputs)  # [T, B, D+A+1]
     state_input = self._prep_state_input(embeddings)
 
-    core_outputs, new_states = hk.static_unroll(
+
+    all_hidden, new_state = hk.static_unroll(
         self._state_fn, state_input, state)
-
-    muzero_state = muzero_types.MuZeroState(
-        state=core_outputs,
-        task=embeddings.task)
-
-    policy_logits, value_logits = hk.BatchApply(self._root_pred_fn)(muzero_state)
-    q_value = next_reward = next_value = None
-    if self._model_compute_r_v:
-      q_value, next_reward, next_value = jax.vmap(jax.vmap(self.model_compute_r_v))(
-        muzero_state)
+    policy_logits, value_logits = hk.BatchApply(self._root_pred_fn)(all_hidden)
 
     return muzero_types.RootOutput(
-        state=muzero_state,
+        state=all_hidden,
         value_logits=value_logits,
         policy_logits=policy_logits,
-        next_reward=next_reward,
-        next_value=next_value,
-        q_value=q_value,
-    ), new_states
+    ), new_state
 
   def apply_model(
       self,
-      state: muzero_types.MuZeroState,
-      action: jnp.ndarray,
-  ) -> Tuple[muzero_types.ModelOutput, muzero_types.MuZeroState]:
-    """_summary_
+      state: State, # [B, D]
+      action: jnp.ndarray, # [B]
+  ) -> Tuple[muzero_types.ModelOutput, State]:
+    """This applies the model to each element in the state, action vectors.
 
     Args:
-        state (muzero_types.MuZeroState): _description_
+        state (State): states.
+        action (jnp.ndarray): actions to take on states.
 
     Returns:
-        Tuple[muzero_types.ModelOutput, muzero_types.MuZeroState]: _description_
+        Tuple[muzero_types.ModelOutput, State]: muzero outputs and new states for 
+          each state state action pair.
     """
+    # [B, A]
     action_onehot = self._action_encoder(action)
-    new_state = self._transition_fn(
-        action_onehot=action_onehot,
-        prev_state=state.state)
+    state = self._prep_model_state_input(state)
 
-    new_state = muzero_types.MuZeroState(
-      state=new_state,
-      task=state.task,
-    )
+    # [B, D], [B, D]
+    hidden, new_state = self._transition_fn(action_onehot, state)
 
-    reward_logits, policy_logits, value_logits = self._model_pred_fn(new_state)
+    reward_logits, policy_logits, value_logits = self._model_pred_fn(hidden)
 
     model_output = muzero_types.ModelOutput(
-      new_state=new_state,
+      new_state=hidden,
       value_logits=value_logits,
       policy_logits=policy_logits,
       reward_logits=reward_logits,
     )
+    # [B, D], [B, D]
     return model_output, new_state
 
+  def unroll_model(
+      self,
+      state: State,  # [D]
+      action_sequence: jnp.ndarray,  # [T]
+  ) -> Tuple[muzero_types.ModelOutput, State]:
+    """This unrolls the model starting from the state and applying the 
+      action sequence.
+
+    Args:
+        state (State): starting state.
+        action_sequence (jnp.ndarray): actions to unroll.
+
+    Returns:
+        Tuple[muzero_types.ModelOutput, State]: muzero outputs and single new state.
+    """
+    # [T, A]
+    action_onehot = self._action_encoder(action_sequence)
+    state = self._prep_model_state_input(state)
+
+    # [T, D], [D]
+    all_hidden, new_state = hk.static_unroll(
+        self._transition_fn, action_onehot, state)
+
+    # [T, D]
+    reward_logits, policy_logits, value_logits = self._model_pred_fn(all_hidden)
+
+    model_output = muzero_types.ModelOutput(
+      new_state=all_hidden,
+      value_logits=value_logits,
+      policy_logits=policy_logits,
+      reward_logits=reward_logits,
+    )
+    # [T, D], [D]
+    return model_output, new_state

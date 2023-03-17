@@ -21,8 +21,7 @@ Observation = networks_lib.Observation
 Action = networks_lib.Action
 
 
-@chex.dataclass(frozen=True)
-class MuZeroState:
+class TaskAwareState(NamedTuple):
   state: types.NestedArray
   task: jnp.ndarray
 
@@ -32,9 +31,6 @@ class RootOutput:
   state: types.NestedArray
   value_logits: jnp.ndarray
   policy_logits: jnp.ndarray
-  next_reward: Optional[jnp.ndarray] = None
-  next_value: Optional[jnp.ndarray] = None
-  q_value: Optional[jnp.ndarray] = None
 
 
 @chex.dataclass(frozen=True)
@@ -56,6 +52,8 @@ class MuZeroNetworks:
                    Tuple[NetworkOutput, RecurrentState]]
   init_recurrent_state: Callable[[PRNGKey, Optional[BatchSize]], RecurrentState]
   apply_model: Callable[[Params, PRNGKey, RecurrentState, Action],
+                  Tuple[NetworkOutput, RecurrentState]]
+  unroll_model: Callable[[Params, PRNGKey, RecurrentState, Action],
                   Tuple[NetworkOutput, RecurrentState]]
 
 

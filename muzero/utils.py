@@ -2,14 +2,22 @@
 # Codes adapted from:
 # https://github.com/Hwhitetooth/jax_muzero/blob/main/algorithms/utils.py
 
-from typing import Optional
+from typing import Optional, Callable
 import chex
 import jax
 import jax.numpy as jnp
+import haiku as hk
 import math
 import rlax
 # only change is below
 from acme.types import NestedArray as Array
+
+from muzero.types import TaskAwareState
+
+def add_batch(nest, batch_size: Optional[int]):
+  """Adds a batch dimension at axis 0 to the leaves of a nested structure."""
+  broadcast = lambda x: jnp.broadcast_to(x, (batch_size,) + x.shape)
+  return jax.tree_util.tree_map(broadcast, nest)
 
 def scale_gradient(g: Array, scale: float) -> Array:
     """Scale the gradient.
@@ -60,3 +68,48 @@ class Discretizer:
         max_value=self._max_value,
         num_bins=self._num_bins)
      return probs
+
+class TaskAwareRNN(hk.RNNCore):
+  """Helper RNN which adds task to state and, optionally, hidden output. 
+  
+  It's useful to couple the task g and the state s_t output for functions that make
+    predictions at each time-step. For example:
+      - value predictions: V(s_t, g)
+      - policy: pi(s_t, g)
+    If you use this class with hk.static_unroll, then the hidden output will have s_t 
+      and g of the same dimension.
+      i.e. ((s_1, g), (s_2, g), ..., (s_k, g))
+  """
+  def __init__(self,
+               core: hk.RNNCore,
+               task_dim: Optional[int] = None,
+               couple_hidden_task: bool = True,
+               get_state_input: Callable[[TaskAwareState], Array] = lambda s: s.state,
+               name: Optional[str] = None
+               ):
+    super().__init__(name=name)
+    self._core = core
+    self._task_dim = task_dim
+    self._couple_hidden_task = couple_hidden_task
+    self._get_state_input = get_state_input
+
+  def initial_state(self, batch_size: Optional[int],
+                    **unused_kwargs) -> TaskAwareState:
+    if self._task_dim is None:
+      raise RuntimeError("Don't expect to initialize state")
+
+    state = TaskAwareState(
+      state=self._core.initial_state(None),
+      task=jnp.zeros(self._task_dim)
+    )
+    if batch_size:
+      state = add_batch(state, batch_size)
+    return state
+
+  def __call__(self, inputs: Array, prev_state: TaskAwareState):
+    hidden, state = self._core(inputs, self._get_state_input(prev_state))
+    state = TaskAwareState(state=state, task=prev_state.task)
+
+    if self._couple_hidden_task:
+      hidden = TaskAwareState(state=hidden, task=prev_state.task)
+    return hidden, state

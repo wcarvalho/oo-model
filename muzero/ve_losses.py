@@ -40,6 +40,7 @@ from muzero.utils import (
 )
 
 Array = acme_types.NestedArray
+State = acme_types.NestedArray
 
 def aprint(a): return pprint(jax.tree_map(lambda x: x.shape, a))
 
@@ -69,7 +70,7 @@ class ValueEquivalentLoss:
                value_coef: float = 1.0,
                reward_coef: float = 1.0,
                model_coef: float = 1.0,
-               model_share_params: bool = True,
+               get_model_params: Callable[[networks_lib.Params], networks_lib.Params] = lambda params: params.model,
                v_target_source: str = 'return',
                metrics: str = 'sparse',
                ):
@@ -88,7 +89,7 @@ class ValueEquivalentLoss:
     self._reward_coef = reward_coef
     self._policy_loss_fn = policy_loss_fn
     self._v_target_source = v_target_source
-    self._model_share_params = model_share_params
+    self._get_model_params = get_model_params
     self._metrics = metrics
     assert metrics in ('sparse', 'dense')
     assert v_target_source in ('mcts', 'return', 'q_learning')
@@ -99,8 +100,8 @@ class ValueEquivalentLoss:
                is_terminal_mask: Array,
                online_outputs: muzero_types.RootOutput,
                target_outputs: muzero_types.RootOutput,
-               online_state: muzero_types.MuZeroState,
-               target_state: muzero_types.MuZeroState,
+               online_state: State,
+               target_state: State,
                rng_key: networks_lib.PRNGKey,
                ):
     del online_state
@@ -289,7 +290,7 @@ class ValueEquivalentLoss:
     # 1 step of policy improvement
     rng_key, improve_key = jax.random.split(rng_key)
     mcts_outputs = self._muzero_policy(
-        params=self._target_params if self._model_share_params else self._target_params.model,
+        params=self._get_model_params(self._target_params),
         rng_key=improve_key,
         root=roots,
         recurrent_fn=functools.partial(
@@ -368,12 +369,9 @@ class ValueEquivalentLoss:
     # 2) unroll model and get predictions
     rng_key, model_key = jax.random.split(rng_key)
     state = starting_outputs.state
-    _, model_output = model_unroll(
-        networks=self._networks,
-        params=self._params,
-        rng_key=model_key,
-        state=state,
-        action_sequence=simulation_actions,
+    model_output, _ = self._networks.unroll_model(
+        self._get_model_params(self._params),
+        model_key, state, simulation_actions,
     )
     _batch_categorical_cross_entropy = jax.vmap(rlax.categorical_cross_entropy)
 
@@ -398,33 +396,6 @@ class ValueEquivalentLoss:
       }
 
     return reward_loss, value_loss, policy_loss, model_output.reward_logits[0], metrics
-
-def model_unroll(
-    networks: muzero_types.MuZeroNetworks,
-    params: networks_lib.Params,
-    rng_key: networks_lib.PRNGKey,
-    # num_bins: int,
-    state: Array,
-    action_sequence: Array,
-) -> muzero_types.ModelOutput:
-    """Unroll the learned model with a sequence of actions."""
-
-    def fn(state: Array,
-           action: Array,
-           rng_key: networks_lib.PRNGKey) -> Tuple[Array, Array]:
-        """Dynamics fun for scan."""
-        rng_key, model_key = jax.random.split(rng_key)
-        model_outputs, next_state = networks.apply_model(
-            params, model_key, state, action,
-        )
-        next_state=muzero_types.MuZeroState(
-          state=scale_gradient(next_state.state, 0.5),
-          task=next_state.task,
-        )
-        return next_state, model_outputs
-
-    fn = functools.partial(fn, rng_key=rng_key)
-    return jax.lax.scan(fn, state, action_sequence)
 
 
 def model_step(params: networks_lib.Params,

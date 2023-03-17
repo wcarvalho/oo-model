@@ -32,7 +32,7 @@ def policy_select_action(
     observation: networks_lib.Observation,
     state: MuZeroActorState[actor_core_lib.RecurrentState],
     networks: types.MuZeroNetworks,
-    model_share_params: bool=True,
+    model_share_params: bool=False,
     evaluation: bool = True):
   rng, policy_rng = jax.random.split(state.rng)
 
@@ -84,7 +84,7 @@ def get_actor_core(
   
   assert config.action_source in ['policy', 'value', 'mcts']
   if config.action_source == 'policy':
-    model_share_params = config.action_source == "value" or not config.seperate_model_nets
+    model_share_params = False
     select_action = functools.partial(policy_select_action,
                                       networks=networks,
                                       evaluation=evaluation,

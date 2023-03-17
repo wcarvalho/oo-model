@@ -34,13 +34,12 @@ from modules import language
 from modules import vision_language
 from modules import simple_mlp_muzero
 from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
-from muzero.arch import MuZeroArch
-from muzero.types import MuZeroNetworks, MuZeroState
+from muzero.arch import MuZeroArch, TaskAwareRNN
+from muzero.types import MuZeroNetworks, TaskAwareState
 from muzero.config import MuZeroConfig
 from muzero.utils import Discretizer
 
 
-# MuZeroNetworks = networks_lib.UnrollableNetwork
 NetworkOutput = networks_lib.NetworkOutput
 RecurrentState = networks_lib.RecurrentState
 
@@ -65,7 +64,8 @@ def make_babyai_networks(
     res_dim = config.resnet_transition_dim or state_dim
 
     assert config.vision_torso in ('babyai')
-    vision_torso = vision.BabyAIVisionTorso(conv_dim=0, flatten=False)
+    vision_torso = vision.BabyAIVisionTorso(
+        conv_dim=config.conv_out_dim, flatten=False)
 
     observation_fn = vision_language.Torso(
       num_actions=num_actions,
@@ -111,14 +111,14 @@ def make_babyai_networks(
       model_policy_fn=root_policy_fn
       model_vpi_base = root_vpi_base
 
-    def root_predictor(state: MuZeroState):
+    def root_predictor(state: TaskAwareState):
       state = state.state
       state = root_vpi_base(state)
       policy_logits = root_policy_fn(state)
       value_logits = root_value_fn(state)
       return policy_logits, value_logits
 
-    def model_predictor(state: MuZeroState):
+    def model_predictor(state: TaskAwareState):
       state = state.state
       reward_logits = model_reward_fn(state)
       state = model_vpi_base(state)
@@ -126,33 +126,42 @@ def make_babyai_networks(
       value_logits = model_value_fn(state)
       return reward_logits, policy_logits, value_logits
 
+    state_fn = TaskAwareRNN(core=hk.LSTM(state_dim),
+                         task_dim=config.task_dim)
+    transition_fn = TaskAwareRNN(
+      core=Transition(
+        channels=res_dim,
+        num_blocks=config.transition_blocks,
+        ln=config.ln,
+        rnn_return=True),
+    )
+
     return MuZeroArch(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
-      discretizer=discretizer,
       observation_fn=observation_fn,
       prep_state_input=concat_embeddings,
-      state_fn=hk.LSTM(state_dim),
-      transition_fn=Transition(
-        channels=res_dim,
-        num_blocks=config.transition_blocks,
-        ln=config.ln),
+      state_fn=state_fn,
+      transition_fn=transition_fn,
       root_pred_fn=root_predictor,
-      model_pred_fn=model_predictor,
-      model_compute_r_v=True,
-      discount=config.discount,
-      num_actions=num_actions)
+      model_pred_fn=model_predictor)
 
-  return make_unrollable_model_network(env_spec, make_core_module)
+  def make_transition_state():
+    return TaskAwareState(
+      state=jnp.zeros(config.state_dim),
+      task=jnp.zeros(config.task_dim),
+    )
+  return make_unrollable_model_network(make_transition_state, env_spec, make_core_module)
 
 
 def make_unrollable_model_network(
+        make_transition_state: Callable[[], types.NestedArray],
         environment_spec: specs.EnvironmentSpec,
         make_core_module: Callable[[], hk.RNNCore]) -> MuZeroNetworks:
   """Builds a MuZeroNetworks from a hk.Module factory."""
 
   dummy_observation = jax_utils.zeros_like(environment_spec.observations)
-  dummy_action = jnp.array(0)
+  dummy_actions = jnp.array([0, 1])
 
   def make_unrollable_network_functions():
     network = make_core_module()
@@ -173,13 +182,13 @@ def make_unrollable_model_network(
     network = make_core_module()
 
     def init() -> Tuple[NetworkOutput, RecurrentState]:
-      return network.apply_model(network.initial_state(None).hidden, dummy_action)
+      return network.unroll_model(make_transition_state(), dummy_actions)
 
-    return init, network.apply_model
+    return init, (network.apply_model, network.unroll_model)
 
   # Transform and unpack pure functions
   g = hk.multi_transform(make_transition_model_functions)
-  apply_model = g.apply
+  apply_model, unroll_model = g.apply
 
   def init_recurrent_state(key: jax_types.PRNGKey,
                            batch_size: Optional[int]) -> RecurrentState:
@@ -194,4 +203,5 @@ def make_unrollable_model_network(
     apply=apply,
     unroll=unroll,
     apply_model=apply_model,
+    unroll_model=unroll_model,
     init_recurrent_state=init_recurrent_state)
