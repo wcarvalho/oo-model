@@ -126,9 +126,16 @@ def make_babyai_networks(
       value_logits = model_value_fn(state)
       return reward_logits, policy_logits, value_logits
 
-    state_fn = TaskAwareRNN(core=hk.LSTM(state_dim),
-                         task_dim=config.task_dim)
+    # during state unroll, rnn gets task from inputs and stores in state
+    state_fn = TaskAwareRNN(
+      get_task=lambda inputs, state: inputs.task,
+      core=hk.LSTM(state_dim),
+      task_dim=config.task_dim,
+      prep_input=concat_embeddings)
+    
+    # transition gets task from state and stores in state
     transition_fn = TaskAwareRNN(
+      get_task=lambda inputs, state: state.task,
       core=Transition(
         channels=res_dim,
         num_blocks=config.transition_blocks,
@@ -140,7 +147,6 @@ def make_babyai_networks(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
       observation_fn=observation_fn,
-      prep_state_input=concat_embeddings,
       state_fn=state_fn,
       transition_fn=transition_fn,
       root_pred_fn=root_predictor,
@@ -149,7 +155,7 @@ def make_babyai_networks(
   def make_transition_state():
     return TaskAwareState(
       state=jnp.zeros(config.state_dim),
-      task=jnp.zeros(config.task_dim),
+      task=jnp.ones(config.task_dim),
     )
   return make_unrollable_model_network(make_transition_state, env_spec, make_core_module)
 

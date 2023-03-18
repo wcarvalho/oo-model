@@ -84,14 +84,20 @@ class TaskAwareRNN(hk.RNNCore):
                core: hk.RNNCore,
                task_dim: Optional[int] = None,
                couple_hidden_task: bool = True,
-               get_state_input: Callable[[TaskAwareState], Array] = lambda s: s.state,
+               get_task: Callable[
+                   [Array, Array], Array] = lambda inputs, state: state.task,
+               prep_input: Callable[
+                  [Array], Array] = lambda x: x,
+               prep_state: Callable[[TaskAwareState], Array] = lambda s: s.state,
                name: Optional[str] = None
                ):
     super().__init__(name=name)
     self._core = core
     self._task_dim = task_dim
+    self._get_task = get_task
     self._couple_hidden_task = couple_hidden_task
-    self._get_state_input = get_state_input
+    self._prep_input = prep_input
+    self._prep_state = prep_state
 
   def initial_state(self, batch_size: Optional[int],
                     **unused_kwargs) -> TaskAwareState:
@@ -107,8 +113,11 @@ class TaskAwareRNN(hk.RNNCore):
     return state
 
   def __call__(self, inputs: Array, prev_state: TaskAwareState):
-    hidden, state = self._core(inputs, self._get_state_input(prev_state))
-    state = TaskAwareState(state=state, task=prev_state.task)
+    hidden, state = self._core(self._prep_input(inputs),
+                               self._prep_state(prev_state))
+
+    task = self._get_task(inputs, prev_state)
+    state = TaskAwareState(state=state, task=task)
 
     if self._couple_hidden_task:
       hidden = TaskAwareState(state=hidden, task=prev_state.task)
