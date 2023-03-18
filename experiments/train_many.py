@@ -151,7 +151,7 @@ def create_and_run_program(
   # -----------------------
   if make_subprocess:
     if debug:
-      config['num_steps'] = 100e3
+      config['num_steps'] = 50e3
     agent_config_file = f'{log_dir}/agent_config_kw.pkl'
     env_config_file = f'{log_dir}/env_config_kw.pkl'
     paths.process_path(log_dir)

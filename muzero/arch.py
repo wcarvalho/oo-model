@@ -58,8 +58,8 @@ class MuZeroArch(hk.RNNCore):
     In theory, this function can be applied to a batch but this has not been tested.
 
     Args:
-        inputs (types.NestedArray): typically observation.
-        state (State): state to apply function to.
+        inputs (types.NestedArray): typically observation. [D]
+        state (State): state to apply function to. [D]
 
     Returns:
         Tuple[muzero_types.RootOutput, State]: single muzero output and single new state.
@@ -87,8 +87,8 @@ class MuZeroArch(hk.RNNCore):
     """Unroll state function over inputs.
 
     Args:
-        inputs (types.NestedArray): typically observations.
-        state (State): state to begin unroll at.
+        inputs (types.NestedArray): typically observations. [T, B, ...]
+        state (State): state to begin unroll at. [T, ...]
 
     Returns:
         Tuple[muzero_types.RootOutput, State]: muzero outputs and single new state.
@@ -115,8 +115,8 @@ class MuZeroArch(hk.RNNCore):
     """This applies the model to each element in the state, action vectors.
 
     Args:
-        state (State): states.
-        action (jnp.ndarray): actions to take on states.
+        state (State): states. [B, D]
+        action (jnp.ndarray): actions to take on states. [B]
 
     Returns:
         Tuple[muzero_types.ModelOutput, State]: muzero outputs and new states for 
@@ -149,8 +149,8 @@ class MuZeroArch(hk.RNNCore):
       action sequence.
 
     Args:
-        state (State): starting state.
-        action_sequence (jnp.ndarray): actions to unroll.
+        state (State): starting state. [D]
+        action_sequence (jnp.ndarray): actions to unroll. [T]
 
     Returns:
         Tuple[muzero_types.ModelOutput, State]: muzero outputs and single new state.

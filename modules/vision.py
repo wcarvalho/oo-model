@@ -128,7 +128,7 @@ class AtariImpalaTorso(hk.Module):
 class BabyAIVisionTorso(hk.Module):
   """Convolutional stack used in BabyAI codebase."""
 
-  def __init__(self, flatten=True, conv_dim=16, out_dim=0):
+  def __init__(self, flatten=False, conv_dim=16, out_dim=0):
     super().__init__(name='babyai_torso')
     layers = [
         hk.Conv2D(128, [8, 8], stride=8),
