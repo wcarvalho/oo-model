@@ -58,10 +58,13 @@ def get(search: str = '', agent: str = ''):
           "seed": tune.grid_search([1,2,3]),
           "tasks_file": tune.grid_search(['pickup']),
           "agent": tune.grid_search(['muzero']),
+          # "samples_per_insert": tune.grid_search([50, 75]),
           "room_size": tune.grid_search([7]),
-          "num_dists": tune.grid_search([0, 2]),
-          "num_steps": tune.grid_search([5e6]),
-          "adam_eps": tune.grid_search([1e-3, 1e-5]),
+          "num_dists": tune.grid_search([2]),
+          "num_steps": tune.grid_search([3e6]),
+          "adam_eps": tune.grid_search([1e-3, 1e-8]),
+          "max_grad_norm": tune.grid_search([80.0, 5.0]),
+          "group": tune.grid_search([f'pickup_2_v3']),
         },
     ]
   elif search == 'double_check3':

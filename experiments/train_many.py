@@ -120,7 +120,7 @@ def create_and_run_program(
     hourminute=False,
     return_kwpath=True,
     date=False,
-    path_skip=['max_number_of_steps'],
+    path_skip=['num_steps'],
     **log_path_config
     )
 

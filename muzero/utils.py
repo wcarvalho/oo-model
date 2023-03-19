@@ -1,6 +1,4 @@
 """Agent utilities."""
-# Codes adapted from:
-# https://github.com/Hwhitetooth/jax_muzero/blob/main/algorithms/utils.py
 
 from typing import Optional, Callable
 import chex
@@ -9,7 +7,7 @@ import jax.numpy as jnp
 import haiku as hk
 import math
 import rlax
-# only change is below
+
 from acme.types import NestedArray as Array
 
 from muzero.types import TaskAwareState

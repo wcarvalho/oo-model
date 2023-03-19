@@ -33,6 +33,7 @@ from absl import flags
 from absl import app
 from acme.jax import experiments
 from acme.utils import loggers
+from acme.utils import paths
 import dm_env
 import launchpad as lp
 
@@ -141,6 +142,7 @@ def build_experiment_config(launch=False,
     batch_dim = round(config.target_batch_size/config.trace_length)
     config.batch_size = batch_dim
 
+  paths.process_path(log_dir)
   exp_utils.save_config(f'{log_dir}/config.pkl', config.__dict__)
   # -----------------------
   # wandb setup

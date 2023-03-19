@@ -102,6 +102,7 @@ class Transition(hk.Module):
 
         if self._scale_grad:
           out = scale_gradient(out, 0.5)
+
         if self._rnn_return:
            return out, out
 

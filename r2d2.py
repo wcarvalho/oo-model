@@ -47,8 +47,8 @@ class R2D2Config(r2d2.R2D2Config):
 
   # value-based action-selection options
   num_epsilons: int = 256
-  epsilon_min: float = 1e-2
-  epsilon_max: float = 1
+  epsilon_min: float = 1
+  epsilon_max: float = 3
   epsilon_base: float = .1
 
   # Learner options

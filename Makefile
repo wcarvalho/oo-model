@@ -1,6 +1,7 @@
 cuda?=3
 actors?=4
 gpus?=1
+cpus?=4
 debug?=0
 skip?=1
 data_file?='data/place.debug.pkl'
@@ -73,4 +74,5 @@ online_many:
 		--tasks_file=$(task) \
 		--search=$(search) \
 		--num_actors=$(actors) \
-		--num_gpus=$(gpus)
+		--num_gpus=$(gpus) \
+		--num_cpus=$(cpus)

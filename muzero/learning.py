@@ -96,15 +96,15 @@ class MuZeroLearner(acme.Learner):
                discretizer: muzero_utils.Discretizer,
                use_core_state: bool = True,
                LossFn = ve_losses.ValueEquivalentLoss,
+               get_unroll_params: Callable[[networks_lib.Params], networks_lib.Params] = lambda params: params.unroll,
+               get_model_params: Callable[[networks_lib.Params], networks_lib.Params] = lambda params: params.model,
                replay_client: Optional[reverb.Client] = None,
                counter: Optional[counting.Counter] = None,
                logger: Optional[loggers.Logger] = None):
     """Initializes the learner."""
     self._config = config
     simulation_steps = config.simulation_steps
-
     num_simulations = config.num_simulations
-
     td_steps = config.td_steps
     policy_coef = config.policy_coef
     value_coef = config.value_coef
@@ -160,9 +160,9 @@ class MuZeroLearner(acme.Learner):
         burn_obs = jax.tree_map(lambda x: x[:burn_in_length], data.observation)
         key_grad, key1, key2 = jax.random.split(key_grad, 3)
         _, online_state = networks.unroll(
-          params.unroll, key1, burn_obs, online_state)
+          get_unroll_params(params), key1, burn_obs, online_state)
         _, target_state = networks.unroll(
-          target_params.unroll, key2, burn_obs, target_state)
+          get_unroll_params(target_params), key2, burn_obs, target_state)
 
       #####################
       # Compute state + quantities for rest of trajectory
@@ -173,9 +173,9 @@ class MuZeroLearner(acme.Learner):
       # Unroll on sequences to get online and target Q-Values.
       key_grad, key1, key2 = jax.random.split(key_grad, 3)
       online_outputs, online_state = networks.unroll(
-        params.unroll, key1, data.observation, online_state)
+        get_unroll_params(params), key1, data.observation, online_state)
       target_outputs, target_state = networks.unroll(
-        target_params.unroll, key2, data.observation, target_state)
+        get_unroll_params(target_params), key2, data.observation, target_state)
 
       ve_loss_fn = LossFn(
         networks=networks,
@@ -192,6 +192,7 @@ class MuZeroLearner(acme.Learner):
         value_coef=value_coef,
         reward_coef=reward_coef,
         policy_loss_fn=policy_loss_fn,
+        get_model_params=get_model_params,
         v_target_source=config.v_target_source,
         metrics=config.metrics,
       )
@@ -325,18 +326,41 @@ class MuZeroLearner(acme.Learner):
     ########################
     random_key, key_init1, key_init2 = jax.random.split(random_key, 3)
 
-    initial_params = muzero_types.MuZeroParams(
-      unroll=networks.unroll_init(key_init1),
-      model=networks.model_init(key_init2),
-    )
-    weight_decay_mask = muzero_types.MuZeroParams(
-      unroll=hk.data_structures.map(
+    if config.seperate_model_nets:
+      initial_params = muzero_types.MuZeroParams(
+        unroll=networks.unroll_init(key_init1),
+        model=networks.model_init(key_init2),
+      )
+      weight_decay_mask = muzero_types.MuZeroParams(
+        unroll=hk.data_structures.map(
+            lambda module_name, name, value: True if name == "w" else False,
+            initial_params.unroll),
+        model=hk.data_structures.map(
+            lambda module_name, name, value: True if name == "w" else False,
+            initial_params.model)
+      )
+      sizes = tree.map_structure(jnp.size, initial_params)
+      unroll_size = sum(tree.flatten(sizes.unroll.values()))
+      model_size = sum(tree.flatten(sizes.model.values()))
+      total_size = unroll_size + model_size
+      logging.info('Total number of unroll params: %.3g', unroll_size)
+      logging.info('Total number of model params: %.3g', model_size)
+      logging.info('Total params ALLTOGETHER: %.3g', total_size)
+    else:
+      initial_params = hk.data_structures.merge(
+          networks.model_init(key_init2),
+          networks.unroll_init(key_init1),
+          )
+      
+      weight_decay_mask = hk.data_structures.map(
           lambda module_name, name, value: True if name == "w" else False,
-          initial_params.unroll),
-      model=hk.data_structures.map(
-          lambda module_name, name, value: True if name == "w" else False,
-          initial_params.model)
-    )
+          initial_params)
+      sizes = tree.map_structure(jnp.size, initial_params)
+      from pprint import pprint
+      pprint(sizes)
+      import ipdb; ipdb.set_trace()
+      logging.info('Total number of params: %.3g',
+                   sum(tree.flatten(sizes.values())))
 
     if config.warmup_steps > 0:
       learning_rate = optax.warmup_exponential_decay_schedule(
@@ -364,14 +388,7 @@ class MuZeroLearner(acme.Learner):
 
     opt_state = optimizer.init(initial_params)
 
-    # Log how many parameters the network has.
-    sizes = tree.map_structure(jnp.size, initial_params)
-    unroll_size = sum(tree.flatten(sizes.unroll.values()))
-    model_size = sum(tree.flatten(sizes.model.values()))
-    total_size = unroll_size + model_size
-    logging.info('Total number of unroll params: %.3g', unroll_size)
-    logging.info('Total number of model params: %.3g', model_size)
-    logging.info('Total params ALLTOGETHER: %.3g', total_size)
+
 
     state = TrainingState(
         params=initial_params,

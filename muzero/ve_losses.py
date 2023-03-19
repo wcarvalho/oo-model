@@ -334,8 +334,6 @@ class ValueEquivalentLoss:
       returns = rlax.transformed_n_step_returns(
           self._discretizer._tx_pair, data.reward[:-1], discounts, v_t, self._td_steps)
 
-    returns = jax.lax.stop_gradient(returns)
-
     # Value targets for the absorbing state and the states after are 0.
     dim_return = returns.shape[0]
     value_target = jax.lax.select(

@@ -33,8 +33,8 @@ class MuZeroArch(hk.RNNCore):
                   [types.NestedArray], types.NestedArray] = lambda x: x,
                prep_model_state_input: Callable[
                   [types.NestedArray], types.NestedArray] = lambda x: x,
-               ):
-    super().__init__(name='muzero_network')
+               name='muzero_network'):
+    super().__init__(name=name)
     self._action_encoder = action_encoder
     self._observation_fn = observation_fn
     self._state_fn = state_fn

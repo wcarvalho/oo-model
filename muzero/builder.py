@@ -62,6 +62,12 @@ class MuZeroBuilder(r2d2.R2D2Builder):
     self._discretizer = discretizer
     self._sequence_length = (
         self._config.burn_in_length + self._config.trace_length + 1)
+    if config.seperate_model_nets:
+      self._get_model_params = lambda params: params.model
+      self._get_unroll_params = lambda params: params.unroll
+    else:
+      self._get_unroll_params = lambda params: params
+      self._get_model_params = lambda params: params
 
   def make_learner(
       self,
@@ -74,7 +80,6 @@ class MuZeroBuilder(r2d2.R2D2Builder):
       counter: Optional[counting.Counter] = None,
   ) -> core.Learner:
     del environment_spec
-
     # The learner updates the parameters (and initializes them).
     return MuZeroLearner(
         networks=networks,
@@ -88,6 +93,8 @@ class MuZeroBuilder(r2d2.R2D2Builder):
         target_update_period=self._config.target_update_period,
         iterator=dataset,
         discretizer=self._discretizer,
+        get_model_params=self._get_unroll_params,
+        get_unroll_params=self._get_unroll_params,
         # bootstrap_n=self._config.bootstrap_n,
         # tx_pair=self._config.tx_pair,
         # clip_rewards=self._config.clip_rewards,
@@ -103,4 +110,5 @@ class MuZeroBuilder(r2d2.R2D2Builder):
     del environment_spec
     return muzero_actor.get_actor_core(networks,
                                        evaluation=evaluation,
+                                       get_unroll_params=self._get_unroll_params,
                                        config=self._config)

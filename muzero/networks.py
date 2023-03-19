@@ -64,8 +64,7 @@ def make_babyai_networks(
     res_dim = config.resnet_transition_dim or state_dim
 
     assert config.vision_torso in ('babyai')
-    vision_torso = vision.BabyAIVisionTorso(
-        conv_dim=config.conv_out_dim, flatten=False)
+    vision_torso = vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim)
 
     observation_fn = vision_language.Torso(
       num_actions=num_actions,
@@ -128,14 +127,14 @@ def make_babyai_networks(
 
     # during state unroll, rnn gets task from inputs and stores in state
     state_fn = TaskAwareRNN(
-      get_task=lambda inputs, state: inputs.task,
+      get_task=lambda inputs, _: inputs.task,
       core=hk.LSTM(state_dim),
       task_dim=config.task_dim,
       prep_input=concat_embeddings)
     
     # transition gets task from state and stores in state
     transition_fn = TaskAwareRNN(
-      get_task=lambda inputs, state: state.task,
+      get_task=lambda _, state: state.task,
       core=Transition(
         channels=res_dim,
         num_blocks=config.transition_blocks,
