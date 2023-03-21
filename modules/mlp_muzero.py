@@ -60,7 +60,7 @@ class Transition(hk.Module):
         num_blocks: int,
         ln: bool = True,
         rnn_return: bool = False,
-        scale_grad: bool = True,
+        scale_grad: float = 0.5,
         name: str = "transition",
     ):
         """Init transition function."""
@@ -100,8 +100,8 @@ class Transition(hk.Module):
         ]
         out = hk.Sequential(res_layers)(out)
 
-        if self._scale_grad:
-          out = scale_gradient(out, 0.5)
+        if self._scale_grad and self._scale_grad > 0.0:
+          out = scale_gradient(out, self._scale_grad)
 
         if self._rnn_return:
            return out, out

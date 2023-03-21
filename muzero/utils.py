@@ -104,7 +104,7 @@ class TaskAwareRNN(hk.RNNCore):
 
     state = TaskAwareState(
       state=self._core.initial_state(None),
-      task=jnp.zeros(self._task_dim)
+      task=jnp.zeros(self._task_dim, dtype=jnp.float32)
     )
     if batch_size:
       state = add_batch(state, batch_size)
@@ -116,7 +116,7 @@ class TaskAwareRNN(hk.RNNCore):
 
     task = self._get_task(inputs, prev_state)
     state = TaskAwareState(state=state, task=task)
-
     if self._couple_hidden_task:
-      hidden = TaskAwareState(state=hidden, task=prev_state.task)
+      hidden = TaskAwareState(state=hidden, task=task)
+
     return hidden, state

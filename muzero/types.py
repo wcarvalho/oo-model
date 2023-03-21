@@ -40,21 +40,22 @@ class ModelOutput:
   value_logits: types.NestedArray
   policy_logits: types.NestedArray
 
+InitFn = Callable[[PRNGKey], Params]
+StateFn = Callable[[Params, PRNGKey, Observation, RecurrentState],
+                  Tuple[NetworkOutput, RecurrentState]]
+ModelFn = Callable[[Params, PRNGKey, RecurrentState, Action],
+                   Tuple[NetworkOutput, RecurrentState]]
 
 @dataclasses.dataclass
 class MuZeroNetworks:
   """Network that can unroll state-fn and apply model over an input sequence."""
-  unroll_init: Callable[[PRNGKey], Params]
-  model_init: Callable[[PRNGKey], Params]
-  apply: Callable[[Params, PRNGKey, Observation, RecurrentState],
-                  Tuple[NetworkOutput, RecurrentState]]
-  unroll: Callable[[Params, PRNGKey, Observation, RecurrentState],
-                   Tuple[NetworkOutput, RecurrentState]]
+  unroll_init: InitFn
+  apply: StateFn
+  unroll: StateFn
   init_recurrent_state: Callable[[PRNGKey, Optional[BatchSize]], RecurrentState]
-  apply_model: Callable[[Params, PRNGKey, RecurrentState, Action],
-                  Tuple[NetworkOutput, RecurrentState]]
-  unroll_model: Callable[[Params, PRNGKey, RecurrentState, Action],
-                  Tuple[NetworkOutput, RecurrentState]]
+  apply_model: ModelFn
+  unroll_model: ModelFn
+  model_init: Optional[InitFn] = None
 
 
 class MuZeroParams(NamedTuple):

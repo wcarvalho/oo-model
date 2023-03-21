@@ -78,6 +78,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   max_scalar_value: float = 10.0  # number of bins for two-hot rep
   td_steps: int = 5
   v_target_source: str = 'return'
+  policy_loss: str = 'cross_entropy'
 
   # MCTS general hps
   simulation_steps: int = 5
@@ -112,7 +113,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   transition_blocks: int = 6  # number of resnet blocks
   prediction_blocks: int = 2  # number of resnet blocks
   seperate_model_nets: bool = False
-  model_state_extract_fn: Callable[[Array], Array] = lambda state: state.hidden
+  scale_grad: float = 0.5
   reward_mlps: Tuple[int] = (32,)
   vpi_mlps: Tuple[int] = (128, 32)
   conv_out_dim: int = 0

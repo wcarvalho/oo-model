@@ -325,14 +325,15 @@ class ValueEquivalentLoss:
 
     elif self._v_target_source == "q_learning":
       # these will already have been scaled...
-      target_q_t = target_outputs.q_value[1:]
-      online_q_t = online_outputs.q_value[1:]
-      max_action = jnp.argmax(online_q_t, -1)
+      raise NotImplementedError
+      # target_q_t = target_outputs.q_value[1:]
+      # online_q_t = online_outputs.q_value[1:]
+      # max_action = jnp.argmax(online_q_t, -1)
 
-      # final q-learning loss (same as rlax.transformed_n_step_q_learning)
-      v_t = rlax.batched_index(target_q_t, max_action)
-      returns = rlax.transformed_n_step_returns(
-          self._discretizer._tx_pair, data.reward[:-1], discounts, v_t, self._td_steps)
+      # # final q-learning loss (same as rlax.transformed_n_step_q_learning)
+      # v_t = rlax.batched_index(target_q_t, max_action)
+      # returns = rlax.transformed_n_step_returns(
+      #     self._discretizer._tx_pair, data.reward[:-1], discounts, v_t, self._td_steps)
 
     # Value targets for the absorbing state and the states after are 0.
     dim_return = returns.shape[0]

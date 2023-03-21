@@ -121,16 +121,23 @@ class MuZeroLearner(acme.Learner):
           pb_c_init=config.pb_c_init,
           pb_c_base=config.pb_c_base,
           temperature=config.temperature)
-      policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
     elif config.muzero_policy == "gumbel_muzero":
       muzero_policy = functools.partial(
           mctx.gumbel_muzero_policy,
           gumbel_scale=config.gumbel_scale)
-      # def kl_divergence(p, l):
-        # return distrax.Categorical(probs=p).kl_divergence(distrax.Categorical(logits=l))
-        # return distrax.Categorical(logits=l).kl_divergence(distrax.Categorical(probs=p))
-      # policy_loss_fn = jax.vmap(kl_divergence)
+
+    assert config.policy_loss in ["cross_entropy", "kl_forward", "kl_back"]
+    if config.policy_loss == 'cross_entropy':
       policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
+    elif config.policy_loss == 'kl_forward':
+      def kl_forward(p, l):
+        return distrax.Categorical(probs=p).kl_divergence(distrax.Categorical(logits=l))
+      policy_loss_fn = jax.vmap(kl_forward)
+    elif config.policy_loss == 'kl_back':
+      def kl_back(p, l):
+        return distrax.Categorical(logits=l).kl_divergence(distrax.Categorical(probs=p))
+      policy_loss_fn = jax.vmap(kl_back)
+
     def loss(
         params: muzero_types.MuZeroParams,
         target_params: muzero_types.MuZeroParams,
@@ -347,18 +354,18 @@ class MuZeroLearner(acme.Learner):
       logging.info('Total number of model params: %.3g', model_size)
       logging.info('Total params ALLTOGETHER: %.3g', total_size)
     else:
-      initial_params = hk.data_structures.merge(
-          networks.model_init(key_init2),
-          networks.unroll_init(key_init1),
-          )
-      
+      if networks.model_init is None:
+        initial_params = networks.unroll_init(key_init1)
+      else:
+        initial_params = hk.data_structures.merge(
+            networks.model_init(key_init2),
+            networks.unroll_init(key_init1),
+            )
+
       weight_decay_mask = hk.data_structures.map(
           lambda module_name, name, value: True if name == "w" else False,
           initial_params)
       sizes = tree.map_structure(jnp.size, initial_params)
-      from pprint import pprint
-      pprint(sizes)
-      import ipdb; ipdb.set_trace()
       logging.info('Total number of params: %.3g',
                    sum(tree.flatten(sizes.values())))
 

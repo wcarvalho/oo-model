@@ -149,71 +149,33 @@ def create_and_run_program(
   # -----------------------
   # launch experiment
   # -----------------------
-  if make_subprocess:
-    if debug:
-      config['num_steps'] = 50e3
-    agent_config_file = f'{log_dir}/agent_config_kw.pkl'
-    env_config_file = f'{log_dir}/env_config_kw.pkl'
-    paths.process_path(log_dir)
-    exp_utils.save_config(agent_config_file, config)
-    exp_utils.save_config(env_config_file, env_kwargs)
-
-    command = make_program_command(
-      agent=agent,
-      wandb_project=wandb_init_kwargs['project'],
-      wandb_group=wandb_init_kwargs['group'],
-      wandb_name=wandb_init_kwargs['name'],
-      wandb_entity=wandb_init_kwargs['entity'],
-      folder=log_dir,
-      agent_config=agent_config_file,
-      env_config=env_config_file,
-    )
-    print(command)
-    command = command.replace("\n", '')
-    cuda_env = os.environ.copy()
-    if cuda:
-      cuda_env["CUDA_VISIBLE_DEVICES"] = str(cuda)
-    process = subprocess.Popen(command, env=cuda_env, shell=True)
-    process.wait()
-    return
-
-
-
-  program, local_resources = make_program_fn(
-    config_kwargs=config,
-    env_kwargs=env_kwargs,
-    log_dir=log_dir,
-    path=root_path,
-    log_every=log_every,
-    agent=agent,
-    wandb_init_kwargs=wandb_init_kwargs)
-
-  if cuda:
-    local_resources['learner'] = PythonProcess(
-      env={"CUDA_VISIBLE_DEVICES": str(cuda)})
+  assert make_subprocess
 
   if debug:
-    print("="*50)
-    print("LOCAL RESOURCES")
-    print(local_resources)
-    return
+    config['num_steps'] = 50e3
+  agent_config_file = f'{log_dir}/agent_config_kw.pkl'
+  env_config_file = f'{log_dir}/env_config_kw.pkl'
+  paths.process_path(log_dir)
+  exp_utils.save_config(agent_config_file, config)
+  exp_utils.save_config(env_config_file, env_kwargs)
 
-  controller = lp.launch(program,
-    lp.LaunchType.LOCAL_MULTI_PROCESSING,
-    terminal=terminal, 
-    local_resources=local_resources
-    )
-
-  # -----------------------
-  # blow is HUGE hack to cancel "cleanly"
-  # get 1st process that exits to return to main program
-  # use main program to send stop to all subprocesses
-  # -----------------------
-  controller.wait(return_on_first_completed=True)
-  logging.warning("Search Process: Controller finished")
-  time.sleep(60)
-  controller._kill()
-
+  command = make_program_command(
+    agent=agent,
+    wandb_project=wandb_init_kwargs['project'],
+    wandb_group=wandb_init_kwargs['group'],
+    wandb_name=wandb_init_kwargs['name'],
+    wandb_entity=wandb_init_kwargs['entity'],
+    folder=log_dir,
+    agent_config=agent_config_file,
+    env_config=env_config_file,
+  )
+  print(command)
+  command = command.replace("\n", '')
+  cuda_env = os.environ.copy()
+  if cuda:
+    cuda_env["CUDA_VISIBLE_DEVICES"] = str(cuda)
+  process = subprocess.Popen(command, env=cuda_env, shell=True)
+  process.wait()
 
 def main(_):
   mp.set_start_method('spawn')

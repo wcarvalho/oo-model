@@ -96,7 +96,6 @@ class MuZeroArch(hk.RNNCore):
     embeddings = hk.BatchApply(self._observation_fn)(inputs)  # [T, B, D+A+1]
     state_input = self._prep_state_input(embeddings)
 
-
     all_hidden, new_state = hk.static_unroll(
         self._state_fn, state_input, state)
     policy_logits, value_logits = hk.BatchApply(self._root_pred_fn)(all_hidden)

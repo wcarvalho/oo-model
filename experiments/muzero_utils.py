@@ -26,9 +26,10 @@ def make_muzero_builder(
     config_kwargs['num_simulations'] = 1
     config_kwargs['td_steps'] = 3
     config_kwargs['burn_in_length'] = 0
-    config_kwargs['show_gradients'] = 0
+    config_kwargs['show_gradients'] = 1
     config_kwargs['metrics'] = 'sparse'
-    config_kwargs['model_combine_state_task'] = 'add_head_bias'
+    config_kwargs['scale_grad'] = 0.0
+    # config_kwargs['vpi_mlps'] = ()
 
   config = MuZeroConfig()
 

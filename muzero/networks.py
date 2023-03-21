@@ -127,11 +127,11 @@ def make_babyai_networks(
 
     # during state unroll, rnn gets task from inputs and stores in state
     state_fn = TaskAwareRNN(
+      prep_input=concat_embeddings,
       get_task=lambda inputs, _: inputs.task,
       core=hk.LSTM(state_dim),
-      task_dim=config.task_dim,
-      prep_input=concat_embeddings)
-    
+      task_dim=config.task_dim)
+
     # transition gets task from state and stores in state
     transition_fn = TaskAwareRNN(
       get_task=lambda _, state: state.task,
@@ -154,10 +154,52 @@ def make_babyai_networks(
   def make_transition_state():
     return TaskAwareState(
       state=jnp.zeros(config.state_dim),
-      task=jnp.ones(config.task_dim),
+      task=jnp.zeros(config.task_dim),
     )
-  return make_unrollable_model_network(make_transition_state, env_spec, make_core_module)
+  return make_network(make_transition_state, env_spec, make_core_module)
 
+def make_network(
+        make_transition_state: Callable[[], types.NestedArray],
+        environment_spec: specs.EnvironmentSpec,
+        make_core_module: Callable[[], hk.RNNCore]) -> MuZeroNetworks:
+  """Builds a MuZeroNetworks from a hk.Module factory."""
+  del make_transition_state
+
+  dummy_observation = jax_utils.zeros_like(environment_spec.observations)
+  dummy_action = jnp.array(0)
+
+  def make_unrollable_network_functions():
+    network = make_core_module()
+
+    def init() -> Tuple[NetworkOutput, RecurrentState]:
+      out, _ = network(dummy_observation, network.initial_state(None))
+      return network.apply_model(out.state, dummy_action)
+
+    apply = network.__call__
+    return init, (apply,
+                  network.unroll,
+                  network.initial_state,
+                  network.apply_model,
+                  network.unroll_model)
+
+  # Transform and unpack pure functions
+  f = hk.multi_transform(make_unrollable_network_functions)
+  apply, unroll, initial_state_fn, apply_model, unroll_model = f.apply
+
+  def init_recurrent_state(key: jax_types.PRNGKey,
+                           batch_size: Optional[int]) -> RecurrentState:
+    # TODO(b/244311990): Consider supporting parameterized and learnable initial
+    # state functions.
+    no_params = None
+    return initial_state_fn(no_params, key, batch_size)
+
+  return MuZeroNetworks(
+      unroll_init=f.init,
+      apply=apply,
+      unroll=unroll,
+      apply_model=apply_model,
+      unroll_model=unroll_model,
+      init_recurrent_state=init_recurrent_state)
 
 def make_unrollable_model_network(
         make_transition_state: Callable[[], types.NestedArray],
