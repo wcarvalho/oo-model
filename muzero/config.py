@@ -33,6 +33,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   # variable_update_period: int = 400
   seed: int = 1234
   num_steps: int = 3e6
+  num_sgd_steps_per_step: int = 1
 
   # value-based action-selection options
   num_epsilons: int = 256

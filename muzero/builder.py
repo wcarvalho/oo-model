@@ -91,6 +91,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
         max_priority_weight=self._config.max_priority_weight,
         target_update_period=self._config.target_update_period,
         iterator=dataset,
+        num_sgd_steps_per_step=self._config.num_sgd_steps_per_step,
         discretizer=self._discretizer,
         LossFn=self._loss_fn,
         # bootstrap_n=self._config.bootstrap_n,

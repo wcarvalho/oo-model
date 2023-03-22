@@ -21,7 +21,7 @@ import dataclasses
 
 import functools
 import time
-from typing import Dict, Iterator, List, NamedTuple, Optional, Tuple, Callable
+from typing import Dict, Iterator, List, NamedTuple, Optional, Tuple, Callable, TypeVar
 
 from absl import logging
 import acme
@@ -94,6 +94,7 @@ class MuZeroLearner(acme.Learner):
                iterator: Iterator[R2D2ReplaySample],
                config: MuZeroConfig,
                discretizer: muzero_utils.Discretizer,
+               num_sgd_steps_per_step: int = 1,
                use_core_state: bool = True,
                LossFn = ve_losses.ValueEquivalentLoss,
                replay_client: Optional[reverb.Client] = None,
@@ -111,6 +112,7 @@ class MuZeroLearner(acme.Learner):
     reward_coef = config.reward_coef
     ema_update = config.ema_update
     show_gradients = config.show_gradients > 0
+    self._num_sgd_steps_per_step = num_sgd_steps_per_step
 
     if config.action_source == "value" or not config.seperate_model_nets:
       self._model_unroll_share_params = True
@@ -272,7 +274,7 @@ class MuZeroLearner(acme.Learner):
       if show_gradients:
         metrics['mean_grad'] = jax.tree_map(lambda x:x.mean(), gradients)
 
-      return new_state, priorities, metrics
+      return new_state, (priorities, metrics)
 
     def update_priorities(
         keys_and_priorities: Tuple[jnp.ndarray, jnp.ndarray]):
@@ -296,6 +298,11 @@ class MuZeroLearner(acme.Learner):
         serialize_fn=utils.fetch_devicearray,
         time_delta=1.,
         steps_key=self._counter.get_steps_key())
+
+    if self._num_sgd_steps_per_step > 1:
+      sgd_step = utils.process_multiple_batches(
+        sgd_step,
+        num_sgd_steps_per_step)
 
     self._sgd_step = jax.pmap(sgd_step, axis_name=_PMAP_AXIS_NAME)
     self._async_priority_updater = async_utils.AsyncExecutor(update_priorities)
@@ -365,7 +372,7 @@ class MuZeroLearner(acme.Learner):
 
     # Do a batch of SGD.
     start = time.time()
-    self._state, priorities, metrics = self._sgd_step(self._state, samples)
+    self._state, (priorities, metrics) = self._sgd_step(self._state, samples)
     # Take metrics from first replica.
     metrics = utils.get_from_first_device(metrics)
 
@@ -379,8 +386,11 @@ class MuZeroLearner(acme.Learner):
 
     # Update our counts and record it.
     time_elapsed = time.time() - start
-    metrics['LearnerDuration'] = time_elapsed
-    counts = self._counter.increment(steps=1, time_elapsed=time_elapsed)
+    metrics['learner_duration'] = time_elapsed
+    steps_per_sec = (self._num_sgd_steps_per_step / time_elapsed) if time_elapsed else 0
+    metrics['steps_per_second'] = steps_per_sec
+    counts = self._counter.increment(steps=self._num_sgd_steps_per_step,
+                                     time_elapsed=time_elapsed)
 
     # Update priorities in replay.
     if self._replay_client:
