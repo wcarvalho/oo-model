@@ -34,10 +34,10 @@ from modules import language
 from modules import vision_language
 from modules import simple_mlp_muzero
 from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
-from muzero.arch import MuZeroArch, TaskAwareRNN
+from muzero.arch import MuZeroArch
 from muzero.types import MuZeroNetworks, TaskAwareState
 from muzero.config import MuZeroConfig
-from muzero.utils import Discretizer
+from muzero.utils import Discretizer, TaskAwareRNN
 
 
 NetworkOutput = networks_lib.NetworkOutput
@@ -156,19 +156,12 @@ def make_babyai_networks(
       root_pred_fn=root_predictor,
       model_pred_fn=model_predictor)
 
-  def make_transition_state():
-    return TaskAwareState(
-      state=jnp.zeros(config.state_dim),
-      task=jnp.zeros(config.task_dim),
-    )
-  return make_network(make_transition_state, env_spec, make_core_module)
+  return make_network(env_spec, make_core_module)
 
 def make_network(
-        make_transition_state: Callable[[], types.NestedArray],
         environment_spec: specs.EnvironmentSpec,
         make_core_module: Callable[[], hk.RNNCore]) -> MuZeroNetworks:
   """Builds a MuZeroNetworks from a hk.Module factory."""
-  del make_transition_state
 
   dummy_observation = jax_utils.zeros_like(environment_spec.observations)
   dummy_action = jnp.array(0)
