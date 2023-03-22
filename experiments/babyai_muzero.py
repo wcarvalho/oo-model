@@ -11,14 +11,14 @@ from muzero.config import MuZeroConfig
 
 from experiments.utils import update_config
 
-def make_muzero_builder(
+def setup(
     launch: bool=True,
     config_kwargs: dict = None):
   config_kwargs = config_kwargs or dict()
   if not launch: #DEBUG
     config_kwargs['min_replay_size'] = 100
     config_kwargs["samples_per_insert"] = 1.0
-    config_kwargs['batch_size'] = 2
+    config_kwargs['batch_size'] = 4
     config_kwargs['trace_length'] = 6
     config_kwargs['discount'] = .99
     config_kwargs['simulation_steps'] = 2
@@ -31,26 +31,15 @@ def make_muzero_builder(
     config_kwargs['scale_grad'] = 0.0
     config_kwargs['network_fn'] = 'babyai'
     config_kwargs['builder'] = 'old'
-    config_kwargs['loss_unroll'] = 'static'
     config_kwargs['loss_fn'] = 'new'
+    config_kwargs['num_sgd_steps_per_step'] = 4
 
 
   config = MuZeroConfig(**config_kwargs)
-  # update config with config_kwargs
-  # update_config(config, config_kwargs)
 
-  # autoset replay buffer + batch values if not set manually
-  if config.trace_length is None:
-    config.trace_length = config.burn_in_length + \
-        config.simulation_steps + config.td_steps + 1
   if config.sequence_period is None:
     config.sequence_period = config.trace_length
 
-  if config.batch_size is None:
-    batch_dim = round(config.target_batch_size/config.trace_length)
-    config.batch_size = batch_dim
-
-  # define discretizer
   discretizer = muzero_utils.Discretizer(
       num_bins=config.num_bins,
       step_size=config.scalar_step_size,
@@ -70,8 +59,6 @@ def make_muzero_builder(
     # network_fn = muzero_networks.make_simple_babyai_networks
   else:
     raise NotImplementedError(config.network_fn)
-
-
 
   if config.loss_fn == 'new':
     assert config.muzero_policy in ["muzero", "gumbel_muzero"]
@@ -115,7 +102,6 @@ def make_muzero_builder(
       value_coef=config.value_coef,
       reward_coef=config.reward_coef,
       v_target_source=config.v_target_source,
-      loss_unroll=config.loss_unroll,
       metrics=config.metrics,
     )
   elif config.loss_fn == 'old':
@@ -152,16 +138,15 @@ def make_muzero_builder(
       model_share_params=True,
     )
 
-
   if config.builder == 'new':
     builder = MuZeroBuilder(config, discretizer=discretizer, loss_fn=ve_loss_fn)
   elif config.builder == 'old':
     from muzero.builder import MuZeroBuilder as MuZeroBuilderOld
     builder = MuZeroBuilderOld(config, discretizer=discretizer, loss_fn=ve_loss_fn)
 
-
-
   network_factory = functools.partial(
-          network_fn, config=config, discretizer=discretizer)
+          network_fn,
+          config=copy.deepcopy(config),
+          discretizer=discretizer)
   
   return config, builder, network_factory

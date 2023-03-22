@@ -41,9 +41,6 @@ import launchpad as lp
 
 from experiments import babyai_utils
 from experiments import logger as wandb_logger 
-from experiments.muzero_babyai import make_muzero_builder
-from experiments.factored_muzero_utils import make_factored_muzero_builder
-from r2d2 import make_r2d2_builder
 from experiments.observers import LevelAvgReturnObserver
 from experiments import utils as exp_utils
 
@@ -113,17 +110,21 @@ def build_experiment_config(launch=False,
       debug=debug,
       **env_kwargs)
 
+
   # Configure the agent & update with config kwargs
   if agent == 'r2d2':
-    config, builder, network_factory = make_r2d2_builder(
+    from experiments import babyai_rd2d2
+    config, builder, network_factory = babyai_rd2d2.setup(
       launch=launch,
       config_kwargs=config_kwargs)
   elif agent == 'muzero':
-    config, builder, network_factory = make_muzero_builder(
+    from experiments import babyai_muzero
+    config, builder, network_factory = babyai_muzero.setup(
       launch=launch,
       config_kwargs=config_kwargs)
   elif agent == 'factored':
-    config, builder, network_factory = make_factored_muzero_builder(
+    from experiments import babyai_factored_muzero
+    config, builder, network_factory = babyai_factored_muzero.setup(
       launch=launch,
       config_kwargs=config_kwargs)
   else:
