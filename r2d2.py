@@ -1,4 +1,3 @@
-import functools
 
 from typing import Optional, Tuple, Iterator, Optional
 
@@ -16,7 +15,6 @@ from acme.agents.jax.r2d2 import networks as r2d2_networks
 from acme.jax.networks import base
 from acme.jax import networks as networks_lib
 from acme.jax import variable_utils
-from acme.jax.networks import duelling
 from acme.utils import counting
 from acme.utils import loggers
 from acme.wrappers import observation_action_reward
@@ -29,8 +27,6 @@ import optax
 import reverb
 import rlax
 
-from modules import vision
-from modules import language
 from modules import vision_language
 
 from experiments.utils import update_config
@@ -207,14 +203,14 @@ def get_actor_core(
 
   def select_action(params: networks_lib.Params,
                     observation: networks_lib.Observation,
-                    state: r2d2.R2D2ActorState[actor_core_lib.RecurrentState]):
+                    state: r2d2_actor.R2D2ActorState[actor_core_lib.RecurrentState]):
     rng, policy_rng = jax.random.split(state.rng)
 
     q_values, recurrent_state = networks.apply(params, policy_rng, observation,
                                                state.recurrent_state)
     action = rlax.epsilon_greedy(state.epsilon).sample(policy_rng, q_values)
 
-    return action, r2d2.R2D2ActorState(
+    return action, r2d2_actor.R2D2ActorState(
         rng=rng,
         epsilon=state.epsilon,
         recurrent_state=recurrent_state,
@@ -222,7 +218,7 @@ def get_actor_core(
 
   def init(
       rng: networks_lib.PRNGKey
-  ) -> r2d2.R2D2ActorState[actor_core_lib.RecurrentState]:
+  ) -> r2d2_actor.R2D2ActorState[actor_core_lib.RecurrentState]:
     rng, epsilon_rng, state_rng = jax.random.split(rng, 3)
     if not evaluation:
       epsilon = jax.random.choice(epsilon_rng,
@@ -230,68 +226,16 @@ def get_actor_core(
     else:
       epsilon = evaluation_epsilon
     initial_core_state = networks.init_recurrent_state(state_rng, None)
-    return r2d2.R2D2ActorState(
+    return r2d2_actor.R2D2ActorState(
         rng=rng,
         epsilon=epsilon,
         recurrent_state=initial_core_state,
         prev_recurrent_state=initial_core_state)
 
   def get_extras(
-      state: r2d2.R2D2ActorState[actor_core_lib.RecurrentState]) -> r2d2.R2D2Extras:
+      state: r2d2_actor.R2D2ActorState[actor_core_lib.RecurrentState]
+      ) -> r2d2_actor.R2D2Extras:
     return {'core_state': state.prev_recurrent_state}
 
   return actor_core_lib.ActorCore(init=init, select_action=select_action,
                                   get_extras=get_extras)
-
-
-def make_r2d2_babyai_networks(
-        env_spec: specs.EnvironmentSpec,
-        config: r2d2.R2D2Config) -> r2d2.R2D2Networks:
-  """Builds default R2D2 networks for Atari games."""
-
-  num_actions = env_spec.actions.num_values
-  def make_core_module() -> R2D2Arch:
-    vision_torso = vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim)
-    task_encoder = language.LanguageEncoder(
-            vocab_size=config.vocab_size,
-            word_dim=config.word_dim,
-            sentence_dim=config.sentence_dim,
-        )
-    observation_fn = vision_language.Torso(
-      num_actions=num_actions,
-      vision_torso=vision_torso,
-      task_encoder=task_encoder,
-      image_dim=config.state_dim,
-      task_dim=config.task_dim,
-    )
-    return R2D2Arch(
-      torso=observation_fn,
-      memory=hk.LSTM(config.state_dim),
-      head=duelling.DuellingMLP(num_actions,
-                                hidden_sizes=[config.q_dim]))
-
-  return networks_lib.make_unrollable_network(
-    env_spec, make_core_module)
-
-
-def make_r2d2_builder(
-    launch: bool=True,
-    config_kwargs: dict = None):
-  if not launch: #DEBUG
-    config_kwargs['min_replay_size'] = 100
-    config_kwargs["samples_per_insert"] = 1.0
-    config_kwargs['batch_size'] = 2
-    config_kwargs['trace_length'] = 6
-    config_kwargs['discount'] = .99
-    config_kwargs['bootstrap_n'] = 3
-    config_kwargs['burn_in_length'] = 0
-
-  config = R2D2Config()
-  update_config(config, config_kwargs)
-
-  builder = r2d2.R2D2Builder(config)
-
-  network_factory = functools.partial(
-          make_r2d2_babyai_networks, config=config)
-  
-  return config, builder, network_factory
