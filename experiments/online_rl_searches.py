@@ -13,6 +13,38 @@ def get(search: str = '', agent: str = ''):
           "label": tune.grid_search(['v1_4']),
         }
     ]
+  elif search == 'debug1':
+    space = [
+        {
+          "seed": tune.grid_search([4]),
+          "agent": tune.grid_search(['muzero']),
+          "tasks_file": tune.grid_search(['pickup']),
+          "room_size": tune.grid_search([5, 7]),
+          "num_dists": tune.grid_search([0, 2]),
+          "network_fn": tune.grid_search(['babyai']),
+          "builder": tune.grid_search(['old']),
+          # "loss_unroll": tune.grid_search(['scan']),
+          # "scale_grad": tune.grid_search([0.0, 0.5]),
+          "loss_fn": tune.grid_search(['new']),
+          # "label": tune.grid_search(['v2']),
+          "group": tune.grid_search([f'debug_v4']),
+        }
+    ]
+  elif search == 'debug2':
+    space = [
+        {
+          "seed": tune.grid_search([2]),
+          "agent": tune.grid_search(['muzero']),
+          "tasks_file": tune.grid_search(['pickup']),
+          "room_size": tune.grid_search([7]),
+          "num_dists": tune.grid_search([2]),
+          "network_fn": tune.grid_search(['babyai', 'old_babyai']),
+          "builder": tune.grid_search(['old']),
+          "loss_fn": tune.grid_search(['new']),
+          # "label": tune.grid_search(['v2']),
+          "group": tune.grid_search([f'debug_v4']),
+        }
+    ]
   elif search == 'r2d2_pickup6':
     space = [
         {
@@ -35,12 +67,12 @@ def get(search: str = '', agent: str = ''):
           "tasks_file": tune.grid_search(['pickup']),
           "agent": tune.grid_search(['muzero']),
           # "samples_per_insert": tune.grid_search([75, 100]),
-          "room_size": tune.grid_search([7]),
+          "room_size": tune.grid_search([5]),
           "num_dists": tune.grid_search([2]),
-          # "num_steps": tune.grid_search([3e6]),
-          # "adam_eps": tune.grid_search([1e-3]),
-          "scale_grad": tune.grid_search([0.0, .5, .9]),
-          "group": tune.grid_search([f'pickup_2_v4_grad']),
+          "adam_eps": tune.grid_search([1e-3, 1e-8]),
+          "max_grad_norm": tune.grid_search([5.0, 80.0]),
+          # "scale_grad": tune.grid_search([0.0, .5, .9]),
+          "group": tune.grid_search([f'pickup_r5_d2_v3']),
         },
     ]
 

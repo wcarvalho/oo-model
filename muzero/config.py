@@ -95,7 +95,7 @@ class MuZeroConfig(r2d2.R2D2Config):
 
   # MCTS gumble_muzero hps
   maxvisit_init: int = 50
-  gumbel_scale: int = 1.0
+  gumbel_scale: float = 1.0
 
 
   # Architecture
@@ -127,3 +127,8 @@ class MuZeroConfig(r2d2.R2D2Config):
   reward_coef: float = 1.0
 
   show_gradients: int = 0
+
+  # temporary
+  builder: str = 'new'
+  loss_unroll: str = 'scan'
+  loss_fn: str = 'new'

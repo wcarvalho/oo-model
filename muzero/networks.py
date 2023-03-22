@@ -85,29 +85,32 @@ def make_babyai_networks(
       output_init = None
     root_vpi_base = ResMlp(config.prediction_blocks, ln=config.ln, name='root_base')
     root_value_fn = PredictionMlp(config.vpi_mlps,
-                                  discretizer._num_bins,
+                                  config.num_bins,
                                   ln=config.ln,
                                   output_init=output_init,
                                   name='root_value')
     root_policy_fn = PredictionMlp(config.vpi_mlps,
-                                   num_actions, ln=config.ln, output_init=output_init, name='root_policy')
+                                   num_actions,
+                                   ln=config.ln,
+                                   output_init=output_init,
+                                   name='root_policy')
     model_reward_fn = PredictionMlp(config.reward_mlps,
-                                    discretizer._num_bins,
+                                    config.num_bins,
                                     ln=config.ln,
                                     output_init=output_init,
                                     name='model_reward')
     if config.seperate_model_nets:
       model_vpi_base = ResMlp(config.prediction_blocks, name='root_model')
       model_value_fn = PredictionMlp(config.vpi_mlps,
-                                     discretizer._num_bins,
+                                     config.num_bins,
                                      ln=config.ln,
                                      output_init=output_init,
                                      name='model_value')
       model_policy_fn = PredictionMlp(config.vpi_mlps,
                                        num_actions, ln=config.ln, output_init=output_init, name='model_policy')
     else:
-      model_value_fn=root_value_fn
-      model_policy_fn=root_policy_fn
+      model_value_fn = root_value_fn
+      model_policy_fn = root_policy_fn
       model_vpi_base = root_vpi_base
 
     def root_predictor(state: TaskAwareState):
@@ -135,6 +138,8 @@ def make_babyai_networks(
     # transition gets task from state and stores in state
     transition_fn = TaskAwareRNN(
       get_task=lambda _, state: state.task,
+      prep_state=lambda state: state.state,  # get state-vector from TaskAwareState
+      couple_state_task=True,
       core=Transition(
         channels=res_dim,
         num_blocks=config.transition_blocks,
@@ -200,55 +205,3 @@ def make_network(
       apply_model=apply_model,
       unroll_model=unroll_model,
       init_recurrent_state=init_recurrent_state)
-
-def make_unrollable_model_network(
-        make_transition_state: Callable[[], types.NestedArray],
-        environment_spec: specs.EnvironmentSpec,
-        make_core_module: Callable[[], hk.RNNCore]) -> MuZeroNetworks:
-  """Builds a MuZeroNetworks from a hk.Module factory."""
-
-  dummy_observation = jax_utils.zeros_like(environment_spec.observations)
-  dummy_actions = jnp.array([0, 1])
-
-  def make_unrollable_network_functions():
-    network = make_core_module()
-
-    def init() -> Tuple[NetworkOutput, RecurrentState]:
-      return network(dummy_observation, network.initial_state(None))
-
-    apply = network.__call__
-    return init, (apply,
-                  network.unroll,
-                  network.initial_state)
-
-  # Transform and unpack pure functions
-  f = hk.multi_transform(make_unrollable_network_functions)
-  apply, unroll, initial_state_fn = f.apply
-
-  def make_transition_model_functions():
-    network = make_core_module()
-
-    def init() -> Tuple[NetworkOutput, RecurrentState]:
-      return network.unroll_model(make_transition_state(), dummy_actions)
-
-    return init, (network.apply_model, network.unroll_model)
-
-  # Transform and unpack pure functions
-  g = hk.multi_transform(make_transition_model_functions)
-  apply_model, unroll_model = g.apply
-
-  def init_recurrent_state(key: jax_types.PRNGKey,
-                           batch_size: Optional[int]) -> RecurrentState:
-    # TODO(b/244311990): Consider supporting parameterized and learnable initial
-    # state functions.
-    no_params = None
-    return initial_state_fn(no_params, key, batch_size)
-
-  return MuZeroNetworks(
-    unroll_init=f.init,
-    model_init=g.init,
-    apply=apply,
-    unroll=unroll,
-    apply_model=apply_model,
-    unroll_model=unroll_model,
-    init_recurrent_state=init_recurrent_state)

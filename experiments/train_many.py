@@ -205,7 +205,7 @@ def main(_):
     )
 
 
-  wait_time = 30.0
+  wait_time = 0.0
   terminal = 'current_terminal'
   num_cpus = FLAGS.num_cpus
   num_gpus = FLAGS.num_gpus

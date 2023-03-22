@@ -81,24 +81,29 @@ class TaskAwareRNN(hk.RNNCore):
   def __init__(self,
                core: hk.RNNCore,
                task_dim: Optional[int] = None,
+               couple_state_task: bool = False,
                couple_hidden_task: bool = True,
                get_task: Callable[
                    [Array, Array], Array] = lambda inputs, state: state.task,
                prep_input: Callable[
                   [Array], Array] = lambda x: x,
-               prep_state: Callable[[TaskAwareState], Array] = lambda s: s.state,
+               prep_state: Callable[[Array], Array] = lambda x: x,
                name: Optional[str] = None
                ):
     super().__init__(name=name)
     self._core = core
     self._task_dim = task_dim
     self._get_task = get_task
+    self._couple_state_task = couple_state_task
     self._couple_hidden_task = couple_hidden_task
     self._prep_input = prep_input
     self._prep_state = prep_state
 
   def initial_state(self, batch_size: Optional[int],
                     **unused_kwargs) -> TaskAwareState:
+    if not self._couple_state_task:
+      return self._core.initial_state(batch_size)
+
     if self._task_dim is None:
       raise RuntimeError("Don't expect to initialize state")
 
@@ -115,7 +120,9 @@ class TaskAwareRNN(hk.RNNCore):
                                self._prep_state(prev_state))
 
     task = self._get_task(inputs, prev_state)
-    state = TaskAwareState(state=state, task=task)
+    if self._couple_state_task:
+      state = TaskAwareState(state=state, task=task)
+
     if self._couple_hidden_task:
       hidden = TaskAwareState(state=hidden, task=task)
 

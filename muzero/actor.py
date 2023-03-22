@@ -1,7 +1,7 @@
 
 import functools
 
-from typing import Generic, Callable
+from typing import Generic
 
 from acme import types
 from acme.agents.jax import actor_core as actor_core_lib
@@ -12,6 +12,9 @@ import distrax
 import jax
 import numpy as np
 import jax.numpy as jnp
+from muzero_old.utils import (
+    logits_to_scalar,
+)
 
 from muzero import types
 from muzero.config import MuZeroConfig
@@ -32,12 +35,12 @@ def policy_select_action(
     observation: networks_lib.Observation,
     state: MuZeroActorState[actor_core_lib.RecurrentState],
     networks: types.MuZeroNetworks,
-    get_unroll_params: Callable[
-        [networks_lib.Params], networks_lib.Params] = lambda params: params.unroll,
+    model_share_params: bool=True,
     evaluation: bool = True):
   rng, policy_rng = jax.random.split(state.rng)
 
-  logits, recurrent_state = networks.apply(get_unroll_params(params), policy_rng, observation,
+  params = params if model_share_params else params.unroll
+  logits, recurrent_state = networks.apply(params, policy_rng, observation,
                                               state.recurrent_state)
   if evaluation:
     action = jnp.argmax(logits.policy_logits, axis=-1)
@@ -54,14 +57,11 @@ def value_select_action(
     observation: networks_lib.Observation,
     state: MuZeroActorState[actor_core_lib.RecurrentState],
     networks: types.MuZeroNetworks,
-    discount: float,
-    get_unroll_params: Callable[
-        [networks_lib.Params], networks_lib.Params] = lambda params: params.unroll,
-    ):
+    discount: float):
   del discount
   rng, policy_rng = jax.random.split(state.rng)
 
-  predictions, recurrent_state = networks.apply(get_unroll_params(params),
+  predictions, recurrent_state = networks.apply(params,
                                                 policy_rng,
                                                 observation,
                                                 state.recurrent_state)
@@ -81,22 +81,20 @@ def value_select_action(
 def get_actor_core(
     networks: types.MuZeroNetworks,
     config: MuZeroConfig,
-    get_unroll_params: Callable[
-        [networks_lib.Params], networks_lib.Params] = lambda params: params.unroll,
     evaluation: bool = True,
 ) -> R2D2Policy:
   """Returns ActorCore for MuZero."""
   
   assert config.action_source in ['policy', 'value', 'mcts']
   if config.action_source == 'policy':
+    model_share_params = config.action_source == "value" or not config.seperate_model_nets
     select_action = functools.partial(policy_select_action,
                                       networks=networks,
-                                      get_unroll_params=get_unroll_params,
-                                      evaluation=evaluation)
+                                      evaluation=evaluation,
+                                      model_share_params=model_share_params)
   elif config.action_source == 'value':
     select_action = functools.partial(value_select_action,
                                       networks=networks,
-                                      get_unroll_params=get_unroll_params,
                                       discount=config.discount)
   elif config.action_source == 'mcts':
     raise NotImplementedError

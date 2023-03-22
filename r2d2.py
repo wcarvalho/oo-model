@@ -33,6 +33,9 @@ from modules import vision
 from modules import language
 from modules import vision_language
 
+from experiments.utils import update_config
+
+
 
 @dataclasses.dataclass
 class R2D2Config(r2d2.R2D2Config):
@@ -54,7 +57,6 @@ class R2D2Config(r2d2.R2D2Config):
   # Learner options
   discount: float = 0.99
   burn_in_length: int = 0
-  sequence_period: Optional[int] = None
   num_steps: int = 3e6
   seed: int = 1
   max_grad_norm: float = 80.0
@@ -67,6 +69,7 @@ class R2D2Config(r2d2.R2D2Config):
   max_replay_size: int = 80_000
   batch_size: Optional[int] = 64
   trace_length: Optional[int] = 20
+  sequence_period: Optional[int] = 20
   prefetch_size: int = 0
   num_parallel_calls: int = 1
 
@@ -284,6 +287,7 @@ def make_r2d2_builder(
     config_kwargs['burn_in_length'] = 0
 
   config = R2D2Config()
+  update_config(config, config_kwargs)
 
   builder = r2d2.R2D2Builder(config)
 

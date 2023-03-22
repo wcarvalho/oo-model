@@ -31,6 +31,7 @@ from typing import Optional
 
 from absl import flags
 from absl import app
+from absl import logging
 from acme.jax import experiments
 from acme.utils import loggers
 from acme.utils import paths
@@ -40,7 +41,7 @@ import launchpad as lp
 
 from experiments import babyai_utils
 from experiments import logger as wandb_logger 
-from experiments.muzero_utils import make_muzero_builder
+from experiments.muzero_babyai import make_muzero_builder
 from experiments.factored_muzero_utils import make_factored_muzero_builder
 from r2d2 import make_r2d2_builder
 from experiments.observers import LevelAvgReturnObserver
@@ -127,20 +128,6 @@ def build_experiment_config(launch=False,
       config_kwargs=config_kwargs)
   else:
     raise NotImplementedError
-
-  for k, v in config_kwargs.items():
-    if not hasattr(config, k):
-      raise RuntimeError(f"Attempting to set unknown attribute '{k}'")
-    setattr(config, k, v)
-  
-  if config.trace_length is None:
-    config.trace_length = config.burn_in_length + config.simulation_steps + config.td_steps + 1
-  if config.sequence_period is None:
-    config.sequence_period = config.trace_length
-
-  if config.batch_size is None:
-    batch_dim = round(config.target_batch_size/config.trace_length)
-    config.batch_size = batch_dim
 
   paths.process_path(log_dir)
   exp_utils.save_config(f'{log_dir}/config.pkl', config.__dict__)
@@ -265,11 +252,14 @@ def main(_):
 
   config_kwargs = dict(num_steps=FLAGS.num_steps)
   if FLAGS.agent_config:
-    config_kwargs.update(exp_utils.load_config(FLAGS.agent_config))
+    config_kwargs = exp_utils.load_config(FLAGS.agent_config)
+    logging.info(f'config_kwargs: {str(config_kwargs)}')
+
 
   env_kwargs = dict(tasks_file=FLAGS.tasks_file)
   if FLAGS.env_config:
-    env_kwargs.update(exp_utils.load_config(FLAGS.env_config))
+    env_kwargs = exp_utils.load_config(FLAGS.env_config)
+    logging.info(f'env_kwargs: {str(env_kwargs)}')
 
   if FLAGS.run_distributed:
     program, local_resources = make_distributed_program(

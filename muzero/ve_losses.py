@@ -70,8 +70,9 @@ class ValueEquivalentLoss:
                value_coef: float = 1.0,
                reward_coef: float = 1.0,
                model_coef: float = 1.0,
-               get_model_params: Callable[[networks_lib.Params], networks_lib.Params] = lambda params: params.model,
+               get_model_params: Callable[[networks_lib.Params], networks_lib.Params] = lambda p: p,
                v_target_source: str = 'return',
+               loss_unroll: str = 'scan',
                metrics: str = 'sparse',
                ):
     self._networks = networks
@@ -91,6 +92,8 @@ class ValueEquivalentLoss:
     self._v_target_source = v_target_source
     self._get_model_params = get_model_params
     self._metrics = metrics
+    self._loss_unroll = loss_unroll
+    assert loss_unroll in ('scan', 'static')
     assert metrics in ('sparse', 'dense')
     assert v_target_source in ('mcts', 'return', 'q_learning')
 
@@ -124,7 +127,7 @@ class ValueEquivalentLoss:
     # Root losses
     ###############################
     # [T/T-1]
-    dim_return = len(value_probs_target)
+    dim_return = value_probs_target.shape[0]
     root_value_loss = jax.vmap(rlax.categorical_cross_entropy)(
         value_probs_target, online_outputs.value_logits[:dim_return])
     # []
@@ -368,10 +371,20 @@ class ValueEquivalentLoss:
     # 2) unroll model and get predictions
     rng_key, model_key = jax.random.split(rng_key)
     state = starting_outputs.state
-    model_output, _ = self._networks.unroll_model(
-        self._get_model_params(self._params),
-        model_key, state, simulation_actions,
-    )
+    if self._loss_unroll == 'static':
+      assert hasattr(self._networks, 'unroll_model')
+      model_output, _ = self._networks.unroll_model(
+          self._get_model_params(self._params),
+          model_key, state, simulation_actions,
+      )
+    elif self._loss_unroll == 'scan':
+      _, model_output = loss_unroll(
+          networks=self._networks,
+          params=self._get_model_params(self._params),
+          rng_key=model_key,
+          state=state,
+          action_sequence=simulation_actions,
+      )
     _batch_categorical_cross_entropy = jax.vmap(rlax.categorical_cross_entropy)
 
     reward_loss = _batch_categorical_cross_entropy(
@@ -395,6 +408,41 @@ class ValueEquivalentLoss:
       }
 
     return reward_loss, value_loss, policy_loss, model_output.reward_logits[0], metrics
+
+from muzero_old import types as muzero_types_old
+from muzero import types as muzero_types
+def loss_unroll(
+    networks: muzero_types.MuZeroNetworks,
+    params: networks_lib.Params,
+    rng_key: networks_lib.PRNGKey,
+    # num_bins: int,
+    state: Array,
+    action_sequence: Array,
+) -> muzero_types.ModelOutput:
+    """Unroll the learned model with a sequence of actions."""
+
+    if type(state) == muzero_types_old.MuZeroState:
+      state_fn = muzero_types_old.MuZeroState
+    elif type(state) == muzero_types.TaskAwareState:
+      state_fn = muzero_types.TaskAwareState
+    else:
+      raise RuntimeError("How to handle?")
+    def fn(state: Array,
+           action: Array,
+           rng_key: networks_lib.PRNGKey) -> Tuple[Array, Array]:
+        """Dynamics fun for scan."""
+        rng_key, model_key = jax.random.split(rng_key)
+        model_outputs, next_state = networks.apply_model(
+            params, model_key, state, action,
+        )
+        next_state = state_fn(
+            state=scale_gradient(next_state.state, 0.5),
+            task=next_state.task,
+        )
+        return next_state, model_outputs
+
+    fn = functools.partial(fn, rng_key=rng_key)
+    return jax.lax.scan(fn, state, action_sequence)
 
 
 def model_step(params: networks_lib.Params,

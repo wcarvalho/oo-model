@@ -22,8 +22,8 @@ Action = networks_lib.Action
 
 
 class TaskAwareState(NamedTuple):
-  state: types.NestedArray
-  task: jnp.ndarray
+  state: chex.Array
+  task: chex.Array
 
 
 @chex.dataclass(frozen=True)
