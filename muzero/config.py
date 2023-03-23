@@ -78,7 +78,8 @@ class MuZeroConfig(r2d2.R2D2Config):
   scalar_step_size: Optional[float] = .25  # number of bins for two-hot rep
   max_scalar_value: float = 10.0  # number of bins for two-hot rep
   td_steps: int = 5
-  v_target_source: str = 'return'
+  v_target_source: str = 'reanalyze' # this interpolates between mcts output vs. observed return
+  reanalyze_ratio: float = .9 # percent of time to use mcts vs. observed return
   policy_loss: str = 'cross_entropy'
 
   # MCTS general hps
@@ -128,8 +129,3 @@ class MuZeroConfig(r2d2.R2D2Config):
   reward_coef: float = 1.0
 
   show_gradients: int = 0
-
-  # temporary
-  builder: str = 'new'
-  loss_unroll: str = 'scan'
-  loss_fn: str = 'new'

@@ -33,22 +33,19 @@ from acme.utils import async_utils
 from acme.utils import counting
 from acme.utils import loggers
 
-import distrax
 import haiku as hk
 import jax
 import jax.numpy as jnp
 import optax
 import reverb
-import rlax
 import tree
-import mctx
 
 from acme.agents.jax.r2d2 import networks as r2d2_networks
 from acme.agents.jax.dqn import learning_lib
-from muzero_old import types as muzero_types
-from muzero_old.config import MuZeroConfig
-from muzero_old import ve_losses
-from muzero_old import utils as muzero_utils
+from muzero import types as muzero_types
+from muzero.config import MuZeroConfig
+from muzero import ve_losses
+from muzero import utils as muzero_utils
 
 from pprint import pprint
 aprint = lambda a: pprint(jax.tree_map(lambda x:x.shape, a))
@@ -93,7 +90,6 @@ class MuZeroLearner(acme.Learner):
                target_update_period: int,
                iterator: Iterator[R2D2ReplaySample],
                config: MuZeroConfig,
-               discretizer: muzero_utils.Discretizer,
                num_sgd_steps_per_step: int = 1,
                use_core_state: bool = True,
                LossFn = ve_losses.ValueEquivalentLoss,

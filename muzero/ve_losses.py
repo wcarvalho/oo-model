@@ -70,7 +70,8 @@ class ValueEquivalentLoss:
                value_coef: float = 1.0,
                reward_coef: float = 1.0,
                model_coef: float = 1.0,
-               v_target_source: str = 'return',
+               v_target_source: str = 'reanalyze',
+               reanalyze_ratio: float = .9,
                metrics: str = 'sparse',
                ):
     self._networks = networks
@@ -88,9 +89,14 @@ class ValueEquivalentLoss:
     self._reward_coef = reward_coef
     self._policy_loss_fn = policy_loss_fn
     self._v_target_source = v_target_source
+    self._reanalyze_ratio = reanalyze_ratio
     self._metrics = metrics
     assert metrics in ('sparse', 'dense')
-    assert v_target_source in ('mcts', 'return', 'q_learning')
+    assert v_target_source in ('mcts',
+                               'return',
+                               'q_learning',
+                               'reanalyze',
+                               'reanalyze2')
 
   def __call__(self,
                data: acme_types.NestedArray,
@@ -267,6 +273,7 @@ class ValueEquivalentLoss:
                      target_outputs: muzero_types.RootOutput,
                      rng_key: networks_lib.PRNGKey,
     ):
+    target_metrics = {}
     #---------------
     # reward
     #---------------
@@ -279,8 +286,6 @@ class ValueEquivalentLoss:
     # for policy, need initial policy + value estimates for each time-step
     # these will be used by MCTS
     target_values = self._discretizer.logits_to_scalar(target_outputs.value_logits)
-    # search_roots = jax.tree_map(lambda t: t[:num_target_steps], target_outputs)
-    # target_values = jax.tree_map(lambda t: t[:num_target_steps], target_values)
     roots = mctx.RootFnOutput(prior_logits=target_outputs.policy_logits,
                               value=target_values,
                               embedding=target_outputs.state)
@@ -332,6 +337,29 @@ class ValueEquivalentLoss:
       # v_t = rlax.batched_index(target_q_t, max_action)
       # returns = rlax.transformed_n_step_returns(
       #     self._discretizer._tx_pair, data.reward[:-1], discounts, v_t, self._td_steps)
+    elif self._v_target_source == 'reanalyze':
+      rng_key, sample_key = jax.random.split(rng_key)
+      reanalyze = distrax.Bernoulli(
+        probs=self._reanalyze_ratio).sample(seed=sample_key)
+      return_fn = lambda v: rlax.n_step_bootstrapped_returns(
+          data.reward[:-1], discounts, v[1:], self._td_steps)
+      returns = jax.lax.cond(
+        reanalyze>0,
+        lambda: return_fn(mcts_outputs.search_tree.summary().value),
+        lambda: return_fn(target_values))
+      target_metrics.update(reanalyze=reanalyze.astype(jnp.float32))
+    elif self._v_target_source == 'reanalyze2':
+      rng_key, sample_key = jax.random.split(rng_key)
+      reanalyze = distrax.Bernoulli(
+        probs=self._reanalyze_ratio).sample(seed=sample_key)
+      return_fn = lambda v: rlax.n_step_bootstrapped_returns(
+          data.reward[:-1], discounts, v[1:], self._td_steps)
+      dim_return = data.reward.shape[0] - 1
+      returns = jax.lax.cond(
+        reanalyze>0,
+        lambda: mcts_outputs.search_tree.summary().value[:dim_return],
+        lambda: return_fn(target_values))
+      target_metrics.update(reanalyze=reanalyze.astype(jnp.float32))
 
     # Value targets for the absorbing state and the states after are 0.
     dim_return = returns.shape[0]
@@ -340,7 +368,6 @@ class ValueEquivalentLoss:
     value_probs_target = self._discretizer.scalar_to_probs(value_target)
     value_probs_target = jax.lax.stop_gradient(value_probs_target)
 
-    value_metrics = {}
     if self._metrics == 'dense':
       value_metrics = {
         '2.value_prediction': self._discretizer.logits_to_scalar(online_outputs.value_logits[:-1]),  # T
@@ -349,8 +376,9 @@ class ValueEquivalentLoss:
       }
       value_metrics = jax.tree_map(
           lambda x: masked_mean(x, in_episode[:-1]), value_metrics)
+      target_metrics.update(value_metrics)
 
-    return policy_probs_target, value_probs_target, reward_probs_target, value_metrics
+    return policy_probs_target, value_probs_target, reward_probs_target, target_metrics
 
   def model_loss(self,
                  starting_outputs: Array,
@@ -384,7 +412,7 @@ class ValueEquivalentLoss:
     policy_loss = self._policy_loss_fn(policy_probs_target, model_output.policy_logits)
     policy_loss = masked_mean(policy_loss, policy_mask)
     metrics = {}
-    if self._metrics != 'sparse':
+    if self._metrics == 'dense':
       metrics = {
           '0.1.model_policy_loss': self._model_coef*policy_loss, # T
           '0.2.model_reward_loss': reward_loss, # T

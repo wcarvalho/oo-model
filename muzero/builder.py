@@ -58,11 +58,9 @@ class MuZeroBuilder(r2d2.R2D2Builder):
 
   def __init__(self,
                config: r2d2_config.R2D2Config,
-               discretizer : Discretizer,
                loss_fn: ValueEquivalentLoss):
     """Creates a R2D2 learner, a behavior policy and an eval actor."""
     self._config = config
-    self._discretizer = discretizer
     self._loss_fn = loss_fn
     self._sequence_length = (
         self._config.burn_in_length + self._config.trace_length + 1)
@@ -92,7 +90,6 @@ class MuZeroBuilder(r2d2.R2D2Builder):
         target_update_period=self._config.target_update_period,
         iterator=dataset,
         num_sgd_steps_per_step=self._config.num_sgd_steps_per_step,
-        discretizer=self._discretizer,
         LossFn=self._loss_fn,
         # bootstrap_n=self._config.bootstrap_n,
         # tx_pair=self._config.tx_pair,

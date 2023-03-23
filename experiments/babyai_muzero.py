@@ -1,39 +1,42 @@
+from absl import logging
+
 import functools
 import distrax
 import jax
+from pprint import pprint
 import mctx
 import rlax
 
 from muzero import utils as muzero_utils
-from muzero.builder_broken import MuZeroBuilder
 from muzero import networks as muzero_networks
+from muzero.builder import MuZeroBuilder
 from muzero.config import MuZeroConfig
+from muzero.ve_losses import ValueEquivalentLoss
 
-from experiments.utils import update_config
 
 def setup(
     launch: bool=True,
     config_kwargs: dict = None):
   config_kwargs = config_kwargs or dict()
   if not launch: #DEBUG
-    config_kwargs['min_replay_size'] = 100
-    config_kwargs["samples_per_insert"] = 1.0
-    config_kwargs['batch_size'] = 4
-    config_kwargs['trace_length'] = 6
-    config_kwargs['discount'] = .99
-    config_kwargs['simulation_steps'] = 2
-    config_kwargs['num_simulations'] = 1
-    config_kwargs['td_steps'] = 3
-    config_kwargs['burn_in_length'] = 0
-    config_kwargs['weight_decay'] = 0.0
-    config_kwargs['show_gradients'] = 1
-    config_kwargs['metrics'] = 'sparse'
-    config_kwargs['scale_grad'] = 0.0
-    config_kwargs['network_fn'] = 'babyai'
-    config_kwargs['builder'] = 'old'
-    config_kwargs['loss_fn'] = 'new'
-    config_kwargs['num_sgd_steps_per_step'] = 4
-
+    config_kwargs.update(
+      min_replay_size=100,
+      samples_per_insert=1.0,
+      batch_size=4,
+      trace_length=6,
+      discount=.99,
+      simulation_steps=2,
+      num_simulations=1,
+      td_steps=3,
+      burn_in_length=0,
+      weight_decay=0.0,
+      show_gradients=0,
+      v_target_source='reanalyze2',
+      # metrics='sparse',
+      scale_grad=0.0,
+    )
+  logging.info(f'Config arguments')
+  pprint(config_kwargs)
 
   config = MuZeroConfig(**config_kwargs)
 
@@ -48,105 +51,54 @@ def setup(
   )
   config.num_bins = discretizer._num_bins
 
+  assert config.muzero_policy in ["muzero", "gumbel_muzero"]
+  if config.muzero_policy == "muzero":
+    muzero_policy = functools.partial(
+        mctx.muzero_policy,
+        dirichlet_fraction=config.dirichlet_fraction,
+        dirichlet_alpha=config.dirichlet_alpha,
+        pb_c_init=config.pb_c_init,
+        pb_c_base=config.pb_c_base,
+        temperature=config.temperature)
+  elif config.muzero_policy == "gumbel_muzero":
+    muzero_policy = functools.partial(
+        mctx.gumbel_muzero_policy,
+        gumbel_scale=config.gumbel_scale)
 
-  if config.network_fn == 'babyai':
-    network_fn = muzero_networks.make_babyai_networks
-  # elif config.network_fn == "old_babyai":
-  #   from muzero_old import networks as muzero_networks_old
-  #   network_fn = muzero_networks_old.make_babyai_networks
-  elif config.network_fn == "simple_babyai":
-    raise NotImplementedError
-    # network_fn = muzero_networks.make_simple_babyai_networks
-  else:
-    raise NotImplementedError(config.network_fn)
+  assert config.policy_loss in ["cross_entropy", "kl_forward", "kl_back"]
+  if config.policy_loss == 'cross_entropy':
+    policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
+  elif config.policy_loss == 'kl_forward':
+    def kl_forward(p, l):
+      return distrax.Categorical(probs=p).kl_divergence(distrax.Categorical(logits=l))
+    policy_loss_fn = jax.vmap(kl_forward)
+  elif config.policy_loss == 'kl_back':
+    def kl_back(p, l):
+      return distrax.Categorical(logits=l).kl_divergence(distrax.Categorical(probs=p))
+    policy_loss_fn = jax.vmap(kl_back)
 
-  if config.loss_fn == 'new':
-    assert config.muzero_policy in ["muzero", "gumbel_muzero"]
+  ve_loss_fn = functools.partial(ValueEquivalentLoss,
+    muzero_policy=muzero_policy,
+    policy_loss_fn=policy_loss_fn,
+    simulation_steps=config.simulation_steps,
+    discretizer=discretizer,
+    num_simulations=config.num_simulations,
+    discount=config.discount,
+    td_steps=config.td_steps,
+    model_coef=config.model_coef,
+    policy_coef=config.policy_coef,
+    value_coef=config.value_coef,
+    reward_coef=config.reward_coef,
+    v_target_source=config.v_target_source,
+    reanalyze_ratio=config.reanalyze_ratio,
+    metrics=config.metrics,
+  )
 
-    if config.muzero_policy == "muzero":
-      muzero_policy = functools.partial(
-          mctx.muzero_policy,
-          dirichlet_fraction=config.dirichlet_fraction,
-          dirichlet_alpha=config.dirichlet_alpha,
-          pb_c_init=config.pb_c_init,
-          pb_c_base=config.pb_c_base,
-          temperature=config.temperature)
-    elif config.muzero_policy == "gumbel_muzero":
-      muzero_policy = functools.partial(
-          mctx.gumbel_muzero_policy,
-          gumbel_scale=config.gumbel_scale)
-
-    assert config.policy_loss in ["cross_entropy", "kl_forward", "kl_back"]
-    if config.policy_loss == 'cross_entropy':
-      policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
-    elif config.policy_loss == 'kl_forward':
-      def kl_forward(p, l):
-        return distrax.Categorical(probs=p).kl_divergence(distrax.Categorical(logits=l))
-      policy_loss_fn = jax.vmap(kl_forward)
-    elif config.policy_loss == 'kl_back':
-      def kl_back(p, l):
-        return distrax.Categorical(logits=l).kl_divergence(distrax.Categorical(probs=p))
-      policy_loss_fn = jax.vmap(kl_back)
-
-    from muzero.ve_losses import ValueEquivalentLoss
-    ve_loss_fn = functools.partial(ValueEquivalentLoss,
-      muzero_policy=muzero_policy,
-      policy_loss_fn=policy_loss_fn,
-      simulation_steps=config.simulation_steps,
-      discretizer=discretizer,
-      num_simulations=config.num_simulations,
-      discount=config.discount,
-      td_steps=config.td_steps,
-      model_coef=config.model_coef,
-      policy_coef=config.policy_coef,
-      value_coef=config.value_coef,
-      reward_coef=config.reward_coef,
-      v_target_source=config.v_target_source,
-      metrics=config.metrics,
-    )
-  elif config.loss_fn == 'old':
-    assert config.muzero_policy in ["muzero", "gumbel_muzero"]
-    if config.muzero_policy == "muzero":
-      muzero_policy = functools.partial(
-          mctx.muzero_policy,
-          dirichlet_fraction=config.dirichlet_fraction,
-          dirichlet_alpha=config.dirichlet_alpha,
-          pb_c_init=config.pb_c_init,
-          pb_c_base=config.pb_c_base,
-          temperature=config.temperature)
-      policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
-    elif config.muzero_policy == "gumbel_muzero":
-      muzero_policy = functools.partial(
-          mctx.gumbel_muzero_policy,
-          gumbel_scale=config.gumbel_scale)
-      policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
-    from muzero_old.ve_losses import ValueEquivalentLoss
-    ve_loss_fn = functools.partial(ValueEquivalentLoss,
-      muzero_policy=muzero_policy,
-      policy_loss_fn=policy_loss_fn,
-      discretizer=discretizer,
-      simulation_steps=config.simulation_steps,
-      num_simulations=config.num_simulations,
-      discount=config.discount,
-      td_steps=config.td_steps,
-      model_coef=config.model_coef,
-      policy_coef=config.policy_coef,
-      value_coef=config.value_coef,
-      reward_coef=config.reward_coef,
-      v_target_source=config.v_target_source,
-      metrics=config.metrics,
-      model_share_params=True,
-    )
-
-  if config.builder == 'new':
-    builder = MuZeroBuilder(config, discretizer=discretizer, loss_fn=ve_loss_fn)
-  elif config.builder == 'old':
-    from muzero.builder import MuZeroBuilder as MuZeroBuilderOld
-    builder = MuZeroBuilderOld(config, discretizer=discretizer, loss_fn=ve_loss_fn)
+  builder = MuZeroBuilder(config, loss_fn=ve_loss_fn)
 
   network_factory = functools.partial(
-          network_fn,
-          config=copy.deepcopy(config),
-          discretizer=discretizer)
+      muzero_networks.make_babyai_networks,
+      config=config,
+      discretizer=discretizer)
   
   return config, builder, network_factory
