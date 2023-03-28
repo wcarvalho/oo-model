@@ -48,22 +48,15 @@ def make_kitchen_environment(
   room_size: int=7,
   num_dists: int=2,
   partial_obs: bool = False,
-  max_text_length=5,
+  max_text_length=10,
   tile_size=8,
   path='.',
   tasks_file='',
   debug=False,
   nseeds=0,
-  return_gym_env=False,
   **kwargs,
   ) -> dm_env.Environment:
   """Loads environments."""
-
-  # task_reps_file = f"envs/babyai_kitchen/tasks/task_reps/{task_reps}.yaml"
-  # task_reps_file = os.path.join(path, task_reps_file)
-  # assert os.path.exists(task_reps_file)
-  # with open(task_reps_file, 'r') as f:
-  #   task_reps = yaml.load(f, Loader=yaml.SafeLoader)
 
   tasks_file = tasks_file or 'place'
   tasks = open_kitchen_tasks_file(tasks_file)
@@ -80,16 +73,16 @@ def make_kitchen_environment(
         max_length=max_text_length)]
 
   if partial_obs:
+    # shape: always 56 x 56 x 3
     env_wrappers.append(functools.partial(RGBImgPartialObsWrapper,
       tile_size=tile_size))
-    # shape: always 56 x 56 x 3
   else:
-    env_wrappers.append(functools.partial(RGBImgFullyObsWrapper,
-      tile_size=tile_size))
     # room-size=10 --> image: 80 x 80  x 3
     # room-size=8  --> image: 64 x 64  x 3
     # room-size=7  --> image: 56 x 56  x 3
     # room-size=5  --> image: 40 x 40  x 3
+    env_wrappers.append(functools.partial(RGBImgFullyObsWrapper,
+      tile_size=tile_size))
 
   nseeds=0 if evaluation else nseeds
 
@@ -111,8 +104,4 @@ def make_kitchen_environment(
     wrappers.SinglePrecisionWrapper,
   ]
   dm_env = wrappers.wrap_all(dm_env, wrapper_list)
-  if return_gym_env:
-    gym_env = dm_env.env
-    return dm_env, gym_env
-  else:
-    return dm_env
+  return dm_env

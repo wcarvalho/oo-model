@@ -151,7 +151,9 @@ def build_experiment_config(launch=False,
     wandb_init_kwargs['config'] = wandb_config
     if launch:  # distributed
       wandb.init(
-        settings=wandb.Settings(start_method="fork"),
+        settings=wandb.Settings(
+          code_dir=log_dir,
+          start_method="fork"),
         reinit=True, **wandb_init_kwargs)
     else:
       wandb.init(**wandb_init_kwargs)
@@ -167,7 +169,9 @@ def build_experiment_config(launch=False,
     ) -> loggers.Logger:
     if use_wandb and launch:
       wandb.init(
-        settings=wandb.Settings(start_method="fork"),
+        settings=wandb.Settings(
+          code_dir=log_dir,
+          start_method="fork"),
         reinit=True, **wandb_init_kwargs)
     if name == 'actor':
       return wandb_logger.make_logger(
@@ -237,6 +241,7 @@ def main(_):
   if FLAGS.folder:
     log_dir = FLAGS.folder
     if wandb_init_kwargs is not None:
+      import wandb
       wandb_init_kwargs['dir'] = log_dir
   else:
     folder = "../results/oo-model/babyai"
@@ -248,6 +253,7 @@ def main(_):
           seed=FLAGS.seed,
           return_kwpath=True)
     if wandb_init_kwargs is not None:
+      import wandb
       wandb_init_kwargs['name'] = FLAGS.wandb_name or config_path_str
       wandb_init_kwargs['dir'] = folder
 

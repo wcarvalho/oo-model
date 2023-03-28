@@ -31,9 +31,12 @@ def setup(
       burn_in_length=0,
       weight_decay=0.0,
       show_gradients=0,
-      v_target_source='reanalyze2',
+      root_policy_coef=5.,
+      v_target_source='reanalyze',
       # metrics='sparse',
       scale_grad=0.0,
+      importance_sampling_exponent=0.6,
+      priority_exponent=0.9,
     )
   logging.info(f'Config arguments')
   pprint(config_kwargs)
@@ -87,6 +90,7 @@ def setup(
     td_steps=config.td_steps,
     model_coef=config.model_coef,
     policy_coef=config.policy_coef,
+    root_policy_coef=config.root_policy_coef,
     value_coef=config.value_coef,
     reward_coef=config.reward_coef,
     v_target_source=config.v_target_source,

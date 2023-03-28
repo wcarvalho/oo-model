@@ -199,13 +199,13 @@ def main(_):
   folder = FLAGS.folder if FLAGS.folder else f"../results/oo-model/babyai"
   default_env_kwargs=dict(
     tasks_file='place_split_hard',
-    room_size=8,
-    num_dists=0,
+    room_size=7,
+    num_dists=2,
     partial_obs=False,
     )
 
 
-  wait_time = 0.0
+  wait_time = 30.0 # avoid collisions
   terminal = 'current_terminal'
   num_cpus = FLAGS.num_cpus
   num_gpus = FLAGS.num_gpus

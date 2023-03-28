@@ -5,12 +5,12 @@ def get(search: str = '', agent: str = ''):
   if search == 'test':
     space = [
         {
-          "seed": tune.grid_search([1,2,3]),
+          "seed": tune.grid_search([1]),
           "agent": tune.grid_search(['muzero']),
           "tasks_file": tune.grid_search(['pickup']),
           "room_size": tune.grid_search([7]),
           "num_dists": tune.grid_search([2]),
-          "label": tune.grid_search(['v1_4']),
+          "label": tune.grid_search(['v1_5']),
         }
     ]
   elif search == 'debug1':
@@ -49,57 +49,53 @@ def get(search: str = '', agent: str = ''):
   elif search == 'r2d21':
     space = [
         {
-          "seed": tune.grid_search([1,2,3]),
+          "seed": tune.grid_search([2,3]),
           "tasks_file": tune.grid_search(['pickup']),
           "agent": tune.grid_search(['r2d2']),
-          "room_size": tune.grid_search([5, 7]),
+          "room_size": tune.grid_search([7]),
           "num_dists": tune.grid_search([2]),
-          "samples_per_insert": tune.grid_search([6.0]),
-          "group": tune.grid_search([f'debug_v4']),
+          "samples_per_insert": tune.grid_search([4.0, 6.0, 10.0, 50.0]),
+          "group": tune.grid_search([f'pickup_d2_v17']),
         }
     ]
   elif search == 'muzero1':
     space = [
         {
-          "seed": tune.grid_search([1,2,3]),
-          "tasks_file": tune.grid_search(['pickup']),
-          "agent": tune.grid_search(['muzero']),
-          "room_size": tune.grid_search([7]),
-          "num_dists": tune.grid_search([2]),
-          "model_coef": tune.grid_search([.5]),
-          "v_target_source": tune.grid_search(['reanalyze', 'reanalyze2']),
-          "reanalyze_ratio": tune.grid_search([.75, .9]),
-          "group": tune.grid_search([f'pickup_d2_v8_reanalyze']),
-          # "label": tune.grid_search([f'8']),
+            "seed": tune.grid_search([1]),
+            "tasks_file": tune.grid_search(['pickup']),
+            "agent": tune.grid_search(['muzero']),
+            "model_coef": tune.grid_search([10.0]),
+            # "root_policy_coef": tune.grid_search([1.25, 1.5, 2.0, 2.5, 3.75, 5.0, 7.5, 10.0]),
+            "root_policy_coef": tune.grid_search([2.5, 5.0, 10.0, 15.0]),
+            "v_target_source": tune.grid_search(['reanalyze']),
+            "reanalyze_ratio": tune.grid_search([.5, .9]),
+            "group": tune.grid_search([f'pickup_d2_v21']),
         },
     ]
 
   elif search == 'muzero2':
     space = [
         {
-          "seed": tune.grid_search([1,2,3]),
-          "tasks_file": tune.grid_search(['pickup']),
-          "agent": tune.grid_search(['muzero']),
-          "room_size": tune.grid_search([7, 5]),
-          "num_dists": tune.grid_search([2]),
-          "group": tune.grid_search([f'pickup_d2_v4']),
-          "label": tune.grid_search([f'13']),
+            "seed": tune.grid_search([1,2,3]),
+            "tasks_file": tune.grid_search(['pickup']),
+            "agent": tune.grid_search(['muzero']),
+            "model_coef": tune.grid_search([10.0]),
+            "v_target_source": tune.grid_search(['reanalyze']),
+            "reanalyze_ratio": tune.grid_search([.5, .75, .9]),
+            "group": tune.grid_search([f'pickup_d2_v20']),
         },
     ]
 
   elif search == 'muzero3':
     space = [
         {
-          "seed": tune.grid_search([1]),
-          "tasks_file": tune.grid_search(['pickup']),
-          "agent": tune.grid_search(['muzero']),
-          # "samples_per_insert": tune.grid_search([75, 100]),
-          "room_size": tune.grid_search([7]),
-          "num_dists": tune.grid_search([2]),
-          "reward_mlps": tune.grid_search([[], [32]]),
-          "vpi_mlps": tune.grid_search([[], [128, 32]]),
-          "policy_loss": tune.grid_search(["cross_entropy", "kl_forward", "kl_back"]),
-          "group": tune.grid_search([f'policy_loss_2_v2']),
+            "seed": tune.grid_search([1]),
+            "tasks_file": tune.grid_search(['pickup']),
+            "agent": tune.grid_search(['muzero']),
+            "model_coef": tune.grid_search([10.0]),
+            "v_target_source": tune.grid_search(['reanalyze', 'return', 'reanalyze2', 'mcts']),
+            "reanalyze_ratio": tune.grid_search([.5]),
+            "group": tune.grid_search([f'pickup_d2_v18']),
         },
     ]
   else:
