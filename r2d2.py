@@ -60,7 +60,7 @@ class R2D2Config(r2d2.R2D2Config):
 
   # Replay options
   # samples_per_insert_tolerance_rate: float = 0.1
-  samples_per_insert: float = 10.0
+  samples_per_insert: float = 6.0
   min_replay_size: int = 1_000
   max_replay_size: int = 80_000
   batch_size: Optional[int] = 64
@@ -70,8 +70,8 @@ class R2D2Config(r2d2.R2D2Config):
   num_parallel_calls: int = 1
 
   # Priority options
-  importance_sampling_exponent: float = 0.0
-  priority_exponent: float = 0.0
+  importance_sampling_exponent: float = 0.6
+  priority_exponent: float = 0.9
 
 
 class R2D2Arch(hk.RNNCore):
