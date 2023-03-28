@@ -98,22 +98,10 @@ class MuZeroLearner(acme.Learner):
                logger: Optional[loggers.Logger] = None):
     """Initializes the learner."""
     self._config = config
-
-    simulation_steps = config.simulation_steps
-    num_simulations = config.num_simulations
-
-    td_steps = config.td_steps
-    policy_coef = config.policy_coef
-    value_coef = config.value_coef
-    reward_coef = config.reward_coef
     ema_update = config.ema_update
     show_gradients = config.show_gradients > 0
     self._num_sgd_steps_per_step = num_sgd_steps_per_step
-
-    if config.action_source == "value" or not config.seperate_model_nets:
-      self._model_unroll_share_params = True
-    else:
-      self._model_unroll_share_params = False
+    self._model_unroll_share_params = True
 
     def loss(
         params: muzero_types.MuZeroParams,
@@ -212,7 +200,6 @@ class MuZeroLearner(acme.Learner):
         max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
         mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
         priorities = (max_priority + mean_priority)
-
       metrics = jax.tree_map(lambda x: x.mean(), metrics)
       metrics.update(in_episode=in_episode.mean())
       extra = learning_lib.LossExtra(metrics=metrics,

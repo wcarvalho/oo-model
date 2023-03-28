@@ -34,10 +34,7 @@ import rlax
 import mctx
 
 from muzero import types as muzero_types
-from muzero.utils import (
-    scale_gradient,
-    Discretizer,
-)
+from muzero.utils import Discretizer
 
 Array = acme_types.NestedArray
 State = acme_types.NestedArray
@@ -67,10 +64,11 @@ class ValueEquivalentLoss:
                policy_loss_fn: Callable[[Array, Array], Array],
                discount: float = 0.99,
                policy_coef: float = 1.0,
+               root_policy_coef: float = 1.0,
                value_coef: float = 1.0,
                reward_coef: float = 1.0,
                model_coef: float = 1.0,
-               v_target_source: str = 'reanalyze',
+               v_target_source: str = 'eff_zero',
                reanalyze_ratio: float = .9,
                metrics: str = 'sparse',
                ):
@@ -84,6 +82,7 @@ class ValueEquivalentLoss:
     self._td_steps = td_steps
     self._muzero_policy = muzero_policy
     self._policy_coef = policy_coef
+    self._root_policy_coef = root_policy_coef
     self._model_coef = model_coef
     self._value_coef = value_coef
     self._reward_coef = reward_coef
@@ -95,8 +94,8 @@ class ValueEquivalentLoss:
     assert v_target_source in ('mcts',
                                'return',
                                'q_learning',
-                               'reanalyze',
-                               'reanalyze2')
+                               'eff_zero',  # efficient-zero strategy
+                               'reanalyze'), v_target_source  # original re-analyze strategy
 
   def __call__(self,
                data: acme_types.NestedArray,
@@ -133,12 +132,11 @@ class ValueEquivalentLoss:
         value_probs_target, online_outputs.value_logits[:dim_return])
     # []
     root_value_loss = masked_mean(root_value_loss, in_episode[:dim_return])
-
     # [T]
     root_policy_loss = self._policy_loss_fn(policy_probs_target, online_outputs.policy_logits)
     # []
     root_policy_loss = masked_mean(root_policy_loss, in_episode)
-
+    root_policy_loss = self._root_policy_coef*root_policy_loss
     ###############################
     # Model losses
     ###############################
@@ -337,7 +335,7 @@ class ValueEquivalentLoss:
       # v_t = rlax.batched_index(target_q_t, max_action)
       # returns = rlax.transformed_n_step_returns(
       #     self._discretizer._tx_pair, data.reward[:-1], discounts, v_t, self._td_steps)
-    elif self._v_target_source == 'reanalyze':
+    elif self._v_target_source == 'eff_zero':
       rng_key, sample_key = jax.random.split(rng_key)
       reanalyze = distrax.Bernoulli(
         probs=self._reanalyze_ratio).sample(seed=sample_key)
@@ -348,7 +346,7 @@ class ValueEquivalentLoss:
         lambda: return_fn(mcts_outputs.search_tree.summary().value),
         lambda: return_fn(target_values))
       target_metrics.update(reanalyze=reanalyze.astype(jnp.float32))
-    elif self._v_target_source == 'reanalyze2':
+    elif self._v_target_source == 'reanalyze':
       rng_key, sample_key = jax.random.split(rng_key)
       reanalyze = distrax.Bernoulli(
         probs=self._reanalyze_ratio).sample(seed=sample_key)
@@ -411,6 +409,7 @@ class ValueEquivalentLoss:
 
     policy_loss = self._policy_loss_fn(policy_probs_target, model_output.policy_logits)
     policy_loss = masked_mean(policy_loss, policy_mask)
+
     metrics = {}
     if self._metrics == 'dense':
       metrics = {

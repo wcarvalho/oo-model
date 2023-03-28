@@ -67,7 +67,7 @@ class Discretizer:
         num_bins=self._num_bins)
      return probs
 
-class TaskAwareRNN(hk.RNNCore):
+class TaskAwareRecurrentFn(hk.RNNCore):
   """Helper RNN which adds task to state and, optionally, hidden output. 
   
   It's useful to couple the task g and the state s_t output for functions that make
@@ -116,8 +116,10 @@ class TaskAwareRNN(hk.RNNCore):
     return state
 
   def __call__(self, inputs: Array, prev_state: TaskAwareState):
-    hidden, state = self._core(self._prep_input(inputs),
-                               self._prep_state(prev_state))
+    prepped_input = self._prep_input(inputs)
+    prepped_state = self._prep_state(prev_state)
+
+    hidden, state = self._core(prepped_input, prepped_state)
 
     task = self._get_task(inputs, prev_state)
     if self._couple_state_task:

@@ -37,7 +37,7 @@ from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
 from muzero.arch import MuZeroArch
 from muzero.types import MuZeroNetworks, TaskAwareState
 from muzero.config import MuZeroConfig
-from muzero.utils import Discretizer, TaskAwareRNN
+from muzero.utils import Discretizer, TaskAwareRecurrentFn
 
 
 NetworkOutput = networks_lib.NetworkOutput
@@ -128,16 +128,14 @@ def make_babyai_networks(
       value_logits = model_value_fn(state)
       return reward_logits, policy_logits, value_logits
 
-    # during state unroll, rnn gets task from inputs and stores in state
-    state_fn = TaskAwareRNN(
-      prep_input=concat_embeddings,
-      get_task=lambda inputs, _: inputs.task,
-      core=hk.LSTM(state_dim),
-      task_dim=config.task_dim)
+    state_fn = hk.LSTM(state_dim)
+    def combine_hidden_obs(hidden: jnp.ndarray, emb: vision_language.TorsoOutput):
+      """After get hidden from LSTM, combine with task from embedding."""
+      return TaskAwareState(state=hidden, task=emb.task)
 
     # transition gets task from state and stores in state
-    transition_fn = TaskAwareRNN(
-      get_task=lambda _, state: state.task,
+    transition_fn = TaskAwareRecurrentFn(
+      get_task=lambda inputs, state: state.task,
       prep_state=lambda state: state.state,  # get state-vector from TaskAwareState
       couple_state_task=True,
       core=Transition(
@@ -147,12 +145,15 @@ def make_babyai_networks(
         rnn_return=True),
     )
 
+
     return MuZeroArch(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
       observation_fn=observation_fn,
+      prep_state_input=concat_embeddings,
       state_fn=state_fn,
       transition_fn=transition_fn,
+      combine_hidden_obs=combine_hidden_obs,
       root_pred_fn=root_predictor,
       model_pred_fn=model_predictor)
 

@@ -45,15 +45,12 @@ from acme.agents.jax import r2d2
 
 from muzero.learning import MuZeroLearner
 from muzero import actor as muzero_actor
-from muzero.utils import Discretizer
 from muzero.ve_losses import ValueEquivalentLoss
 
 class MuZeroBuilder(r2d2.R2D2Builder):
   """MuZero Builder.
 
-  This is constructs all of the components for Recurrent Experience Replay in
-  Distributed Reinforcement Learning (Kapturowski et al.)
-  https://openreview.net/pdf?id=r1lyTjAqYX.
+  This constructs all the pieces of MuZero.
   """
 
   def __init__(self,
@@ -91,9 +88,6 @@ class MuZeroBuilder(r2d2.R2D2Builder):
         iterator=dataset,
         num_sgd_steps_per_step=self._config.num_sgd_steps_per_step,
         LossFn=self._loss_fn,
-        # bootstrap_n=self._config.bootstrap_n,
-        # tx_pair=self._config.tx_pair,
-        # clip_rewards=self._config.clip_rewards,
         replay_client=replay_client,
         counter=counter,
         config=self._config,

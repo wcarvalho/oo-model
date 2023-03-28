@@ -69,8 +69,8 @@ class MuZeroConfig(r2d2.R2D2Config):
   # replay_table_name: str = adders_reverb.DEFAULT_PRIORITY_TABLE
 
   # Priority options
-  importance_sampling_exponent: float = 0.0
-  priority_exponent: float = 0.0
+  importance_sampling_exponent: float = 0.6
+  priority_exponent: float = 0.9
   # max_priority_weight: float = 0.9
 
   #Loss hps
@@ -125,6 +125,7 @@ class MuZeroConfig(r2d2.R2D2Config):
 
   model_coef: float = 1.0
   policy_coef: float = 1.0
+  root_policy_coef: float = 1.0
   value_coef: float = 0.25
   reward_coef: float = 1.0
 

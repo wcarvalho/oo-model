@@ -8,7 +8,7 @@ import jax
 import jax.numpy as jnp
 
 from muzero import types as muzero_types
-from muzero.utils import TaskAwareRNN
+from muzero.utils import TaskAwareRecurrentFn
 
 State = types.NestedArray
 RewardLogits = jnp.ndarray
@@ -25,14 +25,16 @@ class MuZeroArch(hk.RNNCore):
   def __init__(self,
                action_encoder,
                observation_fn: hk.Module,
-               state_fn: TaskAwareRNN,
-               transition_fn: TaskAwareRNN,
+               state_fn: hk.RNNCore,
+               transition_fn: TaskAwareRecurrentFn,
                root_pred_fn: RootFn,
                model_pred_fn: ModelFn,
                prep_state_input: Callable[
                   [types.NestedArray], types.NestedArray] = lambda x: x,
                prep_model_state_input: Callable[
                   [types.NestedArray], types.NestedArray] = lambda x: x,
+               combine_hidden_obs: Callable[
+                   [types.NestedArray, types.NestedArray], types.NestedArray] = lambda h, s: h,
                name='muzero_network'):
     super().__init__(name=name)
     self._action_encoder = action_encoder
@@ -43,6 +45,7 @@ class MuZeroArch(hk.RNNCore):
     self._model_pred_fn = model_pred_fn
     self._prep_state_input = prep_state_input
     self._prep_model_state_input = prep_model_state_input
+    self._combine_hidden_obs = combine_hidden_obs
 
   def initial_state(self, batch_size: Optional[int],
                     **unused_kwargs) -> State:
@@ -70,6 +73,8 @@ class MuZeroArch(hk.RNNCore):
 
     # [D], [D]
     hidden, new_state = self._state_fn(state_input, state)
+
+    hidden = self._combine_hidden_obs(hidden, embeddings)
     policy_logits, value_logits = self._root_pred_fn(hidden)
 
     root_outputs = muzero_types.RootOutput(
@@ -98,6 +103,8 @@ class MuZeroArch(hk.RNNCore):
 
     all_hidden, new_state = hk.static_unroll(
         self._state_fn, state_input, state)
+
+    all_hidden = self._combine_hidden_obs(all_hidden, embeddings)
     policy_logits, value_logits = hk.BatchApply(self._root_pred_fn)(all_hidden)
 
     return muzero_types.RootOutput(
