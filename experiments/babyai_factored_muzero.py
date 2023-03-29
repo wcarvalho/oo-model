@@ -35,7 +35,6 @@ def setup(
   if config.sequence_period is None:
     config.sequence_period = config.trace_length
 
-
   discretizer = muzero_utils.Discretizer(
       num_bins=config.num_bins,
       step_size=config.scalar_step_size,
@@ -59,19 +58,19 @@ def setup(
     td_steps=config.td_steps,
     model_coef=config.model_coef,
     policy_coef=config.policy_coef,
+    root_policy_coef=config.root_policy_coef,
     value_coef=config.value_coef,
     reward_coef=config.reward_coef,
     v_target_source=config.v_target_source,
     reanalyze_ratio=config.reanalyze_ratio,
     metrics=config.metrics,
-  )
+    )
 
   builder = MuZeroBuilder(
-      config, ve_loss_fn=ve_loss_fn)
+      config, loss_fn=ve_loss_fn)
 
   network_factory = functools.partial(
           networks.make_babyai_networks,
-          config=config,
-          discretizer=discretizer)
+          config=config)
   
   return config, builder, network_factory
