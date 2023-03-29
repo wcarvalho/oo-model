@@ -44,6 +44,7 @@ class Torso(hk.Module):
                num_actions: int,
                task_encoder: hk.Module,
                vision_torso: hk.Module,
+               flatten_image: bool = True,
                image_dim: int = 0,
                task_dim: int = 0,
                output_fn: Callable[[Image, Task, Action, Reward], Array] = concat,
@@ -55,6 +56,7 @@ class Torso(hk.Module):
     self._image_dim = image_dim
     self._output_fn = output_fn
     self._task_dim = task_dim
+    self._flatten_image = flatten_image
 
   def __call__(self, inputs: observation_action_reward.OAR):
     batched = len(inputs.observation.image.shape) == 4
@@ -77,7 +79,9 @@ class Torso(hk.Module):
     # compute image encoding
     inputs = jax.tree_map(lambda x: x.astype(jnp.float32), inputs)
     image = self._vision_torso(inputs.observation.image/255.0)
-    image = jnp.reshape(image, (-1))
+
+    if self._flatten_image:
+      image = jnp.reshape(image, (-1))
     if self._image_dim and self._image_dim > 0:
       image = hk.Linear(self._image_dim)(image)
 
