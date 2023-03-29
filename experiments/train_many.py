@@ -84,9 +84,6 @@ def create_and_run_program(
   group = config.pop('group', group)
   label = config.pop('label', DEFAULT_LABEL)
 
-  # if cuda:
-  #   os.environ['CUDA_VISIBLE_DEVICES']=str(cuda)
-
   save_config_dict=dict()
 
   # -----------------------
