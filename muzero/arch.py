@@ -87,7 +87,7 @@ class MuZeroArch(hk.RNNCore):
   def unroll(
       self,
       inputs: types.NestedArray,  # [T, B, ...]
-      state: State  # [T, ...]
+      state: State  # [B, ...]
   ) -> Tuple[muzero_types.RootOutput, State]:
     """Unroll state function over inputs.
 
