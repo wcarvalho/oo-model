@@ -107,7 +107,8 @@ def make_babyai_networks(
     ###########################
     # Setup transition function: transformer
     ###########################
-    def transformer_model(action_onehot, state):
+    def transformer_model(action_onehot: jnp.ndarray, 
+                          state: TaskAwareState):
       def _transformer_model(action_onehot, state):
         """Just make long sequence of state slots + action."""
         # action: [A]
@@ -145,7 +146,7 @@ def make_babyai_networks(
     ###########################
     # Setup prediction functions: policy, value, reward
     ###########################
-    def make_transformer(name, num_layers):
+    def make_transformer(name: str, num_layers: int):
       return attention.Transformer(
           num_heads=config.slot_pred_heads,
           qkv_size=config.slot_pred_qkv_size,
@@ -153,7 +154,7 @@ def make_babyai_networks(
           num_layers=num_layers,
           name=name)
 
-    def make_pred_fn(name, num_preds):
+    def make_pred_fn(name: str, num_preds: int):
       return PredictionMlp(
         config.vpi_mlps,
         num_preds,
