@@ -61,8 +61,10 @@ def make_babyai_networks(
 
   def make_core_module() -> MuZeroNetworks:
     state_dim = config.state_dim
-    res_dim = config.resnet_transition_dim or state_dim
 
+    ###########################
+    # Setup observation encoders (image + language)
+    ###########################
     assert config.vision_torso in ('babyai')
     vision_torso = vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim)
 
@@ -79,6 +81,33 @@ def make_babyai_networks(
       output_fn=vision_language.struct_output,
     )
 
+    ###########################
+    # Setup state function: LSTM 
+    ###########################
+    state_fn = hk.LSTM(state_dim)
+    def combine_hidden_obs(hidden: jnp.ndarray, emb: vision_language.TorsoOutput):
+      """After get hidden from LSTM, combine with task from embedding."""
+      return TaskAwareState(state=hidden, task=emb.task)
+
+    ###########################
+    # Setup transition function: ResNet
+    ###########################
+    res_dim = config.resnet_transition_dim or state_dim
+    # transition gets task from state and stores in state
+    transition_fn = TaskAwareRecurrentFn(
+      get_task=lambda inputs, state: state.task,
+      prep_state=lambda state: state.state,  # get state-vector from TaskAwareState
+      couple_state_task=True,
+      core=Transition(
+        channels=res_dim,
+        num_blocks=config.transition_blocks,
+        ln=config.ln,
+        rnn_return=True),
+    )
+
+    ###########################
+    # Setup prediction functions: policy, value, reward
+    ###########################
     if config.output_init is not None:
       output_init = hk.initializers.VarianceScaling(scale=config.output_init)
     else:
@@ -128,22 +157,6 @@ def make_babyai_networks(
       value_logits = model_value_fn(state)
       return reward_logits, policy_logits, value_logits
 
-    state_fn = hk.LSTM(state_dim)
-    def combine_hidden_obs(hidden: jnp.ndarray, emb: vision_language.TorsoOutput):
-      """After get hidden from LSTM, combine with task from embedding."""
-      return TaskAwareState(state=hidden, task=emb.task)
-
-    # transition gets task from state and stores in state
-    transition_fn = TaskAwareRecurrentFn(
-      get_task=lambda inputs, state: state.task,
-      prep_state=lambda state: state.state,  # get state-vector from TaskAwareState
-      couple_state_task=True,
-      core=Transition(
-        channels=res_dim,
-        num_blocks=config.transition_blocks,
-        ln=config.ln,
-        rnn_return=True),
-    )
 
 
     return MuZeroArch(
@@ -152,8 +165,8 @@ def make_babyai_networks(
       observation_fn=observation_fn,
       prep_state_input=concat_embeddings,
       state_fn=state_fn,
-      transition_fn=transition_fn,
       combine_hidden_obs=combine_hidden_obs,
+      transition_fn=transition_fn,
       root_pred_fn=root_predictor,
       model_pred_fn=model_predictor)
 
