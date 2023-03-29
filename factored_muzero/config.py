@@ -28,7 +28,6 @@ class FactoredMuZeroConfig(MuZeroConfig):
   slot_tran_qkv_size: int = 128
   slot_tran_mlp_size: int = 256
   transition_blocks: int = 2  # number of transformer blocks
-  tran_use_task: bool = False
 
   # prediction functions
   prediction_blocks: int = 2  # number of transformer blocks

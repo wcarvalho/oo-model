@@ -33,11 +33,11 @@ from modules import vision_language
 from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
 from muzero.arch import MuZeroArch
 from muzero.types import MuZeroNetworks, TaskAwareState
-from muzero.config import MuZeroConfig
 from muzero.utils import Discretizer, TaskAwareRecurrentFn, scale_gradient
 from muzero.networks import make_network
 
 
+from factored_muzero.config import FactoredMuZeroConfig as MuZeroConfig
 from factored_muzero import attention
 from factored_muzero import encoder
 
@@ -61,7 +61,6 @@ def make_babyai_networks(
 
   def make_core_module() -> MuZeroNetworks:
     state_dim = config.state_dim
-    res_dim = config.resnet_transition_dim or state_dim
 
     ###########################
     # Setup observation encoders (image + language)
@@ -164,11 +163,12 @@ def make_babyai_networks(
     assert config.seperate_model_nets == False, 'need to redo function for this'
     # root
     pre_blocks_base = max(1, config.prediction_blocks//2)
-    base1 = make_transformer('base1', num_layers=pre_blocks_base)
-    base2 = make_transformer('base2', num_layers=pre_blocks_base)
+    transformer1 = make_transformer('transformer1', num_layers=pre_blocks_base)
+    transformer2 = make_transformer('transformer2', num_layers=pre_blocks_base)
     task_attn_value = attention.GeneralMultiHeadAttention(
         num_heads=config.slot_pred_heads,
         key_size=config.slot_pred_qkv_size,
+        model_size=config.slot_pred_qkv_size,
         w_init=hk.initializers.VarianceScaling(2.0),
     )
     policy_fn = make_pred_fn(name='policy', num_preds=num_actions)
@@ -178,6 +178,7 @@ def make_babyai_networks(
     task_attn_reward = attention.GeneralMultiHeadAttention(
         num_heads=config.slot_pred_heads,
         key_size=config.slot_pred_qkv_size,
+        model_size=config.slot_pred_qkv_size,
         w_init=hk.initializers.VarianceScaling(2.0),
     )
     reward_fn = make_pred_fn(name='reward', num_preds=config.num_bins)
@@ -189,11 +190,12 @@ def make_babyai_networks(
       task = task_projection(state.task)  # [D]
       task = jnp.expand_dims(task, 0)
       return jnp.concatenate((task, state_hidden))
+
     def root_predictor(state: TaskAwareState):
       def _root_predictor(state: TaskAwareState):
         queries = state_task_to_queries(state)
-        queries = base1(queries)  # [N, D]
-        queries = base2(queries)  # [N, D]
+        queries = transformer1(queries)  # [N, D]
+        queries = transformer2(queries)  # [N, D]
 
         # [1, D]
         # use None to make query [1, D]. Needed for attention on [N, D] queries.
@@ -210,14 +212,14 @@ def make_babyai_networks(
     def model_predictor(state: TaskAwareState):
       def _model_predictor(state: TaskAwareState):
         queries = state_task_to_queries(state)
-        queries = base1(queries)
+        queries = transformer1(queries)
 
         # use None to make query [1, D]. Needed for attention on [N, D] queries.
         task_attn = task_attn_reward(query=queries[0][None], key=queries)[0]  # [N, D]
         task_attn = task_attn + queries[0]
         reward_logits = reward_fn(task_attn)
 
-        queries = base2(queries)
+        queries = transformer2(queries)
         # use None to make query [1, D]. Needed for attention on [N, D] queries.
         task_attn = task_attn_value(query=queries[0][None], key=queries)[0]  # [N, D]
         task_attn = task_attn + queries[0]

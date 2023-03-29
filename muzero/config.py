@@ -79,7 +79,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   max_scalar_value: float = 10.0  # number of bins for two-hot rep
   td_steps: int = 5
   v_target_source: str = 'reanalyze' # this interpolates between mcts output vs. observed return
-  reanalyze_ratio: float = .9 # percent of time to use mcts vs. observed return
+  reanalyze_ratio: float = .5 # percent of time to use mcts vs. observed return
   policy_loss: str = 'cross_entropy'
 
   # MCTS general hps
@@ -123,7 +123,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   # actor hps
   action_source: str = 'policy'  # 'policy', 'value', 'mcts'
 
-  model_coef: float = 1.0
+  model_coef: float = 10.0
   policy_coef: float = 1.0
   root_policy_coef: float = 1.0
   value_coef: float = 0.25

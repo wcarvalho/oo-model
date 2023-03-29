@@ -92,10 +92,19 @@ def get(search: str = '', agent: str = ''):
             "seed": tune.grid_search([1]),
             "tasks_file": tune.grid_search(['pickup']),
             "agent": tune.grid_search(['muzero']),
-            "model_coef": tune.grid_search([10.0]),
-            "v_target_source": tune.grid_search(['reanalyze', 'return', 'reanalyze2', 'mcts']),
-            "reanalyze_ratio": tune.grid_search([.5]),
             "group": tune.grid_search([f'pickup_d2_v18']),
+        },
+    ]
+  elif search == 'factored1':
+    space = [
+        {
+            "seed": tune.grid_search([1]),
+            "tasks_file": tune.grid_search(['pickup']),
+            "agent": tune.grid_search(['factored']),
+            "slot_pred_heads": tune.grid_search([2, 4]),
+            "num_slots": tune.grid_search([2, 4]),
+            "transition_blocks": tune.grid_search([2, 4]),
+            "group": tune.grid_search([f'pickup_d2_factored_v1']),
         },
     ]
   else:
