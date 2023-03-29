@@ -129,6 +129,7 @@ def make_babyai_networks(
         if config.scale_grad:
           out = scale_gradient(out, config.scale_grad)
         return out, out
+      assert action_onehot.ndim in (1, 2), "should be [A] or [B, A]"
       if action_onehot.ndim == 2:
         _transformer_model = jax.vmap(_transformer_model)
       return _transformer_model(action_onehot, state)
