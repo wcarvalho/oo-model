@@ -37,7 +37,7 @@ from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
 from muzero.arch import MuZeroArch
 from muzero.types import MuZeroNetworks, TaskAwareState
 from muzero.config import MuZeroConfig
-from muzero.utils import Discretizer, TaskAwareRecurrentFn
+from muzero.utils import Discretizer, TaskAwareRecurrentFn, scale_gradient
 
 
 NetworkOutput = networks_lib.NetworkOutput
@@ -92,17 +92,30 @@ def make_babyai_networks(
     ###########################
     # Setup transition function: ResNet
     ###########################
+    def resnet_model(action_onehot: jnp.ndarray, state: TaskAwareState):
+      assert action_onehot.ndim in (1, 2), "should be [A] or [B, A]"
+      def _resnet_model(action_onehot, state):
+        """ResNet transition model that scales gradient."""
+        # action: [A]
+        # state: [D]
+        out = Transition(
+          channels=res_dim,
+          num_blocks=config.transition_blocks,
+          ln=config.ln)(action_onehot, state)
+        if config.scale_grad:
+          out = scale_gradient(out, config.scale_grad)
+        return out, out
+      if action_onehot.ndim == 2:
+        _resnet_model = jax.vmap(_resnet_model)
+      return _resnet_model(action_onehot, state)
+
     res_dim = config.resnet_transition_dim or state_dim
     # transition gets task from state and stores in state
     transition_fn = TaskAwareRecurrentFn(
       get_task=lambda inputs, state: state.task,
       prep_state=lambda state: state.state,  # get state-vector from TaskAwareState
       couple_state_task=True,
-      core=Transition(
-        channels=res_dim,
-        num_blocks=config.transition_blocks,
-        ln=config.ln,
-        rnn_return=True),
+      core=resnet_model,
     )
 
     ###########################
@@ -143,19 +156,29 @@ def make_babyai_networks(
       model_vpi_base = root_vpi_base
 
     def root_predictor(state: TaskAwareState):
-      state = state.state
-      state = root_vpi_base(state)
-      policy_logits = root_policy_fn(state)
-      value_logits = root_value_fn(state)
-      return policy_logits, value_logits
+      assert state.task.ndim in (1, 2), "should be [D] or [B, D]"
+      def _root_predictor(state: TaskAwareState):
+        state = state.state
+        state = root_vpi_base(state)
+        policy_logits = root_policy_fn(state)
+        value_logits = root_value_fn(state)
+        return policy_logits, value_logits
+      if state.task.ndim == 2:
+        _root_predictor = jax.vmap(_root_predictor)
+      return _root_predictor(state)
 
     def model_predictor(state: TaskAwareState):
-      state = state.state
-      reward_logits = model_reward_fn(state)
-      state = model_vpi_base(state)
-      policy_logits = model_policy_fn(state)
-      value_logits = model_value_fn(state)
-      return reward_logits, policy_logits, value_logits
+      assert state.task.ndim in (1,2), "should be [D] or [B, D]"
+      def _model_predictor(state: TaskAwareState):
+        state = state.state
+        reward_logits = model_reward_fn(state)
+        state = model_vpi_base(state)
+        policy_logits = model_policy_fn(state)
+        value_logits = model_value_fn(state)
+        return reward_logits, policy_logits, value_logits
+      if state.task.ndim == 2:
+        _model_predictor = jax.vmap(_model_predictor)
+      return _model_predictor(state)
 
 
 
