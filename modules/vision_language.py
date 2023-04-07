@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Optional
 from acme import types as acme_types
 from acme.wrappers import observation_action_reward
 
@@ -6,9 +6,6 @@ import chex
 import haiku as hk
 import jax
 import jax.numpy as jnp
-
-from modules import vision
-from modules import language
 
 Array = acme_types.NestedArray
 Image = acme_types.NestedArray
@@ -48,6 +45,7 @@ class Torso(hk.Module):
                image_dim: int = 0,
                task_dim: int = 0,
                output_fn: Callable[[Image, Task, Action, Reward], Array] = concat,
+               w_init: Optional[hk.initializers.Initializer] = None,
                name='torso'):
     super().__init__(name=name)
     self._num_actions = num_actions
@@ -57,6 +55,7 @@ class Torso(hk.Module):
     self._output_fn = output_fn
     self._task_dim = task_dim
     self._flatten_image = flatten_image
+    self._w_init = w_init
 
   def __call__(self, inputs: observation_action_reward.OAR):
     batched = len(inputs.observation.image.shape) == 4
@@ -70,7 +69,7 @@ class Torso(hk.Module):
     # compute task encoding
     task = self._task_encoder(inputs.observation.mission)
     if self._task_dim and self._task_dim > 0:
-      task = hk.Linear(self._task_dim)(task)
+      task = hk.Linear(self._task_dim, w_init=self._w_init)(task)
 
     # get action one-hot
     action = jax.nn.one_hot(
@@ -83,7 +82,7 @@ class Torso(hk.Module):
     if self._flatten_image:
       image = jnp.reshape(image, (-1))
     if self._image_dim and self._image_dim > 0:
-      image = hk.Linear(self._image_dim)(image)
+      image = hk.Linear(self._image_dim, w_init=self._w_init)(image)
 
     # Map rewards -> [-1, 1].
     # reward = jnp.tanh(inputs.reward)
