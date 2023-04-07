@@ -130,6 +130,7 @@ class MuZeroLearner(acme.Learner):
         key_grad, initial_state_rng = jax.random.split(key_grad)
         online_state = networks.init_recurrent_state(initial_state_rng,
                                                      batch_size)
+        raise NotImplementedError('never checked')
       target_state = online_state
 
       # Convert sample data to sequence-major format [T, B, ...].

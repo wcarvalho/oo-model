@@ -28,6 +28,11 @@ def setup(
       td_steps=3,
       burn_in_length=0,
       show_gradients=0,
+      gru_init='orthogonal',
+      pred_head='muzero',
+      gating='sum',
+      pre_norm=False,
+      num_steps=1e5,
     )
 
   config = FactoredMuZeroConfig(**config_kwargs)

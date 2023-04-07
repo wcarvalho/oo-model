@@ -24,19 +24,12 @@ def setup(
       samples_per_insert=1.0,
       batch_size=4,
       trace_length=6,
-      discount=.99,
       simulation_steps=2,
       num_simulations=1,
       td_steps=3,
       burn_in_length=0,
       weight_decay=0.0,
       show_gradients=0,
-      root_policy_coef=5.,
-      v_target_source='reanalyze',
-      # metrics='sparse',
-      scale_grad=0.0,
-      importance_sampling_exponent=0.6,
-      priority_exponent=0.9,
     )
   logging.info(f'Config arguments')
   pprint(config_kwargs)

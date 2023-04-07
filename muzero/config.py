@@ -16,11 +16,12 @@
 from typing import Callable, Tuple, Optional
 
 from acme.adders import reverb as adders_reverb
-from acme.agents.jax import r2d2
+# from acme.agents.jax import r2d2
 from acme import types as acme_types
 
 import dataclasses
 import rlax
+import r2d2
 
 Array = acme_types.NestedArray
 
@@ -31,46 +32,38 @@ class MuZeroConfig(r2d2.R2D2Config):
   # target_update_period: int = 2500
   # evaluation_epsilon: float = 0.
   # variable_update_period: int = 400
-  seed: int = 1234
-  num_steps: int = 3e6
   num_sgd_steps_per_step: int = 1
 
-  # value-based action-selection options
-  num_epsilons: int = 256
-  epsilon_min: float = 1e-2
-  epsilon_max: float = 1
-
   # Learner options
-  burn_in_length: int = 0
-  batch_size: Optional[int] = 64
-  trace_length: Optional[int] = 20
+  # batch_size: Optional[int] = 64
+  # trace_length: Optional[int] = 20
   sequence_period: Optional[int] = None
-  learning_rate: float = 1e-3
+  # learning_rate: float = 1e-3
   learning_rate_decay: float = .1
   lr_transition_steps: int = 100_000
   weight_decay: float = 1e-4
-  max_grad_norm: float = 80.0
+  # max_grad_norm: float = 80.0
+  # adam_eps: float = 1e-3
   warmup_steps: int = 0
   ema_update: float = 0.0
   metrics: str = 'dense'
   # bootstrap_n: int = 5
   # clip_rewards: bool = False
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
-  adam_eps: float = 1e-3
 
   # Replay options
   # samples_per_insert_tolerance_rate: float = 0.1
   samples_per_insert: float = 50.0
   min_replay_size: int = 1_000
   max_replay_size: int = 80_000
-  target_batch_size: int = 1024
+  # target_batch_size: int = 1024
   prefetch_size: int = 0
   num_parallel_calls: int = 1
   # replay_table_name: str = adders_reverb.DEFAULT_PRIORITY_TABLE
 
   # Priority options
-  importance_sampling_exponent: float = 0.6
-  priority_exponent: float = 0.9
+  # importance_sampling_exponent: float = 0.6
+  # priority_exponent: float = 0.9
   # max_priority_weight: float = 0.9
 
   #Loss hps
@@ -106,11 +99,6 @@ class MuZeroConfig(r2d2.R2D2Config):
   vision_torso: str = 'babyai'
   network_fn: str = 'babyai'
   model_combine_state_task: str = 'none'
-  state_dim: int = 256
-  vocab_size: int = 50  # vocab size for env
-  word_dim: int = 128  # dimensionality of word embeddings
-  sentence_dim: int = 128  # dimensionality of sentence embeddings
-  task_dim: int = 128  # projection of task to lower dimension
   resnet_transition_dim: Optional[int] = None  # dim of resnet for transition function
   transition_blocks: int = 6  # number of resnet blocks
   prediction_blocks: int = 2  # number of resnet blocks
@@ -118,7 +106,6 @@ class MuZeroConfig(r2d2.R2D2Config):
   scale_grad: float = 0.5
   reward_mlps: Tuple[int] = (32,)
   vpi_mlps: Tuple[int] = (128, 32)
-  conv_out_dim: int = 0
 
   # actor hps
   action_source: str = 'policy'  # 'policy', 'value', 'mcts'
