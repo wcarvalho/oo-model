@@ -1,4 +1,4 @@
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Callable
 
 import functools
 
@@ -41,6 +41,8 @@ class SlotAttention(hk.RNNCore):
                num_slots: int = 4,
                use_task: bool = False,
                init: str = 'noise',
+               w_init: Optional[hk.initializers.Initializer] = None,
+               gru_w_i_init: Optional[hk.initializers.Initializer] = None,
                name: Optional[str] = None):
     super().__init__(name=name)
     self.num_iterations = num_iterations
@@ -51,6 +53,8 @@ class SlotAttention(hk.RNNCore):
     self.num_heads = num_heads
     self.num_slots = num_slots
     self.init = init
+    self.w_init = w_init
+    self.gru_w_i_init = gru_w_i_init
     assert init in ('zeros', 'noise', 'embed')
 
   def __call__(
@@ -64,7 +68,11 @@ class SlotAttention(hk.RNNCore):
     has_batch = len(image.shape) == 3
     qkv_size = self.qkv_size or slots.shape[-1]
     head_dim = qkv_size // self.num_heads
-    dense = functools.partial(MultiLinear, output_size=qkv_size, heads=self.num_heads, with_bias=False)
+    dense = functools.partial(MultiLinear,
+                              output_size=qkv_size,
+                              heads=self.num_heads,
+                              w_init=self.w_init,
+                              with_bias=False)
 
     # Shared modules.
     dense_q = dense(name="general_dense_q_0")
@@ -72,7 +80,10 @@ class SlotAttention(hk.RNNCore):
     inverted_attention = InvertedDotProductAttention(
         norm_type="mean", multi_head=self.num_heads > 1)
 
-    gru = hk.GRU(head_dim)
+    gru = hk.GRU(
+      hidden_size=head_dim,
+      w_i_init=self.gru_w_i_init,
+      )
 
     if self.mlp_size is not None:
       raise NotImplementedError
@@ -160,6 +171,7 @@ class InvertedDotProductAttention(hk.Module):
 
     if self.multi_head:
       # Multi-head aggregation. Equivalent to concat + dense layer.
+      print("need to incorporate proper w_init initialization")
       import ipdb; ipdb.set_trace()
       output = hk.Linear(output.shape[-1])(output)
       # nn.DenseGeneral(
@@ -271,6 +283,10 @@ class GeneralizedDotProductAttention(hk.Module):
     return jnp.einsum("...hqk,...khd->...qhd", attn, value)
 
 
+GateFn = Callable[[Array, Array], Array]
+def sum_gate_factory(*args, **kwargs) -> GateFn:
+  return lambda x, y: x+y
+
 class Transformer(hk.Module):
   """Transformer with multiple blocks."""
 
@@ -280,6 +296,8 @@ class Transformer(hk.Module):
                mlp_size: int,
                num_layers: int,
                pre_norm: bool = False,
+               w_init: Optional[hk.initializers.Initializer] = None,
+               gate_factory = None,
                name: Optional[str] = None,
                ):
     super().__init__(name=name)
@@ -288,6 +306,10 @@ class Transformer(hk.Module):
     self.mlp_size = mlp_size
     self.num_layers = num_layers
     self.pre_norm = pre_norm
+    self.w_init = w_init
+    if gate_factory is None:
+      gate_factory = sum_gate_factory
+    self.gate_factory = gate_factory
 
   def __call__(self, queries: Array, inputs: Optional[Array] = None,
                padding_mask: Optional[Array] = None,
@@ -297,19 +319,27 @@ class Transformer(hk.Module):
       x = TransformerBlock(
           num_heads=self.num_heads, qkv_size=self.qkv_size,
           mlp_size=self.mlp_size, pre_norm=self.pre_norm,
+          w_init=self.w_init, gate_factory=self.gate_factory,
           name=f"TransformerBlock{lyr}")(  # pytype: disable=wrong-arg-types
               x, inputs, padding_mask, train)
     return x
 
 
 class TransformerBlock(hk.Module):
-  """Transformer decoder block."""
+  """Transformer decoder block.
+  
+  Typical RL settings:
+  pre_norm=True,
+  gate_factory=GRU.
+  """
   
   def __init__(self,
                num_heads: int,
                qkv_size: int,
                mlp_size: int,
                pre_norm: bool = False,
+               w_init: Optional[hk.initializers.Initializer] = None,
+               gate_factory = None,
                name: Optional[str] = None,
                ):
     super().__init__(name=name)
@@ -317,6 +347,11 @@ class TransformerBlock(hk.Module):
     self.qkv_size = qkv_size
     self.mlp_size = mlp_size
     self.pre_norm = pre_norm
+    self.w_init = w_init
+    if gate_factory is None:
+      gate_factory = sum_gate_factory
+    self.gate_factory = gate_factory
+
 
   def __call__(self,
                queries: Array,
@@ -331,51 +366,52 @@ class TransformerBlock(hk.Module):
         num_heads=self.num_heads,
         key_size=self.qkv_size,
         model_size=self.qkv_size,
-        w_init=hk.initializers.VarianceScaling(2.0),
+        w_init=self.w_init,
         attention_fn=GeneralizedDotProductAttention())
 
-    mlp = encoder.Mlp(mlp_layers=[self.mlp_size])  # type: ignore
+    mlp = encoder.Mlp(
+      mlp_layers=[self.mlp_size],
+      w_init=self.w_init)  # type: ignore
 
     if self.pre_norm:
-      print("never checked")
-      import ipdb; ipdb.set_trace()
+      # THIS IS WHAT'S USED IN REINFORCEMENT LEARNING
       # Self-attention on queries.
       x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(queries)
       x = attn()(query=x, key=x)
-      x = x + queries
+      x = self.gate_factory()(x, queries)
 
       # Cross-attention on inputs.
-      if inputs is not None:
-        assert inputs.ndim in (2, 3), 'must be [T, D] or [B, T, D]'
-        y = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
-        y = attn()(query=y, key=inputs)
-        y = y + x
-      else:
-        y = x
+      # if inputs is not None:
+      #   assert inputs.ndim in (2, 3), 'must be [T, D] or [B, T, D]'
+      #   y = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
+      #   y = attn()(query=y, key=inputs)
+      #   y = self.gate_factory()(y, x)
+      # else:
+      y = x
 
       # MLP
       z = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(y)
-      z = mlp(z, train)
-      z = z + y
+      z = mlp(z)
+      z = self.gate_factory()(z, y)
     else:
       # Self-attention on queries.
       x = queries
       x = attn()(query=x, key=x)
-      x = x + queries
+      x = self.gate_factory()(x, queries)
       x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
 
       # Cross-attention on inputs.
-      if inputs is not None:
-        assert inputs.ndim in (2, 3), 'must be [T, D] or [B, T, D]'
-        y = attn()(query=x, key=inputs)
-        y = y + x
-        y = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(y)
-      else:
-        y = x
+      # if inputs is not None:
+      #   assert inputs.ndim in (2, 3), 'must be [T, D] or [B, T, D]'
+      #   y = attn()(query=x, key=inputs)
+      #   y = y + x
+      #   y = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(y)
+      # else:
+      y = x
 
       # MLP.
       z = mlp(y)
-      z = z + y
+      z = self.gate_factory()(z, y)
       z = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(z)
     return z
 
