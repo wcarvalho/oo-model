@@ -60,19 +60,21 @@ def make_babyai_networks(
   num_actions = env_spec.actions.num_values
 
   def make_core_module() -> MuZeroNetworks:
-    state_dim = config.state_dim
-
     ###########################
     # Setup observation encoders (image + language)
     ###########################
+    w_init_attn = hk.initializers.VarianceScaling(config.w_init_attn)
     vision_torso = encoder.PositionEncodingTorso(
-      img_embed=vision.BabyAIVisionTorso(conv_dim=0, flatten=False),
+      img_embed=vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim,
+                                         flatten=False),
       pos_embed=encoder.PositionEmbedding(
         embedding_type=config.embedding_type,
         update_type=config.update_type,
+        w_init=w_init_attn,
         output_transform=encoder.Mlp(
           # default settings from paper
           mlp_layers=[64],
+          w_init=w_init_attn,
           layernorm='pre',
         )
       )
@@ -88,26 +90,67 @@ def make_babyai_networks(
           sentence_dim=config.sentence_dim,
       ),
       task_dim=config.task_dim,
+      w_init=w_init_attn,
       output_fn=vision_language.struct_output,
     )
     ###########################
     # Setup state function: SaVi 
     ###########################
     # during state unroll, rnn gets task from inputs and stores in state
+    assert config.gru_init in ('orthogonal', 'default')
+    if config.gru_init == 'orthogonal':
+      # used in Slot Attention paper
+      gru_w_i_init = hk.initializers.Orthogonal()
+    elif config.gru_init == 'default':
+      # from haiku
+      gru_w_i_init = None
     state_fn = attention.SlotAttention(
         num_iterations=config.savi_iterations,
         qkv_size=config.state_qkv_size,
         num_slots=config.num_slots,
+        w_init=w_init_attn,
+        gru_w_i_init=gru_w_i_init,
     )
     def combine_hidden_obs(hidden: jnp.ndarray, emb: vision_language.TorsoOutput):
-      """After get hidden from LSTM, combine with task from embedding."""
+      """After get hidden from SlotAttention, combine with task from embedding."""
       return TaskAwareState(state=hidden, task=emb.task)
+
+    ###########################
+    # Setup gating functions
+    ###########################
+    assert config.gating in ('sum', 'gru', 'sigtanh')
+    # following options from GTRxL: https://arxiv.org/pdf/1910.06764.pdf
+    if config.gating == 'sum':
+      def gate_factory():
+        return lambda x,y: x+y
+    elif config.gating == 'gru':
+      def gate_factory():
+        def gate(x,y):
+          gru = hk.GRU(x.shape[-1])
+          out, out = gru(inputs=y, state=x)
+          return out
+        return gate
+    elif config.gating == 'sigtanh':
+      def gate_factory():
+        def gate(x,y):
+          dim = x.shape[-1]
+          b_init = hk.initializers.Constant(config.b_init_attn)
+          linear = lambda x: hk.Linear(dim, with_bias=False, w_init=w_init_attn)(x)
+
+          b = hk.get_parameter("b_gate", [dim], x.dtype, b_init)
+          gate = jax.nn.sigmoid(linear(y) - b)
+          output = jax.nn.tanh(linear(y))
+          return x + gate*output
+        return gate
+
 
     ###########################
     # Setup transition function: transformer
     ###########################
+
     def transformer_model(action_onehot: jnp.ndarray, 
                           state: TaskAwareState):
+      assert action_onehot.ndim in (1, 2), "should be [A] or [B, A]"
       def _transformer_model(action_onehot, state):
         """Just make long sequence of state slots + action."""
         # action: [A]
@@ -124,19 +167,21 @@ def make_babyai_networks(
             qkv_size=config.slot_tran_qkv_size,
             mlp_size=config.slot_tran_mlp_size,
             num_layers=config.transition_blocks,
+            pre_norm=config.pre_norm,
+            gate_factory=gate_factory,
+            w_init=w_init_attn,
             name='transition')(queries)
         out = out[:-1]  # remove action representation
         if config.scale_grad:
           out = scale_gradient(out, config.scale_grad)
         return out, out
-      assert action_onehot.ndim in (1, 2), "should be [A] or [B, A]"
       if action_onehot.ndim == 2:
         _transformer_model = jax.vmap(_transformer_model)
       return _transformer_model(action_onehot, state)
 
     # transition gets task from state and stores in state
     transition_fn = TaskAwareRecurrentFn(
-        get_task=lambda _, state: state.task,
+        get_task=lambda inputs, state: state.task,
         prep_state=lambda state: state.state,  # get state-vector from TaskAwareState
         couple_state_task=True,
         core=transformer_model
@@ -151,14 +196,23 @@ def make_babyai_networks(
           qkv_size=config.slot_pred_qkv_size,
           mlp_size=config.slot_pred_mlp_size,
           num_layers=num_layers,
+          w_init=w_init_attn,
+          pre_norm=config.pre_norm,
+          gate_factory=gate_factory,
           name=name)
 
-    def make_pred_fn(name: str, num_preds: int):
-      return PredictionMlp(
-        config.vpi_mlps,
-        num_preds,
-        ln=config.ln,
-        name=name)
+    def make_pred_fn(name: str, sizes: Tuple[int], num_preds: int):
+      assert config.pred_head in ('muzero', 'haiku_mlp')
+      if config.pred_head == 'muzero':
+        return PredictionMlp(
+          sizes,
+          num_preds,
+          ln=config.ln,
+          name=name)
+      elif config.pred_head == 'haiku_mlp':
+        return hk.nets.MLP(tuple(sizes) + (num_preds,),
+                           name=name)
+      
 
     assert config.seperate_model_nets == False, 'need to redo function for this'
     # root
@@ -169,27 +223,33 @@ def make_babyai_networks(
         num_heads=config.slot_pred_heads,
         key_size=config.slot_pred_qkv_size,
         model_size=config.slot_pred_qkv_size,
-        w_init=hk.initializers.VarianceScaling(2.0),
+        w_init=w_init_attn,
     )
-    policy_fn = make_pred_fn(name='policy', num_preds=num_actions)
-    value_fn = make_pred_fn(name='value', num_preds=config.num_bins)
+    policy_fn = make_pred_fn(
+      name='policy', sizes=config.vpi_mlps, num_preds=num_actions)
+    value_fn = make_pred_fn(
+      name='value', sizes=config.vpi_mlps, num_preds=config.num_bins)
 
     # model
     task_attn_reward = attention.GeneralMultiHeadAttention(
         num_heads=config.slot_pred_heads,
         key_size=config.slot_pred_qkv_size,
         model_size=config.slot_pred_qkv_size,
-        w_init=hk.initializers.VarianceScaling(2.0),
+        w_init=w_init_attn,
     )
-    reward_fn = make_pred_fn(name='reward', num_preds=config.num_bins)
-    task_projection = hk.Linear(config.slot_tran_qkv_size, with_bias=False)
+    reward_fn = make_pred_fn(
+      name='reward', sizes=config.reward_mlps, num_preds=config.num_bins)
+    task_projection = hk.Linear(config.slot_tran_qkv_size,
+                                w_init=w_init_attn,
+                                with_bias=False)
 
     def state_task_to_queries(state: TaskAwareState):
-      # state: [D] or [B, D]
+      # state (slot): [N, D]
       state_hidden = state.state
       task = task_projection(state.task)  # [D]
-      task = jnp.expand_dims(task, 0)
-      return jnp.concatenate((task, state_hidden))
+      task = jnp.expand_dims(task, 0)  # [1, D]
+
+      return jnp.concatenate((task, state_hidden))  #[N+1, D]
 
     def root_predictor(state: TaskAwareState):
       def _root_predictor(state: TaskAwareState):
@@ -199,8 +259,11 @@ def make_babyai_networks(
 
         # [1, D]
         # use None to make query [1, D]. Needed for attention on [N, D] queries.
-        task_attn = task_attn_value(query=queries[0][None], key=queries)[0]
-        task_attn = task_attn + queries[0]
+        if config.w_attn_head:
+          task_attn = task_attn_value(query=queries[0][None], key=queries)[0]
+          task_attn = task_attn + queries[0]
+        else:
+          task_attn = queries[0]
         policy_logits = policy_fn(task_attn)
         value_logits = value_fn(task_attn)
         return policy_logits, value_logits
@@ -215,14 +278,20 @@ def make_babyai_networks(
         queries = transformer1(queries)
 
         # use None to make query [1, D]. Needed for attention on [N, D] queries.
-        task_attn = task_attn_reward(query=queries[0][None], key=queries)[0]  # [N, D]
-        task_attn = task_attn + queries[0]
+        if config.w_attn_head:
+          task_attn = task_attn_reward(query=queries[0][None], key=queries)[0]  # [N, D]
+          task_attn = task_attn + queries[0]
+        else:
+          task_attn = queries[0]
         reward_logits = reward_fn(task_attn)
 
         queries = transformer2(queries)
         # use None to make query [1, D]. Needed for attention on [N, D] queries.
-        task_attn = task_attn_value(query=queries[0][None], key=queries)[0]  # [N, D]
-        task_attn = task_attn + queries[0]
+        if config.w_attn_head:
+          task_attn = task_attn_value(query=queries[0][None], key=queries)[0]  # [N, D]
+          task_attn = task_attn + queries[0]
+        else:
+          task_attn = queries[0]
         policy_logits = policy_fn(task_attn)
         value_logits = value_fn(task_attn)
         return reward_logits, policy_logits, value_logits
