@@ -15,12 +15,14 @@ class Mlp(hk.Module):
                layernorm: str = 'none',
                output_init = None,
                residual: bool = False,
+               w_init: Optional[hk.initializers.Initializer] = None,
                name="pred_mlp"):
     super().__init__(name=name)
     self._output_size = output_size
     self._mlp_layers = mlp_layers
     self._output_init = output_init
     self._residual = residual
+    self._w_init = w_init
     self._layernorm = layernorm
     assert layernorm in ('pre', 'post', 'none')
 
@@ -32,9 +34,9 @@ class Mlp(hk.Module):
       x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
 
     for l in self._mlp_layers:
-      x = hk.Linear(l)(x)
+      x = hk.Linear(l, w_init=self._w_init)(x)
       x = jax.nn.relu(x)
-    x = hk.Linear(output_size)(x)
+    x = hk.Linear(output_size, w_init=self._w_init)(x)
 
     if self._residual:
       x = x + inputs
@@ -42,7 +44,7 @@ class Mlp(hk.Module):
     if self._layernorm == 'post':
       x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
 
-    return hk.Linear(output_size, w_init=self._output_init)(x)
+    return x
 
 def create_gradient_grid(
     samples_per_dim: Sequence[int],
@@ -106,6 +108,7 @@ class PositionEmbedding(hk.Module):
                pos_transform: Callable[[jnp.ndarray], jnp.ndarray] = lambda x: x,
                output_transform: Callable[[jnp.ndarray], jnp.ndarray] = lambda x: x,
                trainable_pos_embedding: bool = False,
+               w_init: Optional[hk.initializers.Initializer] = None,
                name="pos_embed",
                ):
     super().__init__(name=name)
@@ -116,6 +119,7 @@ class PositionEmbedding(hk.Module):
     self.pos_transform = pos_transform
     self.output_transform = output_transform
     self.trainable_pos_embedding = trainable_pos_embedding
+    self.w_init = w_init
 
   def _make_pos_embedding_tensor(self, rng, input_shape):
     has_batch_dim = len(input_shape) == 4
@@ -127,10 +131,11 @@ class PositionEmbedding(hk.Module):
           jnp.arange(input_shape[-2]), input_shape[idx:-1])
     else:
       # A tensor grid in [-1, +1] for each input dimension.
+      # DEFAULT
       pos_embedding = create_gradient_grid(
           input_shape[idx:-1], [-1.0, 1.0])
 
-    if self.embedding_type == "linear":
+    if self.embedding_type == "linear":  # DEFAULT
       pass
     elif self.embedding_type == "discrete_1d":
       pos_embedding = jax.nn.one_hot(pos_embedding, input_shape[-2])
@@ -180,7 +185,9 @@ class PositionEmbedding(hk.Module):
       # This is roughly equivalent to concatenation of position encodings to the
       # inputs (if followed by a Dense layer), but is slightly more efficient.
       n_features = inputs.shape[-1]
-      x = inputs + hk.Linear(n_features, name="dense_pe_0")(pos_embedding)
+      x = inputs + hk.Linear(n_features,
+                             w_init=self.w_init,
+                             name="dense_pe_0")(pos_embedding)
     elif self.update_type == "concat":
       # Repeat the position embedding along the first (batch) dimension.
       pos_embedding = jnp.broadcast_to(
