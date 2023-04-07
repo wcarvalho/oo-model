@@ -15,10 +15,10 @@ Array = acme_types.NestedArray
 class FactoredMuZeroConfig(MuZeroConfig):
 
   gru_init: str = 'default'
-  gating: str = 'sum'
+  gating: str = 'gru'
   b_init_attn: float = 1.0
   w_init_attn: float = 1.0
-  pre_norm: bool = True
+  pre_norm: bool = False
 
   # postion embedding
   embedding_type: str = 'linear'
