@@ -14,6 +14,12 @@ Array = acme_types.NestedArray
 @dataclasses.dataclass
 class FactoredMuZeroConfig(MuZeroConfig):
 
+  gru_init: str = 'default'
+  gating: str = 'sum'
+  b_init_attn: float = 1.0
+  w_init_attn: float = 1.0
+  pre_norm: bool = True
+
   # postion embedding
   embedding_type: str = 'linear'
   update_type: str = 'project_add'
@@ -34,3 +40,8 @@ class FactoredMuZeroConfig(MuZeroConfig):
   slot_pred_heads: int = 4
   slot_pred_qkv_size: int = 128
   slot_pred_mlp_size: int = 256
+  w_attn_head: bool = True
+  pred_head: str = 'muzero'
+  reward_mlps: Tuple[int] = (32,)
+  vpi_mlps: Tuple[int] = (128, 32)
+
