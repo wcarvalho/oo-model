@@ -1,5 +1,6 @@
 """Evaluation Observers."""
 
+from absl import logging
 import collections
 import abc
 import dataclasses
@@ -35,6 +36,7 @@ class LevelAvgReturnObserver(EnvLoopObserver):
     self.idx = 0
     if get_task_name is None:
       get_task_name = lambda env: "Episode"
+      logging.info("WARNING: if multi-task, suggest setting `get_task_name` in `LevelAvgReturnObserver`. This will log separate statistics for each task.")
     self._get_task_name = get_task_name
 
   def observe_first(self, env: dm_env.Environment, timestep: dm_env.TimeStep
