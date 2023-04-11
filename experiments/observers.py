@@ -34,7 +34,7 @@ class LevelAvgReturnObserver(EnvLoopObserver):
     self.reset = reset
     self.idx = 0
     if get_task_name is None:
-      get_task_name = lambda env: str(env.env.current_levelname)
+      get_task_name = lambda env: "Episode"
     self._get_task_name = get_task_name
 
   def observe_first(self, env: dm_env.Environment, timestep: dm_env.TimeStep
