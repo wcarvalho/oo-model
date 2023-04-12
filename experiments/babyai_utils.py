@@ -37,7 +37,7 @@ def open_kitchen_tasks_file(tasks_file: str='place', path: str='.'):
   """
   tasks_file = get_kitchen_tasks_file(tasks_file)
   tasks_file = os.path.join(path, tasks_file)
-  assert os.path.exists(tasks_file)
+  assert os.path.exists(tasks_file), tasks_file
 
   with open(tasks_file, 'r') as f:
     tasks = yaml.load(f, Loader=yaml.SafeLoader)
@@ -59,7 +59,7 @@ def make_kitchen_environment(
   """Loads environments."""
 
   tasks_file = tasks_file or 'place'
-  tasks = open_kitchen_tasks_file(tasks_file)
+  tasks = open_kitchen_tasks_file(tasks_file, path=path)
 
   if evaluation and 'test' in tasks:
     task_dicts = tasks['test']
@@ -78,9 +78,9 @@ def make_kitchen_environment(
       tile_size=tile_size))
   else:
     # room-size=10 --> image: 80 x 80  x 3
-    # room-size=8  --> image: 64 x 64  x 3
-    # room-size=7  --> image: 56 x 56  x 3
-    # room-size=5  --> image: 40 x 40  x 3
+    # room-size=8  --> image: 64 x 64  x 3 (conv = 7x7 = 49)
+    # room-size=7  --> image: 56 x 56  x 3 (conv = 6x6 = 36)
+    # room-size=5  --> image: 40 x 40  x 3 (conv = 5x5 = 25)
     env_wrappers.append(functools.partial(RGBImgFullyObsWrapper,
       tile_size=tile_size))
 
