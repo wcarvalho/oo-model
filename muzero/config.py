@@ -35,8 +35,8 @@ class MuZeroConfig(r2d2.R2D2Config):
   num_sgd_steps_per_step: int = 1
 
   # Learner options
-  # batch_size: Optional[int] = 64
-  # trace_length: Optional[int] = 20
+  batch_size: Optional[int] = 64
+  trace_length: Optional[int] = 20
   sequence_period: Optional[int] = None
   # learning_rate: float = 1e-3
   learning_rate_decay: float = .1
