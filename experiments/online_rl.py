@@ -26,7 +26,7 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 
 import dataclasses
-
+import datetime
 from typing import Optional
 
 from absl import flags
@@ -101,7 +101,7 @@ def build_experiment_config(launch=False,
   # The env_name must be dereferenced outside the environment factory as FLAGS
   # cannot be pickled and pickling is necessary when launching distributed
   # experiments via Launchpad.
-  env_kwargs = env_kwargs or dict()
+  env_kwargs = env_kwargs or dict(room_size=7)
   # Create an environment factory.
   def environment_factory(seed: int) -> dm_env.Environment:
     del seed
@@ -126,7 +126,8 @@ def build_experiment_config(launch=False,
     from experiments import babyai_factored_muzero
     config, builder, network_factory = babyai_factored_muzero.setup(
       launch=launch,
-      config_kwargs=config_kwargs)
+      config_kwargs=config_kwargs,
+      env_kwargs=env_kwargs)
   else:
     raise NotImplementedError
 
@@ -199,7 +200,11 @@ def build_experiment_config(launch=False,
           use_wandb=use_wandb,
           asynchronous=True)
 
-  observers = [LevelAvgReturnObserver(reset=50 if launch else 5)]
+  observers = [
+    LevelAvgReturnObserver(
+      get_task_name=lambda env: str(env.env.current_levelname),
+      reset=50 if launch else 5)
+    ]
 
   return experiments.ExperimentConfig(
       builder=builder,
@@ -208,7 +213,12 @@ def build_experiment_config(launch=False,
       seed=config.seed,
       max_num_actor_steps=config.num_steps,
       observers=observers,
-      logger_factory=logger_factory)
+      logger_factory=logger_factory,
+      checkpointing=experiments.CheckpointingConfig(
+          directory=log_dir,
+          max_to_keep=5,
+          checkpoint_ttl_seconds=int(datetime.timedelta(days=30).total_seconds()))
+      )
 
 def make_distributed_program(num_actors: int = 4, **kwargs):
   config = build_experiment_config(launch=True, **kwargs)
@@ -263,7 +273,9 @@ def main(_):
     logging.info(f'config_kwargs: {str(config_kwargs)}')
 
 
-  env_kwargs = dict(tasks_file=FLAGS.tasks_file)
+  env_kwargs = dict(
+    tasks_file=FLAGS.tasks_file,
+    room_size=7)
   if FLAGS.env_config:
     env_kwargs = exp_utils.load_config(FLAGS.env_config)
     logging.info(f'env_kwargs: {str(env_kwargs)}')

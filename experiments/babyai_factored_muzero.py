@@ -13,6 +13,7 @@ from factored_muzero.config import FactoredMuZeroConfig
 
 
 def setup(
+    env_kwargs,
     launch: bool=True,
     config_kwargs: dict = None):
   config_kwargs = config_kwargs or dict()
@@ -33,6 +34,8 @@ def setup(
       gating='sum',
       pre_norm=False,
       num_steps=1e5,
+      slot_size=128,
+      use_task=True,
     )
 
   config = FactoredMuZeroConfig(**config_kwargs)
@@ -76,6 +79,7 @@ def setup(
 
   network_factory = functools.partial(
           networks.make_babyai_networks,
-          config=config)
+          config=config,
+          env_kwargs=env_kwargs)
   
   return config, builder, network_factory
