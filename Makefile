@@ -20,6 +20,11 @@ export LD_LIBRARY_PATH:=$(LD_LIBRARY_PATH):/usr/local/cuda/targets/x86_64-linux/
 
 export JAX_DISABLE_JIT=$(nojit)
 
+jupyter_lab:
+	DISPLAY=3 \
+	CUDA_VISIBLE_DEVICES=$(cuda) \
+	jupyter lab --port 5558 --no-browser --ip 0.0.0.0
+
 collect_data:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
 	python -m ipdb -c continue experiments/collect_data.py \
