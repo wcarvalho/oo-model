@@ -28,7 +28,7 @@ flags.DEFINE_string('spaces', '', 'which search space to use.')
 
 flags.DEFINE_integer('num_actors', 0, 'number of actors.')
 flags.DEFINE_integer('num_cpus', 4, 'number of cpus.')
-flags.DEFINE_integer('num_gpus', 1, 'number of gpus.')
+flags.DEFINE_float('num_gpus', 1, 'number of gpus.')
 flags.DEFINE_bool('skip', True, 'whether to skip things that have already run.')
 flags.DEFINE_bool('subprocess', True, 'whether to run as subprocess.')
 
@@ -79,7 +79,6 @@ def create_and_run_program(
 
   # build_kwargs = build_kwargs or dict()
   agent = config.pop('agent', 'muzero')
-  # num_actors = config.pop('num_actors', DEFAULT_NUM_ACTORS)
   cuda = config.pop('cuda', None)
   group = config.pop('group', group)
   label = config.pop('label', DEFAULT_LABEL)
