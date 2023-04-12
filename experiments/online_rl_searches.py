@@ -108,18 +108,18 @@ def get(search: str = '', agent: str = ''):
   elif search == 'factored1':
     space = [
         {
-            "seed": tune.grid_search([1,2]),
+            "seed": tune.grid_search([1]),
             "num_steps": tune.grid_search([1e6]),
             "tasks_file": tune.grid_search(['pickup']),
             "room_size": tune.grid_search([5]),
-            "num_dists": tune.grid_search([0]),
-            "tasks_file": tune.grid_search(['pickup']),
             "agent": tune.grid_search(['factored']),
-            "gru_init": tune.grid_search(['orthogonal', 'default']),
-            "w_init_attn": tune.grid_search([2.0, 1.0]),
-            # "transition_blocks": tune.grid_search([2, 4]),
-            "group": tune.grid_search([f'pickup_factored_v4_gru']),
-            "label": tune.grid_search([f'fixed']),
+            "group": tune.grid_search([f'pickup_factored_v8']),
+            "slot_size": tune.grid_search([32, 64]),
+            "batch_size": tune.grid_search([32]),
+            "max_replay_size": tune.grid_search([40_000]),
+            "num_slots": tune.grid_search([4, 8]),
+            "share_w_init_out": tune.grid_search([True]), # no clear signal
+            "w_attn_head": tune.grid_search([True, False]),
         },
     ]
   elif search == 'factored2':
@@ -129,15 +129,14 @@ def get(search: str = '', agent: str = ''):
             "num_steps": tune.grid_search([1e6]),
             "tasks_file": tune.grid_search(['pickup']),
             "room_size": tune.grid_search([5]),
-            "num_dists": tune.grid_search([0]),
-            "tasks_file": tune.grid_search(['pickup']),
             "agent": tune.grid_search(['factored']),
-            "gating": tune.grid_search(['sigtanh', 'gru', 'sum']),
+            "group": tune.grid_search([f'pickup_factored_v5']),
+            "slot_size": tune.grid_search([128]),
+            "batch_size": tune.grid_search([32]),
+            "max_replay_size": tune.grid_search([40_000]),
+            "num_slots": tune.grid_search([2, 4, 8]),
+            "share_w_init_out": tune.grid_search([True, False]),
             "w_attn_head": tune.grid_search([True, False]),
-            "pre_norm": tune.grid_search([True, False]),
-            "pred_head": tune.grid_search(['muzero']),
-            "group": tune.grid_search([f'pickup_factored_v4_gate']),
-
         },
     ]
   elif search == 'factored3':
@@ -147,14 +146,13 @@ def get(search: str = '', agent: str = ''):
             "num_steps": tune.grid_search([1e6]),
             "tasks_file": tune.grid_search(['pickup']),
             "room_size": tune.grid_search([5]),
-            "num_dists": tune.grid_search([0]),
-            "tasks_file": tune.grid_search(['pickup']),
             "agent": tune.grid_search(['factored']),
-            "gating": tune.grid_search(['sigtanh', 'gru', 'sum']),
-            "w_attn_head": tune.grid_search([True, False]),
-            "pre_norm": tune.grid_search([True, False]),
-            "pred_head": tune.grid_search(['haiku_mlp']),
-            "group": tune.grid_search([f'pickup_factored_v4_gate_mlp']),
+            "group": tune.grid_search([f'factored_v9']),
+            "batch_size": tune.grid_search([32]),
+            "max_replay_size": tune.grid_search([40_000]),
+            "slot_tran_heads": tune.grid_search([1, 4]),
+            "num_simulations": tune.grid_search([2, 4, 50]),
+            "gumbel_scale": tune.grid_search([1., 0.1]),
 
         },
     ]
