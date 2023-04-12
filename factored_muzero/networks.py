@@ -54,11 +54,12 @@ def make_save_input(embedding: vision_language.TorsoOutput):
 
 def make_babyai_networks(
   env_spec: specs.EnvironmentSpec,
+  env_kwargs: dict,
   config: MuZeroConfig) -> MuZeroNetworks:
   """Builds default MuZero networks for BabyAI tasks."""
 
   num_actions = env_spec.actions.num_values
-
+  room_size = env_kwargs['room_size']
   def make_core_module() -> MuZeroNetworks:
     ###########################
     # Setup observation encoders (image + language)
@@ -96,6 +97,16 @@ def make_babyai_networks(
     ###########################
     # Setup state function: SaVi 
     ###########################
+    # set default transition sizes based on state function
+    slot_tran_heads = config.slot_tran_heads
+    slot_tran_qkv_size = config.slot_tran_qkv_size or config.slot_size
+    slot_tran_mlp_size = config.slot_tran_mlp_size or slot_tran_qkv_size
+
+    # set default prediction sizes based on transition function
+    slot_pred_heads = config.slot_pred_heads or config.slot_tran_heads
+    slot_pred_qkv_size = config.slot_pred_qkv_size or slot_tran_qkv_size
+    slot_pred_mlp_size = config.slot_pred_mlp_size or slot_tran_mlp_size
+
     # during state unroll, rnn gets task from inputs and stores in state
     assert config.gru_init in ('orthogonal', 'default')
     if config.gru_init == 'orthogonal':
@@ -106,10 +117,12 @@ def make_babyai_networks(
       gru_w_i_init = None
     state_fn = attention.SlotAttention(
         num_iterations=config.savi_iterations,
-        qkv_size=config.state_qkv_size,
+        qkv_size=config.slot_size,
         num_slots=config.num_slots,
+        num_spatial=room_size**2,
         w_init=w_init_attn,
         gru_w_i_init=gru_w_i_init,
+        use_task=config.slots_use_task,
     )
     def combine_hidden_obs(hidden: jnp.ndarray, emb: vision_language.TorsoOutput):
       """After get hidden from SlotAttention, combine with task from embedding."""
@@ -163,9 +176,9 @@ def make_babyai_networks(
         queries = jnp.concatenate((state, encoded_action))
 
         out = attention.Transformer(
-            num_heads=config.slot_tran_heads,
-            qkv_size=config.slot_tran_qkv_size,
-            mlp_size=config.slot_tran_mlp_size,
+            num_heads=slot_tran_heads,
+            qkv_size=slot_tran_qkv_size,
+            mlp_size=slot_tran_mlp_size,
             num_layers=config.transition_blocks,
             pre_norm=config.pre_norm,
             gate_factory=gate_factory,
@@ -192,25 +205,28 @@ def make_babyai_networks(
     ###########################
     def make_transformer(name: str, num_layers: int):
       return attention.Transformer(
-          num_heads=config.slot_pred_heads,
-          qkv_size=config.slot_pred_qkv_size,
-          mlp_size=config.slot_pred_mlp_size,
+          num_heads=slot_pred_heads,
+          qkv_size=slot_pred_qkv_size,
+          mlp_size=slot_pred_mlp_size,
           num_layers=num_layers,
           w_init=w_init_attn,
           pre_norm=config.pre_norm,
           gate_factory=gate_factory,
           name=name)
 
+    w_init_out = w_init_attn if config.share_w_init_out else None
     def make_pred_fn(name: str, sizes: Tuple[int], num_preds: int):
       assert config.pred_head in ('muzero', 'haiku_mlp')
       if config.pred_head == 'muzero':
         return PredictionMlp(
-          sizes,
-          num_preds,
+          sizes, num_preds,
+          w_init=w_init_out,
+          output_init=w_init_out,
           ln=config.ln,
           name=name)
       elif config.pred_head == 'haiku_mlp':
         return hk.nets.MLP(tuple(sizes) + (num_preds,),
+                           w_init=w_init_out,
                            name=name)
       
 
@@ -220,9 +236,9 @@ def make_babyai_networks(
     transformer1 = make_transformer('transformer1', num_layers=pre_blocks_base)
     transformer2 = make_transformer('transformer2', num_layers=pre_blocks_base)
     task_attn_value = attention.GeneralMultiHeadAttention(
-        num_heads=config.slot_pred_heads,
-        key_size=config.slot_pred_qkv_size,
-        model_size=config.slot_pred_qkv_size,
+        num_heads=slot_pred_heads,
+        key_size=slot_pred_qkv_size,
+        model_size=slot_pred_qkv_size,
         w_init=w_init_attn,
     )
     policy_fn = make_pred_fn(
@@ -232,14 +248,14 @@ def make_babyai_networks(
 
     # model
     task_attn_reward = attention.GeneralMultiHeadAttention(
-        num_heads=config.slot_pred_heads,
-        key_size=config.slot_pred_qkv_size,
-        model_size=config.slot_pred_qkv_size,
+        num_heads=slot_pred_heads,
+        key_size=slot_pred_qkv_size,
+        model_size=slot_pred_qkv_size,
         w_init=w_init_attn,
     )
     reward_fn = make_pred_fn(
       name='reward', sizes=config.reward_mlps, num_preds=config.num_bins)
-    task_projection = hk.Linear(config.slot_tran_qkv_size,
+    task_projection = hk.Linear(slot_tran_qkv_size,
                                 w_init=w_init_attn,
                                 with_bias=False)
 
@@ -300,7 +316,7 @@ def make_babyai_networks(
         _model_predictor = jax.vmap(_model_predictor)
       return _model_predictor(state)
 
-    return MuZeroArch(
+    arch = MuZeroArch(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
       observation_fn=observation_fn,
@@ -310,5 +326,7 @@ def make_babyai_networks(
       transition_fn=transition_fn,
       root_pred_fn=root_predictor,
       model_pred_fn=model_predictor)
+
+    return arch
 
   return make_network(env_spec, make_core_module)

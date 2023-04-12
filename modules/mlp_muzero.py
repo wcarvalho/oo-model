@@ -1,3 +1,4 @@
+from typing import Optional
 import haiku as hk
 import jax
 import jax.numpy as jnp
@@ -104,11 +105,13 @@ class PredictionMlp(hk.Module):
                mlp_layers,
                num_predictions,
                ln: bool = True,
+               w_init: Optional[hk.initializers.Initializer] = None,
                output_init = None,
                name="pred_mlp"):
     super().__init__(name=name)
     self._num_predictions = num_predictions
     self._mlp_layers = mlp_layers
+    self._w_init = w_init
     self._output_init = output_init
     self._ln = ln
 
@@ -117,7 +120,7 @@ class PredictionMlp(hk.Module):
       x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)
     x = jax.nn.relu(x)
     for l in self._mlp_layers:
-      x = hk.Linear(l, with_bias=False)(x)
+      x = hk.Linear(l, w_init=self._w_init, with_bias=False)(x)
       if self._ln:
         x = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(x)
       x = jax.nn.relu(x)

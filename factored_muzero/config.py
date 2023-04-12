@@ -14,11 +14,19 @@ Array = acme_types.NestedArray
 @dataclasses.dataclass
 class FactoredMuZeroConfig(MuZeroConfig):
 
+  # replay
+  batch_size: Optional[int] = 64
+  trace_length: Optional[int] = 20
+  max_replay_size: int = 80_000
+
+  # general arch (across all parts)
   gru_init: str = 'default'
   gating: str = 'gru'
   b_init_attn: float = 1.0
   w_init_attn: float = 1.0
   pre_norm: bool = False
+  share_w_init_out: bool = True
+  slots_use_task: bool = False
 
   # postion embedding
   embedding_type: str = 'linear'
@@ -27,19 +35,19 @@ class FactoredMuZeroConfig(MuZeroConfig):
   # state function
   savi_iterations: int = 1
   num_slots: int = 4
-  state_qkv_size: int = 128
+  slot_size: int = 64
 
   # transition function
   slot_tran_heads: int = 4
-  slot_tran_qkv_size: int = 128
-  slot_tran_mlp_size: int = 256
+  slot_tran_qkv_size: Optional[int] = None
+  slot_tran_mlp_size: Optional[int] = None
   transition_blocks: int = 2  # number of transformer blocks
 
   # prediction functions
   prediction_blocks: int = 2  # number of transformer blocks
-  slot_pred_heads: int = 4
-  slot_pred_qkv_size: int = 128
-  slot_pred_mlp_size: int = 256
+  slot_pred_heads: Optional[int] = None
+  slot_pred_qkv_size: Optional[int] = None
+  slot_pred_mlp_size: Optional[int] = None
   w_attn_head: bool = True
   pred_head: str = 'muzero'
   reward_mlps: Tuple[int] = (32,)

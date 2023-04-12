@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, Callable
+from typing import Tuple, Optional, Callable, NamedTuple
 
 import functools
 
@@ -10,13 +10,17 @@ import jax.numpy as jnp
 import numpy as np
 from factored_muzero import encoder
 
+Array = types.NestedArray
+
 @chex.dataclass(frozen=True)
 class SaviInputs:
   image: jnp.ndarray
   task: jnp.ndarray
 
 
-Array = types.NestedArray
+class SaviState(NamedTuple):
+  slots: jnp.ndarray
+  attn: jnp.ndarray
 
 class MultiLinear(hk.Linear):
   def __init__(self, *args, heads, **kwargs):
@@ -34,6 +38,7 @@ class MultiLinear(hk.Linear):
 class SlotAttention(hk.RNNCore):
   def __init__(self,
                qkv_size: int,
+               num_spatial: int,
                num_iterations: int = 1,
                mlp_size: Optional[int] = None,
                epsilon: float = 1e-8,
@@ -52,6 +57,7 @@ class SlotAttention(hk.RNNCore):
     self.epsilon = epsilon
     self.num_heads = num_heads
     self.num_slots = num_slots
+    self.num_spatial = num_spatial
     self.init = init
     self.w_init = w_init
     self.gru_w_i_init = gru_w_i_init
@@ -60,12 +66,17 @@ class SlotAttention(hk.RNNCore):
   def __call__(
       self,
       inputs: SaviInputs,
-      slots: jnp.ndarray,
+      state: SaviState,
   ) -> Tuple[jnp.ndarray, jnp.ndarray]:
 
     image = inputs.image
-    assert len(image.shape) in (2,3), "should either be [N, C] or [B, N, C]"
     has_batch = len(image.shape) == 3
+    slots = state.slots
+
+    assert len(image.shape) in (2,3), "should either be [N, C] or [B, N, C]"
+    nspatial = image.shape[-2]
+    assert nspatial == self.num_spatial, f"{nspatial} != {self.num_spatial}"
+
     qkv_size = self.qkv_size or slots.shape[-1]
     head_dim = qkv_size // self.num_heads
     dense = functools.partial(MultiLinear,
@@ -102,7 +113,13 @@ class SlotAttention(hk.RNNCore):
       # Inverted dot-product attention.
       slots_n = layernorm_q(slots)
       q = dense_q(slots_n)  # q.shape = (..., n_inputs, slot_size).
-      updates = inverted_attention(query=q, key=k, value=v)
+      updates, attn_weights = inverted_attention(query=q, key=k, value=v)
+
+      if self.use_task:
+        concat = lambda x, y: jnp.concatenate((x, y), axis=-1)
+        # repeat over slots dim
+        concat = jax.vmap(concat, (-2, None), -2)
+        updates = concat(updates, inputs.task)
 
       # Recurrent update.
       if has_batch:
@@ -114,12 +131,18 @@ class SlotAttention(hk.RNNCore):
       if self.mlp_size is not None:
         raise NotImplementedError
         # slots = mlp(slots)
-    return slots, slots
 
-  def initial_state(self, batch_size: Optional[int] = None):
+    state = SaviState(
+      slots=slots,
+      attn=attn_weights,
+    )
+    return slots, state
+
+  def initial_slots(self, batch_size: Optional[int] = None):
     shape = (self.num_slots, self.qkv_size)
     if batch_size is not None:
       shape = (batch_size,) + shape
+
     if self.init == 'zeros':
       return jnp.zeros(shape, dtype=jnp.float32)
     elif self.init == 'noise':
@@ -127,6 +150,18 @@ class SlotAttention(hk.RNNCore):
         hk.next_rng_key(), shape, dtype=jnp.float32)
     elif self.init == 'embed':
       raise NotImplementedError("will require re-working initialization...")
+
+  def initial_state(self, batch_size: Optional[int] = None):
+    attn_shape = (self.num_slots, self.num_spatial)
+    if batch_size is not None:
+      attn_shape = (batch_size,) + attn_shape
+
+    state = SaviState(
+      slots=self.initial_slots(batch_size),
+      attn=jnp.zeros(attn_shape, dtype=jnp.float32),
+    )
+
+    return state
 
 
 
@@ -163,11 +198,12 @@ class InvertedDotProductAttention(hk.Module):
     attn = GeneralizedDotProductAttention(
         inverted_attn=True,
         renormalize_keys=True if self.norm_type == "mean" else False,
+        attn_weights=True,
         epsilon=self.epsilon,
         dtype=self.dtype)
 
     # Apply attention mechanism.
-    output = attn(query=query, key=key, value=value)
+    output, attn_weights = attn(query=query, key=key, value=value)
 
     if self.multi_head:
       # Multi-head aggregation. Equivalent to concat + dense layer.
@@ -178,12 +214,13 @@ class InvertedDotProductAttention(hk.Module):
       #     features=output.shape[-1], axis=(-2, -1))(output)
     else:
       # Remove head dimension.
-      output = jnp.squeeze(output, axis=-2)
+      output = jnp.squeeze(output, axis=-2)  # [N, H, D]
+      attn_weights = jnp.squeeze(attn_weights, axis=-3)  # [H, N, D]
 
     if self.norm_type == "layernorm":
       output = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(output)
 
-    return output
+    return output, attn_weights
 
 
 class GeneralizedDotProductAttention(hk.Module):
@@ -194,7 +231,7 @@ class GeneralizedDotProductAttention(hk.Module):
                epsilon: float = 1e-8,
                inverted_attn: bool = False,
                renormalize_keys: bool = False,
-               attn_weights_only: bool = False,
+               attn_weights: bool = False,
                dtype = jnp.float32,
                name: Optional[str] = None,
                ):
@@ -203,7 +240,7 @@ class GeneralizedDotProductAttention(hk.Module):
     self.epsilon = epsilon
     self.inverted_attn = inverted_attn
     self.renormalize_keys = renormalize_keys
-    self.attn_weights_only = attn_weights_only
+    self.attn_weights = attn_weights
 
   def __call__(self, query: Array, key: Array, value: Array,
                train: bool = False,
@@ -276,12 +313,12 @@ class GeneralizedDotProductAttention(hk.Module):
       normalizer = jnp.sum(attn, axis=-1, keepdims=True) + self.epsilon
       attn = attn / normalizer
 
-    if self.attn_weights_only:
-      return attn
-
     # Aggregate values using a weighted sum with weights provided by `attn`.
-    return jnp.einsum("...hqk,...khd->...qhd", attn, value)
+    outputs = jnp.einsum("...hqk,...khd->...qhd", attn, value)
+    if self.attn_weights:
+      return outputs, attn
 
+    return outputs
 
 GateFn = Callable[[Array, Array], Array]
 def sum_gate_factory(*args, **kwargs) -> GateFn:
