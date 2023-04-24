@@ -29,19 +29,23 @@ import dataclasses
 import datetime
 from typing import Optional
 
+from functools import partial
 from absl import flags
 from absl import app
 from absl import logging
 from acme.jax import experiments
 from acme.utils import loggers
 from acme.utils import paths
+from acme.agents.jax import builders
+from acme import specs
+
 import dm_env
 import launchpad as lp
 
 
 from experiments import babyai_utils
 from experiments import logger as wandb_logger 
-from experiments.observers import LevelAvgReturnObserver
+from experiments.observers import LevelAvgReturnObserver, ExitObserver
 from experiments import utils as exp_utils
 
 
@@ -85,6 +89,7 @@ flags.DEFINE_string('folder', '', 'folder for experiments.')
 FLAGS = flags.FLAGS
 
 
+
 def build_experiment_config(launch=False,
                             agent='muzero',
                             config_kwargs: dict = None,
@@ -102,12 +107,15 @@ def build_experiment_config(launch=False,
   # cannot be pickled and pickling is necessary when launching distributed
   # experiments via Launchpad.
   env_kwargs = env_kwargs or dict(room_size=7)
+  logging.info(f'env_kwargs: {str(env_kwargs)}')
   # Create an environment factory.
-  def environment_factory(seed: int) -> dm_env.Environment:
+  def environment_factory(seed: int,
+                          evaluation: bool = False) -> dm_env.Environment:
     del seed
     return babyai_utils.make_kitchen_environment(
       path=path,
       debug=debug,
+      evaluation=evaluation,
       **env_kwargs)
 
 
@@ -203,8 +211,31 @@ def build_experiment_config(launch=False,
   observers = [
     LevelAvgReturnObserver(
       get_task_name=lambda env: str(env.env.current_levelname),
-      reset=50 if launch else 5)
+      reset=50 if launch else 5),
+    # ExitObserver(window_length=500, exit_at_success=.99),  # will exit at certain success rate
     ]
+
+ # -----------------------
+  # create evaluator factory
+  # -----------------------
+  def eval_policy_factory(networks: builders.Networks,
+                          environment_spec: specs.EnvironmentSpec,
+                          evaluation: bool) -> builders.Policy:
+    del evaluation
+    return builder.make_policy(
+        networks=networks,
+        environment_spec=environment_spec,
+        evaluation=True)
+
+  evaluator_factories = [
+      experiments.default_evaluator_factory(
+          environment_factory=partial(environment_factory,
+                                      evaluation=True),  # Key difference
+          network_factory=network_factory,
+          policy_factory=eval_policy_factory,
+          logger_factory=logger_factory,
+          observers=observers)
+  ]
 
   return experiments.ExperimentConfig(
       builder=builder,
@@ -214,6 +245,7 @@ def build_experiment_config(launch=False,
       max_num_actor_steps=config.num_steps,
       observers=observers,
       logger_factory=logger_factory,
+      evaluator_factories=evaluator_factories,
       checkpointing=experiments.CheckpointingConfig(
           directory=log_dir,
           max_to_keep=5,
@@ -275,10 +307,10 @@ def main(_):
 
   env_kwargs = dict(
     tasks_file=FLAGS.tasks_file,
-    room_size=7)
+    room_size=5,
+    num_dists=1)
   if FLAGS.env_config:
     env_kwargs = exp_utils.load_config(FLAGS.env_config)
-    logging.info(f'env_kwargs: {str(env_kwargs)}')
 
   if FLAGS.run_distributed:
     program, local_resources = make_distributed_program(
