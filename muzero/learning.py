@@ -33,6 +33,7 @@ from acme.utils import async_utils
 from acme.utils import counting
 from acme.utils import loggers
 
+import distrax
 import haiku as hk
 import jax
 import jax.numpy as jnp
@@ -162,7 +163,8 @@ class MuZeroLearner(acme.Learner):
         params=params,
         target_params=target_params,
       )
-      ve_loss_fn = jax.vmap(ve_loss_fn, in_axes=(1, 1, 1, 1, 1, 0, 0, None), out_axes=0) # vmap over batch dimension
+      # vmap over batch dimension
+      ve_loss_fn = jax.vmap(ve_loss_fn, in_axes=(1, 1, 1, 1, 1, 0, 0, None, None, None), out_axes=0)
 
       # [T, B]
       B = data.discount.shape[1]
@@ -170,6 +172,21 @@ class MuZeroLearner(acme.Learner):
       is_terminal_mask = jnp.concatenate(
         (jnp.ones((1, B)), data.discount[:-1]), axis=0) == 0.0
       
+      # computing this outside of loss is important because only 1 branch is executed.
+      # if computed inside function, vmap would lead all branches to be executed
+      if config.model_learn_prob  == 1.0:
+        learn_model = True
+      elif config.model_learn_prob < 1e-4:
+        learn_model = False
+      else:
+        key_grad, sample_key = jax.random.split(key_grad)
+        learn_model = distrax.Bernoulli(
+            probs=config.model_learn_prob).sample(seed=sample_key)
+
+      key_grad, sample_key = jax.random.split(key_grad)
+      reanalyze = distrax.Bernoulli(
+          probs=config.reanalyze_ratio).sample(seed=sample_key)
+
       # [B], B
       batch_loss, metrics = ve_loss_fn(data,
                                        in_episode,
@@ -178,7 +195,9 @@ class MuZeroLearner(acme.Learner):
                                        target_outputs,
                                        online_state,
                                        target_state,
-                                       key_grad)
+                                       key_grad,
+                                       learn_model,
+                                       reanalyze)
 
 
       if importance_sampling_exponent == 0.0:
@@ -202,7 +221,10 @@ class MuZeroLearner(acme.Learner):
         mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
         priorities = (max_priority + mean_priority)
       metrics = jax.tree_map(lambda x: x.mean(), metrics)
-      metrics.update(in_episode=in_episode.mean())
+      metrics.update(
+        in_episode=in_episode.mean(),
+        learn_model=jnp.asarray(learn_model, dtype=jnp.float32),
+        reanalyze=jnp.asarray(reanalyze, dtype=jnp.float32))
       extra = learning_lib.LossExtra(metrics=metrics,
                                      reverb_priorities=priorities)
 
@@ -370,7 +392,7 @@ class MuZeroLearner(acme.Learner):
 
     # Update our counts and record it.
     time_elapsed = time.time() - start
-    metrics['learner_duration'] = time_elapsed
+    metrics['Learnerduration'] = time_elapsed
     steps_per_sec = (self._num_sgd_steps_per_step / time_elapsed) if time_elapsed else 0
     metrics['steps_per_second'] = steps_per_sec
     counts = self._counter.increment(steps=self._num_sgd_steps_per_step,
