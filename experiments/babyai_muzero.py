@@ -3,8 +3,8 @@ from absl import logging
 import functools
 import distrax
 import jax
-from pprint import pprint
 import mctx
+from pprint import pprint
 import rlax
 
 from muzero import utils as muzero_utils
@@ -21,15 +21,16 @@ def setup(
   if not launch: #DEBUG
     config_kwargs.update(
       min_replay_size=100,
-      samples_per_insert=1.0,
-      batch_size=4,
-      trace_length=6,
-      simulation_steps=2,
-      num_simulations=1,
-      td_steps=3,
+      # samples_per_insert=1.0,
+      # batch_size=4,
+      # trace_length=6,
+      # simulation_steps=2,
+      # num_simulations=1,
+      # td_steps=3,
       burn_in_length=0,
-      weight_decay=0.0,
-      show_gradients=0,
+      # weight_decay=0.0,
+      # show_gradients=0,
+      # model_learn_prob=.1,
     )
   logging.info(f'Config arguments')
   pprint(config_kwargs)
@@ -47,31 +48,12 @@ def setup(
   )
   config.num_bins = discretizer._num_bins
 
-  assert config.muzero_policy in ["muzero", "gumbel_muzero"]
-  if config.muzero_policy == "muzero":
-    muzero_policy = functools.partial(
-        mctx.muzero_policy,
-        dirichlet_fraction=config.dirichlet_fraction,
-        dirichlet_alpha=config.dirichlet_alpha,
-        pb_c_init=config.pb_c_init,
-        pb_c_base=config.pb_c_base,
-        temperature=config.temperature)
-  elif config.muzero_policy == "gumbel_muzero":
-    muzero_policy = functools.partial(
-        mctx.gumbel_muzero_policy,
-        gumbel_scale=config.gumbel_scale)
+  muzero_policy = functools.partial(
+      mctx.gumbel_muzero_policy,
+      max_depth=config.max_sim_depth,
+      gumbel_scale=config.gumbel_scale)
 
-  assert config.policy_loss in ["cross_entropy", "kl_forward", "kl_back"]
-  if config.policy_loss == 'cross_entropy':
-    policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
-  elif config.policy_loss == 'kl_forward':
-    def kl_forward(p, l):
-      return distrax.Categorical(probs=p).kl_divergence(distrax.Categorical(logits=l))
-    policy_loss_fn = jax.vmap(kl_forward)
-  elif config.policy_loss == 'kl_back':
-    def kl_back(p, l):
-      return distrax.Categorical(logits=l).kl_divergence(distrax.Categorical(probs=p))
-    policy_loss_fn = jax.vmap(kl_back)
+  policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
 
   ve_loss_fn = functools.partial(ValueEquivalentLoss,
     muzero_policy=muzero_policy,
@@ -87,8 +69,8 @@ def setup(
     value_coef=config.value_coef,
     reward_coef=config.reward_coef,
     v_target_source=config.v_target_source,
-    reanalyze_ratio=config.reanalyze_ratio,
-    metrics=config.metrics,
+    # reanalyze_ratio=config.reanalyze_ratio,
+    # metrics=config.metrics,
   )
 
   builder = MuZeroBuilder(config, loss_fn=ve_loss_fn)

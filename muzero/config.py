@@ -38,7 +38,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   batch_size: Optional[int] = 64
   trace_length: Optional[int] = 20
   sequence_period: Optional[int] = None
-  # learning_rate: float = 1e-3
+  # learning_rate: float = e-3
   learning_rate_decay: float = .1
   lr_transition_steps: int = 100_000
   weight_decay: float = 1e-4
@@ -77,7 +77,8 @@ class MuZeroConfig(r2d2.R2D2Config):
 
   # MCTS general hps
   simulation_steps: int = 5
-  num_simulations: int = 50
+  num_simulations: int = 4
+  max_sim_depth: Optional[int] = None
   q_normalize_epsilon: float = 0.01  # copied from `jax_muzero`
   muzero_policy: str = 'gumbel_muzero'
 
@@ -91,6 +92,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   # MCTS gumble_muzero hps
   maxvisit_init: int = 50
   gumbel_scale: float = 1.0
+  model_learn_prob: float = 1.0 # what proportion of batches to learn model
 
 
   # Architecture

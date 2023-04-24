@@ -62,6 +62,7 @@ online_async:
 		--wandb_group=$(group) \
 		--wandb_notes=$(notes) \
 		--run_distributed=True \
+		--tasks_file=$(task) \
 		--debug=$(debug)
 
 online_many:

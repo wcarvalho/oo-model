@@ -17,7 +17,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   # replay
   batch_size: Optional[int] = 64
   trace_length: Optional[int] = 20
-  max_replay_size: int = 80_000
+  max_replay_size: int = 40_000
 
   # general arch (across all parts)
   gru_init: str = 'default'
@@ -25,8 +25,9 @@ class FactoredMuZeroConfig(MuZeroConfig):
   b_init_attn: float = 1.0
   w_init_attn: float = 1.0
   pre_norm: bool = False
-  share_w_init_out: bool = True
-  slots_use_task: bool = False
+  share_w_init_out: bool = False
+  slots_use_task: bool = True
+  pos_layernorm: str = 'pre'
 
   # postion embedding
   embedding_type: str = 'linear'
@@ -48,8 +49,11 @@ class FactoredMuZeroConfig(MuZeroConfig):
   slot_pred_heads: Optional[int] = None
   slot_pred_qkv_size: Optional[int] = None
   slot_pred_mlp_size: Optional[int] = None
-  w_attn_head: bool = True
+  # w_attn_head: bool = True
+  pred_input_selection: str = 'attention'
+  action_as_factor: bool = False
   pred_head: str = 'muzero'
+  pred_gate: str = 'gru'
   reward_mlps: Tuple[int] = (32,)
   vpi_mlps: Tuple[int] = (128, 32)
 

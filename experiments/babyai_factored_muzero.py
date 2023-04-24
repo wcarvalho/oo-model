@@ -1,7 +1,10 @@
+from absl import logging
+
 import copy
 import functools
 import jax
 import mctx
+from pprint import pprint
 import rlax
 
 from muzero import utils as muzero_utils
@@ -29,14 +32,14 @@ def setup(
       td_steps=3,
       burn_in_length=0,
       show_gradients=0,
-      gru_init='orthogonal',
-      pred_head='muzero',
-      gating='sum',
-      pre_norm=False,
-      num_steps=1e5,
-      slot_size=128,
-      use_task=True,
+      pre_norm=True,
+      action_as_factor=False,
+      gating='sigtanh',
+      pred_gate='sum',
+      pred_input_selection='task_query',
     )
+  logging.info(f'Config arguments')
+  pprint(config_kwargs)
 
   config = FactoredMuZeroConfig(**config_kwargs)
 
@@ -52,8 +55,9 @@ def setup(
   config.num_bins = discretizer._num_bins
 
   muzero_policy = functools.partial(
-          mctx.gumbel_muzero_policy,
-          gumbel_scale=config.gumbel_scale)
+    mctx.gumbel_muzero_policy,
+    max_depth=config.max_sim_depth,
+    gumbel_scale=config.gumbel_scale)
   policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
 
   ve_loss_fn = functools.partial(ValueEquivalentLoss,
@@ -70,8 +74,8 @@ def setup(
     value_coef=config.value_coef,
     reward_coef=config.reward_coef,
     v_target_source=config.v_target_source,
-    reanalyze_ratio=config.reanalyze_ratio,
-    metrics=config.metrics,
+    # reanalyze_ratio=config.reanalyze_ratio,
+    # metrics=config.metrics,
     )
 
   builder = MuZeroBuilder(
