@@ -7,33 +7,34 @@ import yaml
 
 from acme import wrappers
 
-from envs.babyai_kitchen.wrappers import RGBImgPartialObsWrapper
-from envs.babyai_kitchen.wrappers import RGBImgFullyObsWrapper
-from envs.babyai_kitchen.wrappers import MissionIntegerWrapper
-from envs.babyai_kitchen.utils import InstructionsPreprocessor
+#from envs.babyai_kitchen.wrappers import RGBImgPartialObsWrapper
+#from envs.babyai_kitchen.wrappers import RGBImgFullyObsWrapper
+#from envs.babyai_kitchen.wrappers import MissionIntegerWrapper
+#from envs.babyai_kitchen.utils import InstructionsPreprocessor
 
-from envs.multitask_kitchen import MultitaskKitchen
+#from envs.multitask_kitchen import MultitaskKitchen
 
 def get_kitchen_tasks_file(tasks_file: str):
   """Open BabyAI Kitchen tasks file.
-  
+
   Args:
       tasks_file (str, optional): Description
-  
   Returns:
       TYPE: Description
+
   """
   tasks_file = tasks_file or 'place'
   return f"envs/babyai_kitchen/tasks/{tasks_file}.yaml"
 
 def open_kitchen_tasks_file(tasks_file: str='place', path: str='.'):
   """Open BabyAI Kitchen tasks file.
-  
+
   Args:
       tasks_file (str, optional): Description
-  
+
   Returns:
       TYPE: Description
+
   """
   tasks_file = get_kitchen_tasks_file(tasks_file)
   tasks_file = os.path.join(path, tasks_file)

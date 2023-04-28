@@ -38,10 +38,13 @@ import dm_env
 import launchpad as lp
 
 
+import sys
+sys.path.append("/home/jiachs/oo-model/")
 from experiments import babyai_utils
-from experiments import logger as wandb_logger 
+from experiments import utils_thor
+from experiments import logger as  wandb_logger
 from experiments.muzero_utils import make_muzero_builder
-from experiments.factored_muzero_utils import make_factored_muzero_builder
+#from experiments.factored_muzero_utils import make_factored_muzero_builder
 from r2d2 import make_r2d2_builder
 from experiments.observers import LevelAvgReturnObserver
 from experiments import utils as exp_utils
@@ -107,11 +110,7 @@ def build_experiment_config(launch=False,
   # Create an environment factory.
   def environment_factory(seed: int) -> dm_env.Environment:
     del seed
-    return babyai_utils.make_kitchen_environment(
-      path=path,
-      debug=debug,
-      **env_kwargs)
-
+    return utils_thor.make_thor_environment(oar_wrapper=True)
   # Configure the agent & update with config kwargs
   if agent == 'r2d2':
     config, builder, network_factory = make_r2d2_builder(
@@ -132,7 +131,8 @@ def build_experiment_config(launch=False,
     if not hasattr(config, k):
       raise RuntimeError(f"Attempting to set unknown attribute '{k}'")
     setattr(config, k, v)
-  
+
+
   if config.trace_length is None:
     config.trace_length = config.burn_in_length + config.simulation_steps + config.td_steps + 1
   if config.sequence_period is None:
@@ -245,7 +245,7 @@ def main(_):
     wandb_init_kwargs['name'] = FLAGS.wandb_name
 
   wandb_init_kwargs = wandb_init_kwargs if FLAGS.use_wandb else None
-  
+
   if FLAGS.folder:
     log_dir = FLAGS.folder
     if wandb_init_kwargs is not None:

@@ -109,7 +109,7 @@ def make_logger(
       - AsyncLogger
       - HasKeyFilter: only write data for specified key
       - TimeFilter: how often to write data
-  
+
   Args:
     label: Name to give to the logger.
     save_data: Whether to persist data.
@@ -223,7 +223,7 @@ class WandbLogger(base.Logger):
         key_pieces = key.split("/")
         if len(key_pieces) == 1: # e.g. [step]
           name = f'{self.label}/{_format_key(key)}'
-        else: 
+        else:
           if 'grad' in key.lower():
           # e.g. [MeanGrad/FarmSharedOutput/~/FeatureAttention/Conv2D1] --> [Loss/MeanGrad-FarmSharedOutput-~-FeatureAttention-Conv2D1]
             name = f'z.grads/{_format_key(key)}'

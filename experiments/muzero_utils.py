@@ -53,5 +53,5 @@ def make_muzero_builder(
 
   network_factory = functools.partial(
           network_fn, config=config, discretizer=discretizer)
-  
+
   return config, builder, network_factory

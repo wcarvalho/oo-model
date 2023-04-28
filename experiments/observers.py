@@ -34,7 +34,7 @@ class LevelAvgReturnObserver(EnvLoopObserver):
     self.reset = reset
     self.idx = 0
     if get_task_name is None:
-      get_task_name = lambda env: str(env.env.current_levelname)
+      get_task_name = lambda env: str(env.task_string)
     self._get_task_name = get_task_name
 
   def observe_first(self, env: dm_env.Environment, timestep: dm_env.TimeStep
@@ -67,6 +67,7 @@ class LevelAvgReturnObserver(EnvLoopObserver):
       self.returns[self.level].append(self._episode_return)
 
       for key, returns in self.returns.items():
+        if not returns: continue
         avg = np.array(returns).mean()
         result[f'0.task/{key}/avg_return'] = float(avg)
         self.returns[key] = []

@@ -35,7 +35,7 @@ def collect_episode(gym_env, dm_env, idx=None):
   action_taken = None
   subgoals = iter(bot.subgoals)
   current_subgoal = next(subgoals)
-  
+
   while bot.stack:
     # plan action
     try:
@@ -66,10 +66,10 @@ def collect_episode(gym_env, dm_env, idx=None):
         current_subgoal = next(subgoals)
       except:
         pass
-    
+
     if steps > 100:
       return # failed
-  
+
   if not timestep.reward > 0.0:
     print('-'*30, idx)
     print(f"Episode terminated with no reward after {steps} steps.")
