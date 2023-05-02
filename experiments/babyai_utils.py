@@ -43,7 +43,7 @@ def open_kitchen_tasks_file(tasks_file: str='place', path: str='.'):
     tasks = yaml.load(f, Loader=yaml.SafeLoader)
   return tasks
 
-def make_kitchen_environment(
+def make_environment(
   evaluation: bool = False,
   room_size: int=7,
   num_dists: int=2,
@@ -104,4 +104,5 @@ def make_kitchen_environment(
     wrappers.SinglePrecisionWrapper,
   ]
   dm_env = wrappers.wrap_all(dm_env, wrapper_list)
+
   return dm_env

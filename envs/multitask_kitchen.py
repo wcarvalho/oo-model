@@ -133,9 +133,6 @@ class MultitaskKitchen(dm_env.Environment):
       self.default_gym = self.env
       self.default_env = GymWrapper(self.env)
 
-
-
-
   def reset(self) -> dm_env.TimeStep:
     """Returns the first `TimeStep` of a new episode."""
     obs = self.env.reset()
