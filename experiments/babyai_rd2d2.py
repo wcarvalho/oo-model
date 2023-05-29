@@ -44,10 +44,10 @@ def make_r2d2_babyai_networks(
 
 
 def setup(
-    launch: bool=True,
+    debug: bool=False,
     config_kwargs: dict = None):
   config_kwargs = config_kwargs or dict()
-  if not launch: #DEBUG
+  if debug: #DEBUG
     config_kwargs['min_replay_size'] = 100
     config_kwargs["samples_per_insert"] = 1.0
     config_kwargs['batch_size'] = 2
