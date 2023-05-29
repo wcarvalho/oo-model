@@ -153,6 +153,7 @@ def build_experiment_config(launch=False,
 
   paths.process_path(log_dir)
   exp_utils.save_config(f'{log_dir}/config.pkl', config.__dict__)
+
   # -----------------------
   # wandb setup
   # -----------------------
@@ -178,7 +179,6 @@ def build_experiment_config(launch=False,
         reinit=True, **wandb_init_kwargs)
     else:
       wandb.init(**wandb_init_kwargs)
-
 
   # -----------------------
   # create logger factory
@@ -220,14 +220,23 @@ def build_experiment_config(launch=False,
           use_wandb=use_wandb,
           asynchronous=True)
 
-  observers = [
-    LevelAvgReturnObserver(
-      get_task_name=lambda env: str(env.env.current_levelname),
-      reset=50 if launch else 5),
-    # ExitObserver(window_length=500, exit_at_success=.99),  # will exit at certain success rate
-    ]
+  # TODO what about removing env.env in babyai for code consistency?
+  if env_name == "babyai":
+    observers = [
+      LevelAvgReturnObserver(
+        get_task_name=lambda env: str(env.env.current_levelname),
+        reset=50 if launch else 5),
+      ]
+  elif env_name == "pushworld":
+    observers = [
+      LevelAvgReturnObserver(
+        get_task_name=lambda env: str(env.current_levelname),
+        reset=50 if launch else 5),
+      ]
+  else:
+    raise ValueError("No support for environment {}".format(env_name))
 
- # -----------------------
+  # -----------------------
   # create evaluator factory
   # -----------------------
   def eval_policy_factory(networks: builders.Networks,
