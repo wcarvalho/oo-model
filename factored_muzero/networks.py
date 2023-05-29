@@ -54,12 +54,11 @@ def make_save_input(embedding: vision_language.TorsoOutput):
 
 def make_babyai_networks(
   env_spec: specs.EnvironmentSpec,
-  env_kwargs: dict,
+  num_spatial_vectors: dict,
   config: MuZeroConfig) -> MuZeroNetworks:
   """Builds default MuZero networks for BabyAI tasks."""
 
   num_actions = env_spec.actions.num_values
-  room_size = env_kwargs['room_size']
   def make_core_module() -> MuZeroNetworks:
     ###########################
     # Setup observation encoders (image + language)
@@ -119,7 +118,7 @@ def make_babyai_networks(
         num_iterations=config.savi_iterations,
         qkv_size=config.slot_size,
         num_slots=config.num_slots,
-        num_spatial=room_size**2,
+        num_spatial=num_spatial_vectors,
         w_init=w_init_attn,
         gru_w_i_init=gru_w_i_init,
         use_task=config.slots_use_task,
