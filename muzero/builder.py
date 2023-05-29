@@ -59,6 +59,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
     """Creates a R2D2 learner, a behavior policy and an eval actor."""
     self._config = config
     self._loss_fn = loss_fn
+    self._use_stored_lstm_state = config.use_stored_lstm_state
     self._sequence_length = (
         self._config.burn_in_length + self._config.trace_length + 1)
 
@@ -88,6 +89,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
         iterator=dataset,
         num_sgd_steps_per_step=self._config.num_sgd_steps_per_step,
         LossFn=self._loss_fn,
+        use_core_state=self._use_stored_lstm_state,
         replay_client=replay_client,
         counter=counter,
         config=self._config,
