@@ -25,7 +25,6 @@ cd _babyai
 pip install --editable .
 cd ..
 
-pip install "gym[atari]==0.23.0"
 
 #############################################
 # ACME
@@ -33,8 +32,10 @@ pip install "gym[atari]==0.23.0"
 git clone https://github.com/deepmind/acme.git _acme
 cd _acme
 git checkout 4525ade7015c46f33556e18d76a8d542b916f264
-pip install --editable ".[jax,testing]"
+pip install --editable ".[jax,testing,envs]"
 cd ..
+
+pip install "gym[atari]==0.23.0"
 
 
 #############################################
