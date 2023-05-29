@@ -29,7 +29,7 @@ import rlax
 
 from modules import vision_language
 
-from experiments.utils import update_config
+from experiments.config_utils import update_config
 
 
 
