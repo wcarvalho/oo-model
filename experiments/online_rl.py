@@ -42,8 +42,6 @@ from acme import specs
 import dm_env
 import launchpad as lp
 
-
-from experiments import babyai_utils
 from experiments import logger as wandb_logger 
 from experiments.observers import LevelAvgReturnObserver, ExitObserver
 from experiments import utils as exp_utils
@@ -53,7 +51,7 @@ from experiments import utils as exp_utils
 # flags
 # -----------------------
 flags.DEFINE_string('agent', 'muzero', 'which agent.')
-# flags.DEFINE_string('env', 'fruitbot', 'which environment.')
+flags.DEFINE_string('env_name', 'babyai', 'which RL environment.')
 # flags.DEFINE_string('env_setting', '', 'which environment setting.')
 # flags.DEFINE_integer('num_episodes', int(1e5), 'Number of episodes to train for.')
 # flags.DEFINE_integer('seed', 0, 'Random seed.')
@@ -74,7 +72,6 @@ flags.DEFINE_integer('num_steps', 1_000_000,
 flags.DEFINE_integer('debug', 0, 'Random seed (experiment).')
 
 
-
 # -----------------------
 # wandb
 # -----------------------
@@ -89,11 +86,11 @@ flags.DEFINE_string('folder', '', 'folder for experiments.')
 FLAGS = flags.FLAGS
 
 
-
 def build_experiment_config(launch=False,
                             agent='muzero',
                             config_kwargs: dict = None,
                             save_config_dict: dict = None,
+                            env_name: str = None,
                             env_kwargs: dict = None,
                             log_dir: str = None,
                             path: str = '.',
@@ -108,16 +105,23 @@ def build_experiment_config(launch=False,
   # experiments via Launchpad.
   env_kwargs = env_kwargs or dict(room_size=7)
   logging.info(f'env_kwargs: {str(env_kwargs)}')
+
   # Create an environment factory.
-  def environment_factory(seed: int,
-                          evaluation: bool = False) -> dm_env.Environment:
-    del seed
-    return babyai_utils.make_kitchen_environment(
+  def environment_factory(seed: int, evaluation: bool = False) -> dm_env.Environment:
+    if env_name == "babyai":
+      from experiments import babyai_utils as env_utils
+      del seed
+    elif env_name == "pushworld":
+      from experiments import pushworld_utils as env_utils
+      env_kwargs["horizon"] = 50
+    else:
+      raise ValueError("No support for environment {}".format(env_name))
+
+    return env_utils.make_environment(
       path=path,
       debug=debug,
       evaluation=evaluation,
       **env_kwargs)
-
 
   # Configure the agent & update with config kwargs
   if agent == 'r2d2':
@@ -125,11 +129,19 @@ def build_experiment_config(launch=False,
     config, builder, network_factory = babyai_rd2d2.setup(
       launch=launch,
       config_kwargs=config_kwargs)
+
   elif agent == 'muzero':
-    from experiments import babyai_muzero
-    config, builder, network_factory = babyai_muzero.setup(
+    if env_name == "babyai":
+      from experiments import babyai_muzero as muzero
+    elif env_name == "pushworld":
+      from experiments import pushworld_muzero as muzero
+    else:
+      raise ValueError("No support for environment {}".format(env_name))
+
+    config, builder, network_factory = muzero.setup(
       launch=launch,
       config_kwargs=config_kwargs)
+
   elif agent == 'factored':
     from experiments import babyai_factored_muzero
     config, builder, network_factory = babyai_factored_muzero.setup(
@@ -141,6 +153,7 @@ def build_experiment_config(launch=False,
 
   paths.process_path(log_dir)
   exp_utils.save_config(f'{log_dir}/config.pkl', config.__dict__)
+
   # -----------------------
   # wandb setup
   # -----------------------
@@ -166,7 +179,6 @@ def build_experiment_config(launch=False,
         reinit=True, **wandb_init_kwargs)
     else:
       wandb.init(**wandb_init_kwargs)
-
 
   # -----------------------
   # create logger factory
@@ -208,14 +220,23 @@ def build_experiment_config(launch=False,
           use_wandb=use_wandb,
           asynchronous=True)
 
-  observers = [
-    LevelAvgReturnObserver(
-      get_task_name=lambda env: str(env.env.current_levelname),
-      reset=50 if launch else 5),
-    # ExitObserver(window_length=500, exit_at_success=.99),  # will exit at certain success rate
-    ]
+  # TODO what about removing env.env in babyai for code consistency?
+  if env_name == "babyai":
+    observers = [
+      LevelAvgReturnObserver(
+        get_task_name=lambda env: str(env.env.current_levelname),
+        reset=50 if launch else 5),
+      ]
+  elif env_name == "pushworld":
+    observers = [
+      LevelAvgReturnObserver(
+        get_task_name=lambda env: str(env.current_levelname),
+        reset=50 if launch else 5),
+      ]
+  else:
+    raise ValueError("No support for environment {}".format(env_name))
 
- # -----------------------
+  # -----------------------
   # create evaluator factory
   # -----------------------
   def eval_policy_factory(networks: builders.Networks,
@@ -304,7 +325,6 @@ def main(_):
     config_kwargs = exp_utils.load_config(FLAGS.agent_config)
     logging.info(f'config_kwargs: {str(config_kwargs)}')
 
-
   env_kwargs = dict(
     tasks_file=FLAGS.tasks_file,
     room_size=5,
@@ -316,6 +336,7 @@ def main(_):
     program, local_resources = make_distributed_program(
       log_dir=log_dir,
       wandb_init_kwargs=wandb_init_kwargs,
+      env_name=FLAGS.env_name,
       env_kwargs=env_kwargs,
       config_kwargs=config_kwargs,
       agent=FLAGS.agent,
@@ -329,6 +350,7 @@ def main(_):
       launch=False,
       log_dir=log_dir,
       wandb_init_kwargs=wandb_init_kwargs,
+      env_name=FLAGS.env_name,
       env_kwargs=env_kwargs,
       config_kwargs=config_kwargs,
       agent=FLAGS.agent,

@@ -3,10 +3,10 @@ conda create -n omodel python=3.9 -y
 eval "$(conda shell.bash hook)"
 conda activate omodel
 
-
 conda env update --name omodel --file env.yaml
-
 # conda install -c anaconda -y cudnn
+
+
 ##############################################
 # BabyAI
 ##############################################
@@ -26,6 +26,18 @@ pip install --editable .
 cd ..
 
 pip install "gym[atari]==0.23.0"
+
+
+##############################################
+# Pushworld
+##############################################
+git clone https://github.com/deepmind/pushworld.git _pushworld
+cd _pushworld
+git checkout 103043f78ad0ba70a055efe336aaeb29d96896a6
+cd python3
+pip install -r requirements.txt
+cd .. && cd ..
+
 
 #############################################
 # ACME
