@@ -615,6 +615,7 @@ class KitchenLevel(RoomGridLevel):
       reward = 1.0
 
     reward = reward*self.reward_coeff
+    reward = float(reward)
     return obs, reward, done, info
 
 

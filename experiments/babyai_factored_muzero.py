@@ -16,11 +16,12 @@ from factored_muzero.config import FactoredMuZeroConfig
 
 
 def setup(
-    env_kwargs,
-    launch: bool=True,
+    network_kwargs=None,
+    debug: bool=False,
     config_kwargs: dict = None):
+  network_kwargs = network_kwargs or dict()
   config_kwargs = config_kwargs or dict()
-  if not launch: #DEBUG
+  if debug: #DEBUG
     config_kwargs.update(
       min_replay_size=100,
       samples_per_insert=1.0,
@@ -84,6 +85,6 @@ def setup(
   network_factory = functools.partial(
           networks.make_babyai_networks,
           config=config,
-          env_kwargs=env_kwargs)
+          **network_kwargs)
   
   return config, builder, network_factory

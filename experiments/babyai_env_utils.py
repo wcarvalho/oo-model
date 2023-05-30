@@ -54,6 +54,8 @@ def make_kitchen_environment(
   tasks_file='',
   debug=False,
   nseeds=0,
+  return_gym_env=False,
+  wrapper_list=None,
   **kwargs,
   ) -> dm_env.Environment:
   """Loads environments."""
@@ -99,9 +101,15 @@ def make_kitchen_environment(
     **kwargs
     )
 
-  wrapper_list = [
+
+  wrapper_list = wrapper_list or [
     wrappers.ObservationActionRewardWrapper,
     wrappers.SinglePrecisionWrapper,
   ]
   dm_env = wrappers.wrap_all(dm_env, wrapper_list)
-  return dm_env
+
+  if return_gym_env:
+    gym_env = dm_env.env
+    return dm_env, gym_env
+  else:
+    return dm_env

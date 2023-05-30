@@ -29,7 +29,7 @@ import rlax
 
 from modules import vision_language
 
-from experiments.utils import update_config
+from experiments.config_utils import update_config
 
 
 
@@ -51,6 +51,7 @@ class R2D2Config(r2d2.R2D2Config):
   epsilon_base: float = .1
 
   # Learner options
+  num_learner_steps: int = int(5e5)
   discount: float = 0.99
   burn_in_length: int = 0
   num_steps: int = 3e6

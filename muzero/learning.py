@@ -131,7 +131,6 @@ class MuZeroLearner(acme.Learner):
         key_grad, initial_state_rng = jax.random.split(key_grad)
         online_state = networks.init_recurrent_state(initial_state_rng,
                                                      batch_size)
-        raise NotImplementedError('never checked')
       target_state = online_state
 
       # Convert sample data to sequence-major format [T, B, ...].
@@ -373,9 +372,11 @@ class MuZeroLearner(acme.Learner):
     # In this case the host property of the prefetching split contains only the
     # replay keys and the device property is the prefetched full original
     # sample.
-    keys = prefetching_split.host
-    samples: reverb.ReplaySample = prefetching_split.device
-
+    if hasattr(prefetching_split, 'host'):
+      keys = prefetching_split.host
+      samples: reverb.ReplaySample = prefetching_split.device
+    else:
+      samples: reverb.ReplaySample = prefetching_split
     # Do a batch of SGD.
     start = time.time()
     self._state, (priorities, metrics) = self._sgd_step(self._state, samples)

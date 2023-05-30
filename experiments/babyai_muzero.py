@@ -15,10 +15,10 @@ from muzero.ve_losses import ValueEquivalentLoss
 
 
 def setup(
-    launch: bool=True,
+    debug: bool=False,
     config_kwargs: dict = None):
   config_kwargs = config_kwargs or dict()
-  if not launch: #DEBUG
+  if debug: #DEBUG
     config_kwargs.update(
       min_replay_size=100,
       # samples_per_insert=1.0,

@@ -39,6 +39,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   trace_length: Optional[int] = 20
   sequence_period: Optional[int] = None
   # learning_rate: float = e-3
+  use_stored_lstm_state: bool = True
   learning_rate_decay: float = .1
   lr_transition_steps: int = 100_000
   weight_decay: float = 1e-4
