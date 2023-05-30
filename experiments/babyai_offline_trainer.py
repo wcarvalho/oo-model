@@ -209,6 +209,15 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "agent": tune.grid_search([agent]),
         }
     ]
+  elif search == 'benchmark':
+    space = [
+        {
+            "seed": tune.grid_search([1,2]),
+            "agent": tune.grid_search(['muzero', 'factored_muzero']),
+            "tasks_file": tune.grid_search([
+              'place_split_easy', 'place_split_medium', 'place_split_hard']),
+        }
+    ]
   else:
     raise NotImplementedError(search)
 

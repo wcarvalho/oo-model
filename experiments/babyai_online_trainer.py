@@ -76,9 +76,6 @@ def setup_experiment_inputs(
       config_kwargs=config_kwargs)
   elif agent == 'factored':
     from experiments import babyai_factored_muzero
-    print("check net kwargs works correctly")
-    import ipdb
-    ipdb.set_trace()
     room_size = env_kwargs['room_size']
     config, builder, network_factory = babyai_factored_muzero.setup(
       debug=debug,
@@ -158,6 +155,15 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
         {
             "seed": tune.grid_search([1]),
             "agent": tune.grid_search([agent]),
+        }
+    ]
+  elif search == 'benchmark':
+    space = [
+        {
+            "seed": tune.grid_search([1, 2]),
+            "agent": tune.grid_search(['muzero', 'factored']),
+            "tasks_file": tune.grid_search([
+                'place_split_easy', 'place_split_hard']),
         }
     ]
   else:

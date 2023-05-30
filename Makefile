@@ -13,8 +13,8 @@ debug?=0
 
 wandb?=1
 wandb_sync?=0
-babyai_online_project?=babyai_online_muzero
-babyai_offline_project?=babyai_offline_muzero
+babyai_online_project?=babyai_online
+babyai_offline_project?=babyai_offline
 babyai_online_folder?=../results/factored_muzero/babyai_online
 babyai_offline_folder?=../results/factored_muzero/babyai_offline
 
@@ -78,7 +78,7 @@ offline_babyai_sync:
 
 online_babyai_async:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
-	python -m ipdb -c continue experiments/babyai_online_trainer.py \
+	python continue experiments/babyai_online_trainer.py \
 		--run_distributed=True \
 		--folder="$(babyai_online_folder)_async" \
 		--agent=$(agent) \
@@ -96,7 +96,7 @@ online_babyai_async:
 
 offline_babyai_async:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
-	python -m ipdb -c continue experiments/babyai_offline_trainer.py \
+	python continue experiments/babyai_offline_trainer.py \
 		--run_distributed=True \
 		--folder="$(babyai_offline_folder)_async" \
 		--agent=$(agent) \
