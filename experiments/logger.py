@@ -215,7 +215,6 @@ class WandbLogger(base.Logger):
 
     step = values[self._steps_key] if self._steps_key is not None else self._iter
 
-
     to_log={}
     for key in values.keys() - [self._steps_key]:
 

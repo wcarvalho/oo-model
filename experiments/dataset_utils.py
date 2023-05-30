@@ -31,7 +31,7 @@ Default"
   }, 
   reward': ()}
 """
-from typing import Callable, Iterator, Tuple, Dict, Any
+from typing import Callable, Iterator, Tuple, Dict, Any, Optional
 
 from functools import partial
 from absl import flags
@@ -53,11 +53,12 @@ from acme.wrappers import observation_action_reward
 import dm_env
 import haiku as hk
 import jax
+import jax.numpy as jnp
 import launchpad as lp
 import numpy as np
 
 from experiments import babyai_env_utils
-from experiments import collect_data
+from experiments import babyai_collect_data
 
 import tensorflow_datasets as tf_tfds
 import tensorflow as tf
@@ -66,6 +67,63 @@ import tree
 import reverb
 import rlds
 
+
+def zeros_tf2jax(x: tf.TensorSpec):
+    if x.dtype == tf.int64:
+      dtype = jnp.float64
+    elif x.dtype == tf.int32:
+      dtype = jnp.int32
+    elif x.dtype == tf.float64:
+      dtype = jnp.float64
+    elif x.dtype == tf.float32:
+      dtype = jnp.float32
+    elif x.dtype == tf.bool:
+      dtype = jnp.bool
+    elif x.dtype == tf.uint8:
+      dtype = jnp.uint8
+    else:
+       raise NotImplementedError(f'Do not know how to handle dtype: {x.dtype}')
+    return jnp.zeros(shape=x.shape, dtype=dtype)
+
+def make_dataset_environment_spec(
+      environment: dm_env.Environment,
+      dataset: tf.data.Dataset,
+      ) -> specs.EnvironmentSpec:
+  """Returns an `EnvironmentSpec` describing values used by an environment."""
+  step_spec = rlds.transformations.step_spec(dataset)
+
+  environment_env_spec = specs.make_environment_spec(environment)
+  def map2jax(y):
+     return (jax.tree_map(lambda x: zeros_tf2jax(x), y))
+
+  dataset_env_spec = specs.EnvironmentSpec(
+      observations=map2jax(step_spec['observation']),
+      actions=map2jax(step_spec['action']),
+      rewards=map2jax(step_spec['reward']),
+      discounts=map2jax(step_spec['discount']))
+
+  def reconcile(env, d):
+    if type(env) == specs.Array:
+       return specs.Array(
+          shape=d.shape,
+          dtype=env.dtype,
+          name=env.name)
+    elif type(env) == specs.DiscreteArray:
+       return env
+
+    elif type(env) == specs.BoundedArray:
+       ones_like_d = np.ones_like(d)
+       return specs.BoundedArray(
+          shape=d.shape,
+          dtype=env.dtype,
+          minimum=ones_like_d*env.minimum.min(),
+          maximum=ones_like_d*env.maximum.max(),
+          name=env.name)
+    else:
+        raise NotImplementedError(f"Do not know how to handle {type(v)}")
+
+  return jax.tree_map(
+    reconcile, environment_env_spec, dataset_env_spec)
 
 def data_step_to_reverb_step(step):
     input_dict=dict(
@@ -154,6 +212,7 @@ def make_demonstration_dataset_factory(
   obs_constructor=None) -> Callable[[jax_types.PRNGKey], Iterator[types.Transition]]:
   """Returns the demonstration dataset factory for the given dataset."""
 
+
   def demonstration_dataset_factory(
       random_key: jax_types.PRNGKey) -> Iterator[types.Transition]:
     """Returns an iterator of demonstration samples."""
@@ -184,10 +243,5 @@ def make_demonstration_dataset_factory(
           )
     )
     return iterator
-    # utils.multi_device_put(
-    #     dataset.as_numpy_iterator(),
-    #     devices=jax.local_devices(),
-    #     split_fn=None)
-    
-    
+
   return demonstration_dataset_factory

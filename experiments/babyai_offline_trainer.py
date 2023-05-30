@@ -7,11 +7,13 @@ from ray import tune
 from absl import logging
 from launchpad.nodes.python.local_multi_processing import PythonProcess
 import launchpad as lp
+import os.path
 
 from acme import specs
 from acme.jax import experiments
 from acme.utils import paths
 import dm_env
+import rlds
 
 from envs.multitask_kitchen import Observation
 from experiments.observers import LevelAvgReturnObserver, ExitObserver
@@ -19,7 +21,7 @@ from experiments import config_utils
 from experiments import train_many
 from experiments import experiment_builders
 from experiments import babyai_env_utils
-from experiments import collect_data
+from experiments import babyai_collect_data
 from experiments import dataset_utils
 
 
@@ -57,34 +59,6 @@ def setup_experiment_inputs(
   logging.info(f'env_kwargs: {str(env_kwargs)}')
 
   # -----------------------
-  # setup environment
-  # -----------------------
-  def environment_factory(seed: int,
-                          evaluation: bool = False) -> dm_env.Environment:
-    del seed
-    return babyai_env_utils.make_kitchen_environment(
-        path=path,
-        debug=debug,
-        evaluation=evaluation,
-        **env_kwargs)
-
-  # Create an environment and make the environment spec
-  environment = environment_factory(0)
-  environment_spec = specs.make_environment_spec(environment)
-
-  # Define the demonstrations factory.
-  data_directory = collect_data.directory_name(
-      tasks_file=env_kwargs['tasks_file'],
-      evaluation=False,
-      debug=debug)
-
-  demonstration_dataset_factory = dataset_utils.make_demonstration_dataset_factory(
-      data_directory,
-      obs_constructor=Observation,
-      batch_size=config.batch_size,
-      trace_length=config.trace_length)
-
-  # -----------------------
   # load agent config, builder, network factory
   # -----------------------
   if agent == 'r2d2':
@@ -108,10 +82,56 @@ def setup_experiment_inputs(
     raise NotImplementedError
 
   # -----------------------
+  # setup environment
+  # -----------------------
+  def environment_factory(seed: int,
+                          evaluation: bool = False) -> dm_env.Environment:
+    del seed
+    return babyai_env_utils.make_kitchen_environment(
+        path=path,
+        debug=debug,
+        evaluation=evaluation,
+        **env_kwargs)
+
+  # Create an environment and make the environment spec
+  environment = environment_factory(0)
+  environment_spec = specs.make_environment_spec(environment)
+
+  # Define the demonstrations factory.
+  data_directory = babyai_collect_data.directory_name(
+      tasks_file=env_kwargs['tasks_file'],
+      room_size=env_kwargs['room_size'],
+      num_dists=env_kwargs['num_dists'],
+      partial_obs=env_kwargs['partial_obs'],
+      evaluation=False,
+      debug=debug)
+  if not os.path.exists(os.path.join(data_directory, 'dataset_info.json')):
+    logging.info(f'MAKING DATASET: {data_directory}')
+    babyai_collect_data.make_dataset(
+      env_kwargs=env_kwargs,
+      nepisodes=100 if debug else int(1e4),
+      debug=debug,
+    )
+
+  demonstration_dataset_factory = dataset_utils.make_demonstration_dataset_factory(
+      data_directory=data_directory,
+      obs_constructor=Observation,
+      batch_size=config.batch_size,
+      trace_length=config.trace_length)
+  
+
+  # dataset = dataset_utils.make_env_spec_dataset(
+  #     data_directory=data_directory,
+  #     obs_constructor=Observation,
+  # )
+  # environment_spec = dataset_utils.make_dataset_environment_spec(
+  #     environment=environment,
+  #     dataset=dataset)
+
+  # -----------------------
   # setup observer factory for environment
   # -----------------------
-  def observer_factory():
-    return [
+  observers = [
       LevelAvgReturnObserver(
               get_task_name=lambda env: str(env.env.current_levelname),
               reset=50 if not debug else 5),
@@ -124,7 +144,7 @@ def setup_experiment_inputs(
     builder=builder,
     network_factory=network_factory,
     environment_factory=environment_factory,
-    observer_factory=observer_factory,
+    observers=observers,
     demonstration_dataset_factory=demonstration_dataset_factory,
     environment_spec=environment_spec,
   )
@@ -144,13 +164,19 @@ def train_single(
     env_config_file=FLAGS.env_config,
     debug=debug)
 
+  def custom_steps_keys(name: str):
+    del name
+    return 'learner_steps'
+
   experiment = experiment_builders.build_offline_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
     agent=FLAGS.agent,
-    debug=debug,
     log_dir=FLAGS.folder,
     wandb_init_kwargs=wandb_init_kwargs,
     debug=debug,
+    logger_factory_kwargs=dict(
+      custom_steps_keys=custom_steps_keys,
+    ),
     **kwargs
   )
   if FLAGS.run_distributed:
@@ -179,7 +205,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   if search == 'default':
     space = [
         {
-            "seed": tune.grid_search([1]),
+            "seed": tune.grid_search([2]),
             "agent": tune.grid_search([agent]),
         }
     ]
@@ -194,38 +220,44 @@ def main(_):
   # -----------------------
   # wandb setup
   # -----------------------
-  use_wandb = FLAGS.use_wandb
   search = FLAGS.search or 'default'
-  if FLAGS.train_single:
-    group = FLAGS.wandb_group if FLAGS.wandb_group else FLAGS.agent  # overall group
-  else:
-    group = FLAGS.wandb_group if FLAGS.wandb_group else search  # overall group
   wandb_init_kwargs = dict(
       project=FLAGS.wandb_project,
       entity=FLAGS.wandb_entity,
-      group=group,  # overall group
       notes=FLAGS.wandb_notes,
-      save_code=True,
+      save_code=False,
   )
+  if FLAGS.train_single:
+    # overall group
+    wandb_init_kwargs['group'] = FLAGS.wandb_group or f"{search}_{FLAGS.agent}"
+  else:
+    if FLAGS.wandb_group:
+      logging.info(
+          f'IGNORING `wandb_group`. This will be set using the current `search`')
+    wandb_init_kwargs['group'] = search
+
   if FLAGS.wandb_name:
     wandb_init_kwargs['name'] = FLAGS.wandb_name
+  use_wandb = FLAGS.use_wandb
+  if not use_wandb:
+    wandb_init_kwargs = None
 
   # -----------------------
   # env setup
   # -----------------------
   default_env_kwargs = dict(
-      tasks_file='place_split_hard',
-      room_size=5,
-      num_dists=1,
-      partial_obs=False,
+      tasks_file=FLAGS.tasks_file,
+      room_size=FLAGS.room_size,
+      num_dists=FLAGS.num_dists,
+      partial_obs=FLAGS.partial_obs,
   )
-  run_distributed = FLAGS.run_distributed
-  num_actors = FLAGS.num_actors
   if FLAGS.train_single:
     train_single(
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs)
   else:
+    run_distributed = FLAGS.run_distributed
+    num_actors = FLAGS.num_actors
     train_many.run(
       name='babyai_offline_trainer',
       wandb_init_kwargs=wandb_init_kwargs,

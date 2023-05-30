@@ -61,7 +61,7 @@ flags.DEFINE_string('agent', 'muzero', 'which agent.')
 flags.DEFINE_string('agent_config', '', 'config file')
 flags.DEFINE_string('env_config', '', 'config file')
 flags.DEFINE_string('path', '.', 'config file')
-flags.DEFINE_string('tasks_file', 'pickup_place', 'tasks_file')
+# flags.DEFINE_string('tasks_file', 'pickup_place', 'tasks_file')
 flags.DEFINE_bool(
     'run_distributed', False, 'Should an agent be executed in a distributed '
     'way. If False, will run single-threaded.')
@@ -98,10 +98,12 @@ def setup_logger_factory(
     actor_label: str = 'actor',
     evaluator_label: str = 'evaluator',
     learner_label: str = 'learner',
+    custom_steps_keys: Optional[Callable[[str], str]] = None,
     wandb_init_kwargs=None,
 ):
   """Builds experiment config."""
 
+  assert log_dir, 'provide directory for logging experiments via FLAGS.folder'
   paths.process_path(log_dir)
   config_utils.save_config(f'{log_dir}/config.pkl', agent_config.__dict__)
   # -----------------------
@@ -110,7 +112,7 @@ def setup_logger_factory(
   wandb_init_kwargs = wandb_init_kwargs or dict()
   save_config_dict = save_config_dict or dict()
 
-  use_wandb = wandb_init_kwargs is not None
+  use_wandb = len(wandb_init_kwargs)
   if use_wandb:
     import wandb
     # add config to wandb
@@ -136,6 +138,8 @@ def setup_logger_factory(
       steps_key: Optional[str] = None,
       task_id: Optional[int] = None,
   ) -> loggers.Logger:
+    if custom_steps_keys is not None:
+      steps_key = custom_steps_keys(name)
     if use_wandb and not debug:
       wandb.init(
           settings=wandb.Settings(
@@ -199,7 +203,7 @@ def setup_evaluator_factories(
   ]
 
 
-def OnlineExperimentConfigInputs(NamedTuple):
+class OnlineExperimentConfigInputs(NamedTuple):
   agent_config: dict
   final_env_kwargs: dict
   builder: Any
@@ -228,7 +232,9 @@ def build_online_experiment_config(
   env_kwargs = experiment_config_inputs.final_env_kwargs
   observers = experiment_config_inputs.observers or ()
   logger_factory_kwargs = logger_factory_kwargs or dict()
+  wandb_init_kwargs = wandb_init_kwargs or dict()
 
+  assert log_dir, 'provide directory for logging experiments via FLAGS.folder'
   paths.process_path(log_dir)
   config_utils.save_config(f'{log_dir}/config.pkl', agent_config.__dict__)
 
@@ -272,7 +278,7 @@ def build_online_experiment_config(
       )
 
 
-def OfflineExperimentConfigInputs(NamedTuple):
+class OfflineExperimentConfigInputs(NamedTuple):
   agent_config: dict
   final_env_kwargs: dict
   builder: Any
@@ -287,7 +293,6 @@ def OfflineExperimentConfigInputs(NamedTuple):
 def build_offline_experiment_config(
     experiment_config_inputs: OfflineExperimentConfigInputs,
     agent: str,
-    num_learner_steps: int,
     debug: bool=False,
     save_config_dict: dict = None,
     log_dir: str = None,
@@ -308,7 +313,9 @@ def build_offline_experiment_config(
   env_kwargs = experiment_config_inputs.final_env_kwargs
   observers = experiment_config_inputs.observers or ()
   logger_factory_kwargs = logger_factory_kwargs or dict()
+  wandb_init_kwargs = wandb_init_kwargs or dict()
 
+  assert log_dir, 'provide directory for logging experiments via FLAGS.folder'
   paths.process_path(log_dir)
   config_utils.save_config(f'{log_dir}/config.pkl', agent_config.__dict__)
 
@@ -341,7 +348,7 @@ def build_offline_experiment_config(
       network_factory=network_factory,
       demonstration_dataset_factory=demonstration_dataset_factory,
       environment_factory=environment_factory,
-      max_num_learner_steps=num_learner_steps,
+      max_num_learner_steps=agent_config.num_learner_steps,
       seed=agent_config.seed,
       environment_spec=environment_spec,
       observers=observers,

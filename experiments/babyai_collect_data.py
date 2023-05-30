@@ -18,6 +18,8 @@ from acme.utils import paths
 from acme.jax import utils as jax_utils
 import dm_env
 from envs.babyai_kitchen.bot import KitchenBot
+
+from experiments import experiment_builders  # for FLAGS
 # from envs.babyai_kitchen.multilevel import MultiLevel
 # from envs.babyai_kitchen.wrappers import RGBImgPartialObsWrapper, RGBImgFullyObsWrapper
 # from envs.babyai_kitchen import babyai_utils
@@ -25,14 +27,14 @@ from envs.babyai_kitchen.bot import KitchenBot
 
 FLAGS = flags.FLAGS
 
-flags.DEFINE_bool(
-    'run_distributed', True, 'Should an agent be executed in a distributed '
-    'way. If False, will run single-threaded.')
 # Agent flags
-flags.DEFINE_string('tasks_file', 'place_split_hard', 'tasks_file')
 # flags.DEFINE_string('data_file', '', 'data_file')
-flags.DEFINE_bool('debug', False, 'whether to debug script')
-flags.DEFINE_integer('episodes', int(1e5), 'number of episodes')
+# flags.DEFINE_bool('debug', False, 'whether to debug script')
+flags.DEFINE_string('tasks_file', 'place_split_easy', 'tasks_file')
+flags.DEFINE_integer('episodes', int(1e4), 'number of episodes')
+flags.DEFINE_integer('room_size', 7, 'room size')
+flags.DEFINE_integer('num_dists', 0, 'number of distractors')
+flags.DEFINE_bool('partial_obs', False, 'partial observability')
 
 
 def collect_episode(gym_env, dm_env, idx=None):
@@ -83,14 +85,18 @@ def collect_episode(gym_env, dm_env, idx=None):
     print('-'*30, idx)
     print(f"Episode terminated with no reward after {steps} steps.")
 
-
-def directory_name(tasks_file, evaluation: bool = False, debug: bool = False):
+def directory_name(tasks_file,
+                   room_size,
+                   num_dists,
+                   partial_obs,
+                   evaluation: bool = False,
+                   debug: bool = False):
+  prefix=f"{tasks_file},r={room_size},d={num_dists},p={partial_obs}"
   suffix = 'test' if evaluation else 'train'
-  data_directory=f'data/babyai_kitchen_{tasks_file}/{suffix}'
+  data_directory=f'data/babyai_kitchen/{prefix}/{suffix}'
   if debug:
     data_directory+="_debug"
   return data_directory
-
 
 def named_tuple_to_dict(nt):
     """Recursively convert to namedtuple to dictionary"""
@@ -123,22 +129,20 @@ class EnvLoggerWrapper(base.EnvironmentWrapper):
   def observation_spec(self):
       return named_tuple_to_dict(self._environment.observation_spec())
 
-
-def main(unused_argv):
+def make_dataset(env_kwargs: dict, nepisodes: int, debug: bool = False):
   environment = babyai_env_utils.make_kitchen_environment(
-      tasks_file=FLAGS.tasks_file,
+      **env_kwargs,
       wrapper_list=[
           # acme_wrappers.ObservationActionRewardWrapper,
           EnvLoggerWrapper],
       evaluation=False)
 
-  nepisodes = 100 if FLAGS.debug else FLAGS.episodes
 
   tf_tensor = lambda x: tfds.features.Tensor(shape=x.shape, dtype=x.dtype)
   obs_spec = environment.observation_spec()
   obs_spec = jax.tree_map(lambda v: tf_tensor(v), obs_spec)
   dataset_config = tfds.rlds.rlds_base.DatasetConfig(
-      name=FLAGS.tasks_file,
+      name=env_kwargs['tasks_file'],
       observation_info=obs_spec,
       action_info=tf.int64,
       reward_info=tf.float64,
@@ -150,12 +154,13 @@ def main(unused_argv):
 
   for evaluation in [False, True]:
     dm_env, gym_env = babyai_env_utils.make_kitchen_environment(
-      tasks_file=FLAGS.tasks_file,
-      wrapper_list=[EnvLoggerWrapper],
-      evaluation=evaluation,
-      return_gym_env=True)
+        tasks_file=env_kwargs['tasks_file'],
+        wrapper_list=[EnvLoggerWrapper],
+        evaluation=evaluation,
+        return_gym_env=True)
 
-    data_directory = directory_name(FLAGS.tasks_file, evaluation, FLAGS.debug)
+    data_directory = directory_name(
+      **env_kwargs, evaluation=evaluation, debug=debug)
     paths.process_path(data_directory)  # create directory
 
     with envlogger.EnvLogger(
@@ -165,10 +170,21 @@ def main(unused_argv):
         data_directory=data_directory,
         split_name='test' if evaluation else 'train',
         max_episodes_per_file=nepisodes,
+        metadata=dict(env_kwargs=env_kwargs),
         ds_config=dataset_config)) as dm_env:
-      
+
       for episode_idx in tqdm(range(nepisodes)):
         collect_episode(gym_env, dm_env, idx=episode_idx)
+
+def main(unused_argv):
+  env_kwargs = dict(
+      tasks_file=FLAGS.tasks_file,
+      room_size=FLAGS.room_size,
+      num_dists=FLAGS.num_dists,
+      partial_obs=FLAGS.partial_obs,
+  )
+  make_dataset(env_kwargs=env_kwargs,
+               nepisodes=100 if FLAGS.debug else FLAGS.episodes)
 
 
 if __name__ == '__main__':

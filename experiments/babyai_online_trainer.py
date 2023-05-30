@@ -126,7 +126,6 @@ def train_single(
   experiment = experiment_builders.build_online_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
     agent=FLAGS.agent,
-    debug=FLAGS.debug,
     log_dir=FLAGS.folder,
     wandb_init_kwargs=wandb_init_kwargs,
     debug=debug,
@@ -172,21 +171,26 @@ def main(_):
   # -----------------------
   # wandb setup
   # -----------------------
-  use_wandb = FLAGS.use_wandb
   search = FLAGS.search or 'default'
-  if FLAGS.train_single:
-    group = FLAGS.wandb_group if FLAGS.wandb_group else FLAGS.agent  # overall group
-  else:
-    group = FLAGS.wandb_group if FLAGS.wandb_group else search  # overall group
   wandb_init_kwargs = dict(
       project=FLAGS.wandb_project,
       entity=FLAGS.wandb_entity,
-      group=group,  # overall group
       notes=FLAGS.wandb_notes,
-      save_code=True,
+      save_code=False,
   )
+  if FLAGS.train_single:
+    # overall group
+    wandb_init_kwargs['group'] = FLAGS.wandb_group if FLAGS.wandb_group else f"{search}_{FLAGS.agent}"
+  else:
+    if FLAGS.wandb_group:
+      logging.info(f'IGNORING `wandb_group`. This will be set using the current `search`')
+    wandb_init_kwargs['group'] = search
+
   if FLAGS.wandb_name:
     wandb_init_kwargs['name'] = FLAGS.wandb_name
+  use_wandb = FLAGS.use_wandb
+  if not use_wandb:
+    wandb_init_kwargs = None
 
   # -----------------------
   # env setup

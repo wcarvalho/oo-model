@@ -18,7 +18,7 @@ from experiments import config_utils
 flags.DEFINE_integer('num_actors', 1, 'number of actors.')
 flags.DEFINE_integer('num_cpus', 4, 'number of cpus.')
 flags.DEFINE_float('num_gpus', 1, 'number of gpus.')
-flags.DEFINE_bool('skip', True, 'whether to skip things that have already run.')
+flags.DEFINE_bool('skip', True, 'whether to skip experiments that have already run.')
 
 FLAGS = flags.FLAGS
 
@@ -178,6 +178,8 @@ def run(
 
   mp.set_start_method('spawn')
   root_path = str(Path().absolute())
+  folder = FLAGS.folder
+  skip = FLAGS.skip
   def train_function(config):
     """Run inside threads and creates new process.
     """
@@ -186,11 +188,11 @@ def run(
       args=(config,),
       kwargs=dict(
         root_path=root_path,
-        folder=FLAGS.folder,
+        folder=folder,
         wandb_init_kwargs=wandb_init_kwargs if use_wandb else None,
         default_env_kwargs=default_env_kwargs,
         debug=debug,
-        skip=FLAGS.skip,
+        skip=skip,
         **kwargs)
       )
     p.start()
@@ -202,6 +204,7 @@ def run(
 
   if isinstance(space, dict):
     space = [space]
+
   experiment_specs = [tune.Experiment(
       name=name,
       run=train_function,
