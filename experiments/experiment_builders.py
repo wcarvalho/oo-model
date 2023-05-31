@@ -274,6 +274,7 @@ def build_online_experiment_config(
       checkpointing=experiments.CheckpointingConfig(
           directory=log_dir,
           max_to_keep=5,
+          add_uid=False,
           checkpoint_ttl_seconds=int(datetime.timedelta(days=30).total_seconds()))
       )
 
@@ -357,5 +358,6 @@ def build_offline_experiment_config(
       checkpointing=experiments.CheckpointingConfig(
           directory=log_dir,
           max_to_keep=5,
+          add_uid=False,
           checkpoint_ttl_seconds=int(datetime.timedelta(days=30).total_seconds()))
   )

@@ -44,16 +44,14 @@ def load_settings(
 
 
 def load_agent(env,
-               seed_path,
-               config_kwargs,
-               env_kwargs,
+               config_kwargs: dict = None,
+               seed_path: str = None,
                use_latest = True,
                evaluation = True,
-               agent_setup = babyai_factored_muzero.setup):
+               agent_setup = babyai_factored_muzero.setup,
+               **kwargs):
   config, builder, network_factory = agent_setup(
-        launch=True,
-        config_kwargs=config_kwargs,
-        env_kwargs=env_kwargs)
+        config_kwargs=config_kwargs)
 
   # then get environment spec
   environment_spec = specs.make_environment_spec(env)
@@ -83,27 +81,29 @@ def load_agent(env,
   parent_counter = counting.Counter(time_delta=0.)
 
   # get all directories from year
-  dirs = glob(os.path.join(seed_path, "*/checkpoints/learner")); 
-  ckpts = glob(os.path.join(dirs[0], "*"))
-  assert len(dirs) > 0
+  checkpointer = None
+  if seed_path:
+    dirs = glob(os.path.join(seed_path, "*/checkpoints/learner")); 
+    ckpts = glob(os.path.join(dirs[0], "*"))
+    assert len(dirs) > 0
 
-  checkpointing = experiments.CheckpointingConfig(
-      directory=dirs[0],
-      add_uid=False,
-      max_to_keep=None,
-  )
+    checkpointing = experiments.CheckpointingConfig(
+        directory=dirs[0],
+        add_uid=False,
+        max_to_keep=None,
+    )
 
-  checkpointer = savers.Checkpointer(
-          objects_to_save={'learner': learner, 'counter': parent_counter},
-          time_delta_minutes=checkpointing.time_delta_minutes,
-          directory=checkpointing.directory,
-          add_uid=checkpointing.add_uid,
-          max_to_keep=checkpointing.max_to_keep,
-          keep_checkpoint_every_n_hours=checkpointing.keep_checkpoint_every_n_hours,
-          checkpoint_ttl_seconds=checkpointing.checkpoint_ttl_seconds,
-      )
+    checkpointer = savers.Checkpointer(
+            objects_to_save={'learner': learner, 'counter': parent_counter},
+            time_delta_minutes=checkpointing.time_delta_minutes,
+            directory=checkpointing.directory,
+            add_uid=checkpointing.add_uid,
+            max_to_keep=checkpointing.max_to_keep,
+            keep_checkpoint_every_n_hours=checkpointing.keep_checkpoint_every_n_hours,
+            checkpoint_ttl_seconds=checkpointing.checkpoint_ttl_seconds,
+        )
 
-  reload(checkpointer, seed_path, use_latest)
+    reload(checkpointer, seed_path, use_latest)
 
   # make actor
   actor_key, key = jax.random.split(key)

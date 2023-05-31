@@ -14,13 +14,17 @@ from muzero.ve_losses import ValueEquivalentLoss
 from factored_muzero import networks
 from factored_muzero.config import FactoredMuZeroConfig
 
+from experiments.config_utils import update_config
 
 def setup(
     network_kwargs=None,
     debug: bool=False,
-    config_kwargs: dict = None):
+    config_kwargs: dict = None,
+    strict_config: bool=True,
+    builder_kwargs: dict = None):
   network_kwargs = network_kwargs or dict()
   config_kwargs = config_kwargs or dict()
+  builder_kwargs = builder_kwargs or dict()
   if debug: #DEBUG
     config_kwargs.update(
       min_replay_size=100,
@@ -42,7 +46,8 @@ def setup(
   logging.info(f'Config arguments')
   pprint(config_kwargs)
 
-  config = FactoredMuZeroConfig(**config_kwargs)
+  config = FactoredMuZeroConfig()
+  update_config(config, strict=strict_config, **config_kwargs)
 
   if config.sequence_period is None:
     config.sequence_period = config.trace_length
@@ -80,7 +85,9 @@ def setup(
     )
 
   builder = MuZeroBuilder(
-      config, loss_fn=ve_loss_fn)
+      config=config,
+      loss_fn=ve_loss_fn,
+      **builder_kwargs)
 
   network_factory = functools.partial(
           networks.make_babyai_networks,

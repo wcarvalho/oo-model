@@ -55,13 +55,15 @@ class MuZeroBuilder(r2d2.R2D2Builder):
 
   def __init__(self,
                config: r2d2_config.R2D2Config,
-               loss_fn: ValueEquivalentLoss):
+               loss_fn: ValueEquivalentLoss,
+               **kwargs):
     """Creates a R2D2 learner, a behavior policy and an eval actor."""
-    self._config = config
+    super().__init__(config=config, **kwargs)
+    # self._config = config
     self._loss_fn = loss_fn
     self._use_stored_lstm_state = config.use_stored_lstm_state
-    self._sequence_length = (
-        self._config.burn_in_length + self._config.trace_length + 1)
+    # self._sequence_length = (
+    #     self._config.burn_in_length + self._config.trace_length + 1)
 
   def make_learner(
       self,

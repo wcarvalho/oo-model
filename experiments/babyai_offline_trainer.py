@@ -24,7 +24,6 @@ from experiments import babyai_env_utils
 from experiments import babyai_collect_data
 from experiments import dataset_utils
 
-
 flags.DEFINE_string('search', 'default', 'which search to use.')
 flags.DEFINE_bool(
     'train_single', False, 'Run many or 1 experiments')
@@ -73,11 +72,20 @@ def setup_experiment_inputs(
       config_kwargs=config_kwargs)
   elif agent == 'factored':
     from experiments import babyai_factored_muzero
+    from factored_muzero.analysis_actor import VisualizeActor, AttnLogger
+    builder_kwargs = dict(
+      actorCls=functools.partial(
+        VisualizeActor,
+        logger=AttnLogger(),
+        log_frequency=2 if debug else 1000)
+    )
+
     room_size = env_kwargs['room_size']
     config, builder, network_factory = babyai_factored_muzero.setup(
       debug=debug,
       config_kwargs=config_kwargs,
-      network_kwargs=dict(num_spatial_vectors=room_size**2))
+      network_kwargs=dict(num_spatial_vectors=room_size**2),
+      builder_kwargs=builder_kwargs)
   else:
     raise NotImplementedError
 
@@ -195,8 +203,11 @@ def train_single(
               terminal='current_terminal',
               local_resources=local_resources)
   else:
+    # NOTE: DEBUGGING ONLY. otherwise change settings below
     experiments.run_offline_experiment(
       experiment=experiment,
+      eval_every=5,
+      num_eval_episodes=5,
       )
 
 
@@ -205,7 +216,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   if search == 'default':
     space = [
         {
-            "seed": tune.grid_search([2]),
+            "seed": tune.grid_search([3]),
             "agent": tune.grid_search([agent]),
         }
     ]

@@ -15,6 +15,7 @@
 """Factored MuZero Networks."""
 
 from typing import Callable, Optional, Tuple
+import functools
 
 from acme import specs
 from acme.jax import networks as networks_lib
@@ -40,6 +41,7 @@ from muzero.networks import make_network
 from factored_muzero.config import FactoredMuZeroConfig as MuZeroConfig
 from factored_muzero import attention
 from factored_muzero import encoder
+from factored_muzero import gates
 
 # MuZeroNetworks = networks_lib.UnrollableNetwork
 NetworkOutput = networks_lib.NetworkOutput
@@ -132,37 +134,10 @@ def make_babyai_networks(
     ###########################
     assert config.gating in ('sum', 'gru', 'sigtanh')
     # following options from GTRxL: https://arxiv.org/pdf/1910.06764.pdf
-    def sum_gate_factory():
-      gate = lambda x,y: x+y
-      return hk.to_module(gate)(name='sum_gate')
-    def gru_gate_factory():
-      def gate(x,y):
-        gru = hk.GRU(x.shape[-1])
-        out, out = gru(inputs=y, state=x)
-        return out
-      return hk.to_module(gate)(name='gru_gate')
-    def sigtanh_gate_factory():
-      def gate(x,y):
-        dim = x.shape[-1]
-        b_init = hk.initializers.Constant(config.b_init_attn)
-        linear = lambda x: hk.Linear(dim, with_bias=False, w_init=w_init_attn)(x)
-
-        b = hk.get_parameter("b_gate", [dim], x.dtype, b_init)
-        gate = jax.nn.sigmoid(linear(y) - b)
-        output = jax.nn.tanh(linear(y))
-        return x + gate*output
-      return hk.to_module(gate)(name='sigtanh_gate')
-
-    def get_gate_factory(gating):
-      if gating == 'sum':
-        return sum_gate_factory
-      elif gating == 'gru':
-        return gru_gate_factory
-      elif gating == 'sigtanh':
-        return sigtanh_gate_factory
-      else:
-        raise NotImplementedError(config.gating)
-
+    get_gate_factory = functools.partial(
+      gates.get_gate_factory,
+      b_init=hk.initializers.Constant(config.b_init_attn),
+      w_init=w_init_attn)
 
     ###########################
     # Setup transition function: transformer

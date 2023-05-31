@@ -20,8 +20,12 @@ def save_config(filename, config):
       pickle.dump(new, fp)
       logging.info(f'Saved: {filename}')
 
-def update_config(config, **kwargs):
+def update_config(config, strict: bool = True, **kwargs):
   for k, v in kwargs.items():
     if not hasattr(config, k):
-      raise RuntimeError(f"Attempting to set unknown attribute '{k}'")
+      message = f"Attempting to set unknown attribute '{k}'"
+      if strict:
+        raise RuntimeError(message)
+      else:
+        logging.warning(message)
     setattr(config, k, v)
