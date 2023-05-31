@@ -45,6 +45,7 @@ def open_kitchen_tasks_file(tasks_file: str='place', path: str='.'):
 
 def make_kitchen_environment(
   evaluation: bool = False,
+  evaluate_train_test: bool = False,
   room_size: int=7,
   num_dists: int=2,
   partial_obs: bool = False,
@@ -65,6 +66,8 @@ def make_kitchen_environment(
 
   if evaluation and 'test' in tasks:
     task_dicts = tasks['test']
+    if evaluate_train_test:
+      task_dicts = task_dicts + tasks['train']
   else:
     task_dicts = tasks['train']
 

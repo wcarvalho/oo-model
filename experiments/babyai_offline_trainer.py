@@ -99,6 +99,7 @@ def setup_experiment_inputs(
         path=path,
         debug=debug,
         evaluation=evaluation,
+        evaluate_train_test=True,
         **env_kwargs)
 
   # Create an environment and make the environment spec
@@ -224,9 +225,10 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     space = [
         {
             "seed": tune.grid_search([1,2]),
-            "agent": tune.grid_search(['muzero', 'factored_muzero']),
+            "group": tune.grid_search(['benchmark1']),
+            "agent": tune.grid_search(['muzero', 'factored']),
             "tasks_file": tune.grid_search([
-              'place_split_easy', 'place_split_medium', 'place_split_hard']),
+              'place_split_easy', 'place_split_hard']),
         }
     ]
   else:

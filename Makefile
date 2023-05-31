@@ -78,7 +78,7 @@ offline_babyai_sync:
 
 online_babyai_async:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
-	python continue experiments/babyai_online_trainer.py \
+	python experiments/babyai_online_trainer.py \
 		--run_distributed=True \
 		--folder="$(babyai_online_folder)_async" \
 		--agent=$(agent) \
@@ -96,7 +96,7 @@ online_babyai_async:
 
 offline_babyai_async:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
-	python continue experiments/babyai_offline_trainer.py \
+	python experiments/babyai_offline_trainer.py \
 		--run_distributed=True \
 		--folder="$(babyai_offline_folder)_async" \
 		--agent=$(agent) \
