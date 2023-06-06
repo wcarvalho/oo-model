@@ -242,13 +242,13 @@ class LearnerLogger(BaseLogger):
     policy_model_mask = model_data_t_all['policy_model_mask']
     value_model_mask = model_data_t_all['value_model_mask']
     plot = analyis_utils.plot_line(
-        ys=[value_model_ce, value_model_ce*value_model_mask,
-            policy_model_ce, policy_model_ce*policy_model_mask,
-            reward_model_ce, reward_model_ce*reward_model_mask
+        ys=[value_model_ce*value_model_mask,
+            policy_model_ce*policy_model_mask,
+            reward_model_ce*reward_model_mask
             ],
-        labels=["Value", "Value (Masked)",
-                "Policy", "Policy (Masked)",
-                "Reward", "Reward (Masked)",
+        labels=["Value",
+                "Policy",
+                "Reward",
                 ],
         title='Model Cross Entropy Losses (Avg Across Episode)',
         xlabel='Timesteps',
