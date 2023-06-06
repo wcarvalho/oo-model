@@ -30,7 +30,6 @@ import datetime
 from typing import Optional, NamedTuple, Any, Callable, List, Iterator
 
 
-
 from functools import partial
 from absl import flags
 from absl import app
@@ -77,6 +76,7 @@ flags.DEFINE_integer('debug', 0, 'Random seed (experiment).')
 flags.DEFINE_bool('use_wandb', False, 'whether to log.')
 flags.DEFINE_string('wandb_project', None, 'wand project.')
 flags.DEFINE_string('wandb_entity', None, 'wandb entity')
+flags.DEFINE_string('wandb_dir', None, 'wandb directory')
 flags.DEFINE_string('wandb_group', '', 'same as wandb group. way to group runs.')
 flags.DEFINE_string('wandb_name', '', 'name of run. way to group runs.')
 flags.DEFINE_string('wandb_notes', '', 'notes for wandb.')
@@ -86,6 +86,74 @@ FLAGS = flags.FLAGS
 
 Seed = int
 Eval = bool
+
+def default_setup_agents(
+    agent: str,
+    config_kwargs: dict = None,
+    env_kwargs: dict = None,
+    debug: bool = False,
+    update_logger_kwargs = None,
+):
+  config_kwargs = config_kwargs or dict()
+  update_logger_kwargs = update_logger_kwargs or dict()
+  # -----------------------
+  # load agent config, builder, network factory
+  # -----------------------
+  if agent == 'r2d2':
+    from experiments import babyai_rd2d2
+    config, builder, network_factory = babyai_rd2d2.setup(
+      debug=debug,
+      config_kwargs=config_kwargs)
+  elif agent == 'muzero':
+    from experiments import babyai_muzero
+    from muzero import learner_logger
+
+    config = babyai_muzero.load_config(
+      config_kwargs=config_kwargs)
+
+    builder_kwargs = dict(
+      update_logger=learner_logger.LearnerLogger(
+          label='MuZeroLearnerLogger',
+          log_frequency=5 if debug else 2500,
+          discount=config.discount,
+          **update_logger_kwargs,
+      ),
+    )
+    builder, network_factory = babyai_muzero.setup(
+      config=config,
+      builder_kwargs=builder_kwargs,
+      config_kwargs=config_kwargs)
+
+  elif agent == 'factored':
+    from experiments import babyai_factored_muzero
+    from factored_muzero.analysis_actor import VisualizeActor, AttnLogger
+    from factored_muzero import learner_logger
+
+    config = babyai_factored_muzero.load_config(
+        config_kwargs=config_kwargs)
+
+    builder_kwargs = dict(
+      actorCls=partial(
+        VisualizeActor,
+        logger=AttnLogger(),
+        log_frequency=5 if debug else 2500),
+      update_logger=learner_logger.LearnerLogger(
+          label='FactoredMuZeroLearnerLogger',
+          log_frequency=5 if debug else 2500,
+          discount=config.discount,
+          **update_logger_kwargs,
+      ),
+    )
+    assert env_kwargs is not None
+    room_size = env_kwargs['room_size']
+    return babyai_factored_muzero.setup(
+      config=config,
+      network_kwargs=dict(num_spatial_vectors=room_size**2),
+      builder_kwargs=builder_kwargs)
+  else:
+    raise NotImplementedError
+  
+  return config, builder, network_factory
 
 
 def setup_logger_factory(
@@ -115,20 +183,20 @@ def setup_logger_factory(
   use_wandb = len(wandb_init_kwargs)
   if use_wandb:
     import wandb
+
     # add config to wandb
     wandb_config = wandb_init_kwargs.get("config", {})
     save_config_dict = save_config_dict or dict()
     save_config_dict.update(agent_config.__dict__)
     wandb_config.update(save_config_dict)
+
     wandb_init_kwargs['config'] = wandb_config
-    if not debug:  # distributed
-      wandb.init(
-          settings=wandb.Settings(
-              code_dir=log_dir,
-              start_method="fork"),
-          reinit=True, **wandb_init_kwargs)
-    else:
-      wandb.init(**wandb_init_kwargs)
+    wandb_init_kwargs['dir'] = log_dir
+    wandb_init_kwargs['reinit'] = True
+    wandb_init_kwargs['settings'] = wandb.Settings(
+      code_dir=log_dir,
+      start_method="fork")
+    wandb.init(**wandb_init_kwargs)
 
   # -----------------------
   # create logger factory
@@ -140,12 +208,9 @@ def setup_logger_factory(
   ) -> loggers.Logger:
     if custom_steps_keys is not None:
       steps_key = custom_steps_keys(name)
-    if use_wandb and not debug:
-      wandb.init(
-          settings=wandb.Settings(
-              code_dir=log_dir,
-              start_method="fork"),
-          reinit=True, **wandb_init_kwargs)
+    if use_wandb:
+      wandb.init(**wandb_init_kwargs)
+
     if name == 'actor':
       return wandb_logger.make_logger(
           log_dir=log_dir,

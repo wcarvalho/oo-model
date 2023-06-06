@@ -17,11 +17,15 @@ from experiments import train_many
 from experiments import experiment_builders
 from experiments import babyai_env_utils
 from experiments.observers import LevelAvgReturnObserver, ExitObserver
+from experiments import logger as wandb_logger
+from muzero import learner_logger
 
 
 flags.DEFINE_string('search', 'default', 'which search to use.')
 flags.DEFINE_bool(
     'train_single', False, 'Run many or 1 experiments')
+flags.DEFINE_bool(
+    'make_path', False, 'Create a path under `FLAGS>folder` for the experiment')
 FLAGS = flags.FLAGS
 
 def setup_experiment_inputs(
@@ -64,26 +68,17 @@ def setup_experiment_inputs(
   # load agent config, builder, network factory
   # -----------------------
   # Configure the agent & update with config kwargs
-  if agent == 'r2d2':
-    from experiments import babyai_rd2d2
-    config, builder, network_factory = babyai_rd2d2.setup(
-      debug=debug,
-      config_kwargs=config_kwargs)
-  elif agent == 'muzero':
-    from experiments import babyai_muzero
-    config, builder, network_factory = babyai_muzero.setup(
-      debug=debug,
-      config_kwargs=config_kwargs)
-  elif agent == 'factored':
-    from experiments import babyai_factored_muzero
-    room_size = env_kwargs['room_size']
-    config, builder, network_factory = babyai_factored_muzero.setup(
+
+  config, builder, network_factory = experiment_builders.default_setup_agents(
+      agent=agent,
       debug=debug,
       config_kwargs=config_kwargs,
-      network_kwargs=dict(num_spatial_vectors=room_size**2))
-  else:
-    raise NotImplementedError
-
+      env_kwargs=env_kwargs,
+      update_logger_kwargs=dict(
+          action_names=['left', 'right', 'forward', 'pickup_1',
+                        'pickup_2', 'place', 'toggle', 'slice'],
+      )
+  )
   # -----------------------
   # setup observer factory for environment
   # -----------------------
@@ -119,11 +114,17 @@ def train_single(
     env_config_file=FLAGS.env_config,
     debug=debug)
 
-
+  log_dir = FLAGS.folder
+  if FLAGS.make_path:
+    log_dir = wandb_logger.gen_log_dir(
+        base_dir=log_dir,
+        hourminute=True,
+        date=True,
+    )
   experiment = experiment_builders.build_online_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
     agent=FLAGS.agent,
-    log_dir=FLAGS.folder,
+    log_dir=log_dir,
     wandb_init_kwargs=wandb_init_kwargs,
     debug=debug,
     **kwargs,
@@ -160,10 +161,13 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'benchmark':
     space = [
         {
-            "seed": tune.grid_search([1, 2]),
+            "seed": tune.grid_search([1]),
+            "group": tune.grid_search(['benchmark3']),
             "agent": tune.grid_search(['muzero', 'factored']),
             "tasks_file": tune.grid_search([
-                'place_split_easy', 'place_split_hard']),
+                'place_split_easy',
+                # 'place_split_hard'
+                ]),
         }
     ]
   else:
