@@ -314,6 +314,7 @@ class GeneralizedDotProductAttention(hk.Module):
       attn = attn / normalizer
 
     # Aggregate values using a weighted sum with weights provided by `attn`.
+    # output is Q, H, D (i.e. one output per query, e.g. slot query in savi)
     outputs = jnp.einsum("...hqk,...khd->...qhd", attn, value)
     if self.attn_weights:
       return outputs, attn
