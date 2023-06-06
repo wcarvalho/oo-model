@@ -223,8 +223,9 @@ def slot_attn_entropy(attn, normalize: bool = True):
   # Add labels and legend
   ax.set_xlabel('Time', fontsize=FONTSIZE)
   ax.set_ylabel('Normalized Entropy', fontsize=FONTSIZE)
+  ymax = entropy.max()
   if normalize:
-    ax.set_ylim(0, 1)
+    ax.set_ylim(-.05, max(1.05, ymax*1.05))
   ax.legend(fontsize=FONTSIZE)
 
   return array_from_fig(fig)
