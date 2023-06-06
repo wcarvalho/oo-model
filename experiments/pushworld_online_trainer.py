@@ -304,7 +304,7 @@ def main(_):
       default_env_kwargs=default_env_kwargs)
   else:
     train_many.run(
-      name='babyai_online_trainer',
+      name='pushworld_online_trainer',
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
       use_wandb=use_wandb,
@@ -312,7 +312,7 @@ def main(_):
       space=sweep(search, FLAGS.agent),
       make_program_command=functools.partial(
         train_many.make_program_command,
-        filename='experiments/babyai_online_trainer.py',
+        filename='experiments/pushworld_online_trainer.py',
         run_distributed=run_distributed,
         num_actors=num_actors,
         ),
