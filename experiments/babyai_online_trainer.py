@@ -16,9 +16,8 @@ from experiments import config_utils
 from experiments import train_many
 from experiments import experiment_builders
 from experiments import babyai_env_utils
-from experiments.observers import LevelAvgReturnObserver, ExitObserver
+from experiments.observers import LevelAvgReturnObserver
 from experiments import logger as wandb_logger
-from muzero import learner_logger
 
 
 flags.DEFINE_string('search', 'default', 'which search to use.')
@@ -26,7 +25,79 @@ flags.DEFINE_bool(
     'train_single', False, 'Run many or 1 experiments')
 flags.DEFINE_bool(
     'make_path', False, 'Create a path under `FLAGS>folder` for the experiment')
+flags.DEFINE_bool(
+    'auto_name_wandb', False, 'automatically name wandb.')
 FLAGS = flags.FLAGS
+
+
+def setup_agents(
+    agent: str,
+    config_kwargs: dict = None,
+    env_kwargs: dict = None,
+    debug: bool = False,
+    update_logger_kwargs=None,
+):
+  config_kwargs = config_kwargs or dict()
+  update_logger_kwargs = update_logger_kwargs or dict()
+  # -----------------------
+  # load agent config, builder, network factory
+  # -----------------------
+  if agent == 'r2d2':
+    from experiments import babyai_rd2d2
+    config, builder, network_factory = babyai_rd2d2.setup(
+        debug=debug,
+        config_kwargs=config_kwargs)
+  elif agent == 'muzero':
+    from experiments import babyai_muzero
+    from muzero import learner_logger
+
+    config = babyai_muzero.load_config(
+        config_kwargs=config_kwargs)
+
+    builder_kwargs = dict(
+        update_logger=learner_logger.LearnerLogger(
+            label='MuZeroLearnerLogger',
+            log_frequency=5 if debug else 2500,
+            discount=config.discount,
+            **update_logger_kwargs,
+        ),
+    )
+    builder, network_factory = babyai_muzero.setup(
+        config=config,
+        builder_kwargs=builder_kwargs,
+        config_kwargs=config_kwargs)
+
+  elif agent == 'factored':
+    from experiments import babyai_factored_muzero
+    from factored_muzero.analysis_actor import VisualizeActor, AttnLogger
+    from factored_muzero import learner_logger
+
+    config = babyai_factored_muzero.load_config(
+        config_kwargs=config_kwargs)
+
+    builder_kwargs = dict(
+        actorCls=functools.partial(
+            VisualizeActor,
+            logger=AttnLogger(),
+            log_frequency=5 if debug else 2500),
+        update_logger=learner_logger.LearnerLogger(
+            label='FactoredMuZeroLearnerLogger',
+            log_frequency=5 if debug else 2500,
+            discount=config.discount,
+            **update_logger_kwargs,
+        ),
+    )
+    assert env_kwargs is not None
+    room_size = env_kwargs['room_size']
+    return babyai_factored_muzero.setup(
+        config=config,
+        network_kwargs=dict(num_spatial_vectors=room_size**2),
+        builder_kwargs=builder_kwargs)
+  else:
+    raise NotImplementedError
+
+  return config, builder, network_factory
+
 
 def setup_experiment_inputs(
     agent : str,
@@ -69,7 +140,7 @@ def setup_experiment_inputs(
   # -----------------------
   # Configure the agent & update with config kwargs
 
-  config, builder, network_factory = experiment_builders.default_setup_agents(
+  config, builder, network_factory = setup_agents(
       agent=agent,
       debug=debug,
       config_kwargs=config_kwargs,
@@ -121,6 +192,12 @@ def train_single(
         hourminute=True,
         date=True,
     )
+    if FLAGS.auto_name_wandb and wandb_init_kwargs is not None:
+      date_time = wandb_logger.date_time(time=True)
+      logging.info(f'wandb name: {str(date_time)}')
+      wandb_init_kwargs['name'] = date_time
+
+
   experiment = experiment_builders.build_online_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
     agent=FLAGS.agent,

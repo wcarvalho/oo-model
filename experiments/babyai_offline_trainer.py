@@ -25,16 +25,15 @@ from experiments import babyai_collect_data
 from experiments import dataset_utils
 from experiments import logger as wandb_logger
 from experiments import offline_configs
+from experiments.babyai_online_trainer import setup_agents
 
-flags.DEFINE_string('search', 'default', 'which search to use.')
-flags.DEFINE_bool(
-    'train_single', False, 'Run many or 1 experiments')
-flags.DEFINE_bool(
-    'make_path', False, 'Create a path under `FLAGS.folder` for the experiment')
+# flags.DEFINE_string('search', 'default', 'which search to use.')
+# flags.DEFINE_bool(
+    # 'train_single', False, 'Run many or 1 experiments')
+# flags.DEFINE_bool(
+#     'make_path', False, 'Create a path under `FLAGS.folder` for the experiment')
 flags.DEFINE_bool(
     'make_dataset', False, 'Make dataset if does not exist.')
-flags.DEFINE_bool(
-    'auto_name_wandb', False, 'automatically name wandb.')
 
 FLAGS = flags.FLAGS
 
@@ -67,7 +66,7 @@ def setup_experiment_inputs(
     env_kwargs = config_utils.load_config(env_config_file)
   logging.info(f'env_kwargs: {str(env_kwargs)}')
 
-  config, builder, network_factory = experiment_builders.default_setup_agents(
+  config, builder, network_factory = setup_agents(
     agent=agent,
     debug=debug,
     config_kwargs=config_kwargs,
@@ -171,7 +170,7 @@ def train_single(
       date=True,
       )
     if FLAGS.auto_name_wandb and wandb_init_kwargs is not None:
-      date_time = wandb_logger.datetime(time=True)
+      date_time = wandb_logger.date_time(time=True)
       logging.info(f'wandb name: {str(date_time)}')
       wandb_init_kwargs['name'] = date_time
 
