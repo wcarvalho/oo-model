@@ -17,6 +17,10 @@ class BaseLogger:
 
   def __init__(self):
     self.data = None
+    self._log_data = False
+
+  def set_logging(self, log_data: bool = False):
+    self._log_data = log_data
 
   def reset(self):
     self.data = collections.defaultdict(list)
@@ -48,6 +52,8 @@ class AttnLogger(BaseLogger):
       observation: network_lib.Observation,
       action: int = None,
   ):
+    if not self._log_data:
+      return
     del action
     observation = jax_utils.to_numpy(observation.observation)
     image = observation.image
@@ -60,7 +66,7 @@ class AttnLogger(BaseLogger):
     img_attn = attn.reshape(slots, width, width)
 
     self.data['attn'].append(attn)
-    img_attn = attn_analysis.timestep_img_attn(
+    img_attn_01 = attn_analysis.timestep_img_attn(
       image=image, img_attn=img_attn,
       shared_min_max='timestep',
       time_with_x=False,
@@ -68,7 +74,17 @@ class AttnLogger(BaseLogger):
       vmin_pre=0,
       vmax_pre=1.0,
       base_width=1)
-    self.data['img_attn'].append(img_attn)
+    img_attn_reg = attn_analysis.timestep_img_attn(
+      image=image, img_attn=img_attn,
+      shared_min_max='timestep',
+      time_with_x=False,
+      im_only=True,
+      vmin_pre=None,
+      vmax_pre=None,
+      base_width=1)
+      
+    self.data['img_attn_01'].append(img_attn_01)
+    self.data['img_attn_reg'].append(img_attn_reg)
 
   def log_data(self, step: int):
     if self.has_data:
@@ -77,10 +93,11 @@ class AttnLogger(BaseLogger):
       max_attn = attn_analysis.slot_attn_max_likelihood(attn)
 
       wandb.log({
-          "images/img_attns": [wandb.Image(img) for img in self.data['img_attn']],
-          "images/attn_entropy": wandb.Image(attn_entropy),
-          "images/max_attn": wandb.Image(max_attn),
-          "images/step": step,
+          "actor_images/img_attn_01": [wandb.Image(img) for img in self.data['img_attn_01']],
+          "actor_images/img_attn_reg": [wandb.Image(img) for img in self.data['img_attn_reg']],
+          "actor_images/attn_entropy": wandb.Image(attn_entropy),
+          "actor_images/max_attn": wandb.Image(max_attn),
+          "actor_images/step": step,
         })
 
 class VisualizeActor(actors.GenericActor):
@@ -101,11 +118,14 @@ class VisualizeActor(actors.GenericActor):
   def observe_first(self, timestep: dm_env.TimeStep):
     super().observe_first(timestep)
 
-    if self.logger.has_data and self.idx % self.log_frequency == 0:
+    if self.logger.has_data:
       if self.verbosity:
-        logging.info('logging actor data')
+        logging.info(f'logging actor data. idx {self.idx}')
       self.logger.log_data(self.idx)
+
+    log_episode = self.idx % self.log_frequency == 0
     self.logger.reset()
+    self.logger.set_logging(log_episode)  # if logging is expensive, only log sometimes
     self.idx += 1
 
 
