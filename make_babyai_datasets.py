@@ -22,7 +22,7 @@ def make_command(tasks_file, room_size, num_dists, partial_obs, debug=False):
 def main(unused_argv):
   tasks_files = ['place_split_easy', 'place_split_medium', 'place_split_hard']
   room_sizes = [7]
-  num_dists = [0, 2]
+  num_dists = [2]
   partial_obs = [False, True]
 
   debug = FLAGS.debug

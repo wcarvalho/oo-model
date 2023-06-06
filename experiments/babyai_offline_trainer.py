@@ -23,10 +23,19 @@ from experiments import experiment_builders
 from experiments import babyai_env_utils
 from experiments import babyai_collect_data
 from experiments import dataset_utils
+from experiments import logger as wandb_logger
+from experiments import offline_configs
 
 flags.DEFINE_string('search', 'default', 'which search to use.')
 flags.DEFINE_bool(
     'train_single', False, 'Run many or 1 experiments')
+flags.DEFINE_bool(
+    'make_path', False, 'Create a path under `FLAGS.folder` for the experiment')
+flags.DEFINE_bool(
+    'make_dataset', False, 'Make dataset if does not exist.')
+flags.DEFINE_bool(
+    'auto_name_wandb', False, 'automatically name wandb.')
+
 FLAGS = flags.FLAGS
 
 
@@ -38,6 +47,7 @@ def setup_experiment_inputs(
     env_kwargs: dict=None,
     env_config_file: str=None,
     debug: bool = False,
+    make_dataset: bool = False,
   ):
   """Setup."""
 
@@ -57,38 +67,16 @@ def setup_experiment_inputs(
     env_kwargs = config_utils.load_config(env_config_file)
   logging.info(f'env_kwargs: {str(env_kwargs)}')
 
-  # -----------------------
-  # load agent config, builder, network factory
-  # -----------------------
-  if agent == 'r2d2':
-    from experiments import babyai_rd2d2
-    config, builder, network_factory = babyai_rd2d2.setup(
-      debug=debug,
-      config_kwargs=config_kwargs)
-  elif agent == 'muzero':
-    from experiments import babyai_muzero
-    config, builder, network_factory = babyai_muzero.setup(
-      debug=debug,
-      config_kwargs=config_kwargs)
-  elif agent == 'factored':
-    from experiments import babyai_factored_muzero
-    from factored_muzero.analysis_actor import VisualizeActor, AttnLogger
-    builder_kwargs = dict(
-      actorCls=functools.partial(
-        VisualizeActor,
-        logger=AttnLogger(),
-        log_frequency=2 if debug else 1000)
+  config, builder, network_factory = experiment_builders.default_setup_agents(
+    agent=agent,
+    debug=debug,
+    config_kwargs=config_kwargs,
+    env_kwargs=env_kwargs,
+    update_logger_kwargs=dict(
+        action_names=['left', 'right', 'forward', 'pickup_1',
+                      'pickup_2', 'place', 'toggle', 'slice'],
     )
-
-    room_size = env_kwargs['room_size']
-    config, builder, network_factory = babyai_factored_muzero.setup(
-      debug=debug,
-      config_kwargs=config_kwargs,
-      network_kwargs=dict(num_spatial_vectors=room_size**2),
-      builder_kwargs=builder_kwargs)
-  else:
-    raise NotImplementedError
-
+  )
   # -----------------------
   # setup environment
   # -----------------------
@@ -114,28 +102,26 @@ def setup_experiment_inputs(
       partial_obs=env_kwargs['partial_obs'],
       evaluation=False,
       debug=debug)
-  if not os.path.exists(os.path.join(data_directory, 'dataset_info.json')):
-    logging.info(f'MAKING DATASET: {data_directory}')
-    babyai_collect_data.make_dataset(
-      env_kwargs=env_kwargs,
-      nepisodes=100 if debug else int(1e4),
-      debug=debug,
-    )
+  
+  dataset_info_path = os.path.join(data_directory, 'dataset_info.json')
+  if not os.path.exists(dataset_info_path):
+    if make_dataset:
+      logging.info(f'MAKING DATASET: {data_directory}')
+      import ipdb; ipdb.set_trace()
+      babyai_collect_data.make_dataset(
+        env_kwargs=env_kwargs,
+        nepisodes=100 if debug else int(1e5),
+        debug=debug,
+      )
+    else:
+      raise RuntimeError(f"Does not exist: {dataset_info_path}")
+
 
   demonstration_dataset_factory = dataset_utils.make_demonstration_dataset_factory(
       data_directory=data_directory,
       obs_constructor=Observation,
       batch_size=config.batch_size,
       trace_length=config.trace_length)
-  
-
-  # dataset = dataset_utils.make_env_spec_dataset(
-  #     data_directory=data_directory,
-  #     obs_constructor=Observation,
-  # )
-  # environment_spec = dataset_utils.make_dataset_environment_spec(
-  #     environment=environment,
-  #     dataset=dataset)
 
   # -----------------------
   # setup observer factory for environment
@@ -171,16 +157,28 @@ def train_single(
     agent_config_file=FLAGS.agent_config,
     env_kwargs=default_env_kwargs,
     env_config_file=FLAGS.env_config,
+    make_dataset=FLAGS.make_dataset,
     debug=debug)
 
   def custom_steps_keys(name: str):
-    del name
-    return 'learner_steps'
+    return f'{name}_steps'
+  log_dir = FLAGS.folder
+
+  if FLAGS.make_path:
+    log_dir = wandb_logger.gen_log_dir(
+      base_dir=log_dir,
+      hourminute=True,
+      date=True,
+      )
+    if FLAGS.auto_name_wandb and wandb_init_kwargs is not None:
+      date_time = wandb_logger.datetime(time=True)
+      logging.info(f'wandb name: {str(date_time)}')
+      wandb_init_kwargs['name'] = date_time
 
   experiment = experiment_builders.build_offline_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
     agent=FLAGS.agent,
-    log_dir=FLAGS.folder,
+    log_dir=log_dir,
     wandb_init_kwargs=wandb_init_kwargs,
     debug=debug,
     logger_factory_kwargs=dict(
@@ -219,16 +217,53 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
         {
             "seed": tune.grid_search([3]),
             "agent": tune.grid_search([agent]),
+            "tasks_file": tune.grid_search([
+                'place_split_easy', 'place_split_hard']),
         }
     ]
   elif search == 'benchmark':
     space = [
         {
-            "seed": tune.grid_search([1,2]),
-            "group": tune.grid_search(['benchmark1']),
+            "seed": tune.grid_search([4]),
+            "group": tune.grid_search(['benchmark4']),
             "agent": tune.grid_search(['muzero', 'factored']),
             "tasks_file": tune.grid_search([
-              'place_split_easy', 'place_split_hard']),
+                'place_split_easy']),
+        }
+    ]
+  elif search == 'muzero':
+    space = [
+        {
+            "seed": tune.grid_search([2]),
+            "group": tune.grid_search(['muzero8']),
+            "agent": tune.grid_search(['muzero']),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
+            "v_target_source": tune.grid_search(['reanalyze']),
+            "tasks_file": tune.grid_search(['place_split_easy']),
+            # "reanalyze_ratio": tune.grid_search([0.0, 0.5, 1.0]),
+            # "num_bins": tune.grid_search([101, 301]),
+            # "max_scalar_value": tune.grid_search([5.0, 10.0]),
+        }
+    ]
+  elif search == 'factored':
+    space = [
+        {
+            "seed": tune.grid_search([1]),
+            # "group": tune.grid_search(['benchmark2']),
+            "agent": tune.grid_search(['factored']),
+            "tasks_file": tune.grid_search(['pickup']),
+        }
+    ]
+  elif search == 'attn_1':
+    space = [
+        {
+            "seed": tune.grid_search([1]),
+            # "group": tune.grid_search(['benchmark2']),
+            "agent": tune.grid_search(['factored']),
+            "show_gradients": tune.grid_search(['factored']),
+            "tasks_file": tune.grid_search([
+                'pickup'
+            ]),
         }
     ]
   else:
@@ -247,6 +282,7 @@ def main(_):
       project=FLAGS.wandb_project,
       entity=FLAGS.wandb_entity,
       notes=FLAGS.wandb_notes,
+      dir=FLAGS.wandb_dir,
       save_code=False,
   )
   if FLAGS.train_single:
@@ -260,6 +296,7 @@ def main(_):
 
   if FLAGS.wandb_name:
     wandb_init_kwargs['name'] = FLAGS.wandb_name
+
   use_wandb = FLAGS.use_wandb
   if not use_wandb:
     wandb_init_kwargs = None

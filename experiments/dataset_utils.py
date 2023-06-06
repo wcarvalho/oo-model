@@ -189,6 +189,12 @@ def episode_steps_to_oar_observations(episode, obs_constructor) -> tf.data.Datas
         partial(steps_to_oar, obs_constructor=obs_constructor))
     return episode
 
+def shift_episode(episode, timesteps: int = 1):
+  # Uses `shift_keys` to shift observations 2 steps backwards in an episode.
+  episode[rlds.STEPS] = rlds.transformations.alignment.shift_keys(
+      episode[rlds.STEPS], [rlds.DISCOUNT], timesteps)
+  return episode
+
 class RestartableIteratorWrapper:
   def __init__(self, dataset, cnstr):
       self.dataset = dataset
@@ -208,6 +214,7 @@ class RestartableIteratorWrapper:
 def make_demonstration_dataset_factory(
   data_directory: str,
   batch_size: int,
+  shift_discount: int = 1,
   trace_length: int = 10,
   obs_constructor=None) -> Callable[[jax_types.PRNGKey], Iterator[types.Transition]]:
   """Returns the demonstration dataset factory for the given dataset."""
@@ -223,6 +230,10 @@ def make_demonstration_dataset_factory(
     # turn observations into obs-action-reward
     dataset = dataset.map(
         partial(episode_steps_to_oar_observations, obs_constructor=obs_constructor))
+
+    if shift_discount:
+      # Shifts discountK1 steps backward in all episodes. (if negative, moves forward)
+      dataset = dataset.map(partial(shift_episode, timesteps=shift_discount))
 
     # turn dataset into n-step trajectories per datapoint
     dataset = dataset.map(lambda e: episode_steps_to_nstep_transition(e, trace_length))

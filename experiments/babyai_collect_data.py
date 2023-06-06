@@ -31,9 +31,9 @@ FLAGS = flags.FLAGS
 # flags.DEFINE_string('data_file', '', 'data_file')
 # flags.DEFINE_bool('debug', False, 'whether to debug script')
 flags.DEFINE_string('tasks_file', 'place_split_easy', 'tasks_file')
-flags.DEFINE_integer('episodes', int(1e4), 'number of episodes')
+flags.DEFINE_integer('episodes', int(1e5), 'number of episodes')
 flags.DEFINE_integer('room_size', 7, 'room size')
-flags.DEFINE_integer('num_dists', 0, 'number of distractors')
+flags.DEFINE_integer('num_dists', 2, 'number of distractors')
 flags.DEFINE_bool('partial_obs', False, 'partial observability')
 
 
