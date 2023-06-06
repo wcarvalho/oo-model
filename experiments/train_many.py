@@ -27,17 +27,20 @@ DEFAULT_LABEL = ''
 
 def make_program_command(
     agent: str,
-    wandb_project: str,
-    wandb_entity: str,
-    wandb_group: str,
-    wandb_name: str,
     folder: str,
     agent_config: str,
     env_config: str,
+    wandb_init_kwargs: dict,
     filename: str = '',
     num_actors: int = 2,
     run_distributed: bool = False,
 ):
+  wandb_project = wandb_init_kwargs['project']
+  wandb_group = wandb_init_kwargs['group']
+  wandb_name = wandb_init_kwargs['name']
+  wandb_entity = wandb_init_kwargs['entity']
+  wandb_dir = wandb_init_kwargs.get("dir", None)
+
   assert filename, 'please provide file'
   return f"""python {filename}
 		--agent={agent}
@@ -46,6 +49,7 @@ def make_program_command(
 		--wandb_entity={wandb_entity}
 		--wandb_group={wandb_group}
     --wandb_name={wandb_name}
+    --wandb_dir={wandb_dir}
     --folder={folder}
     --agent_config={agent_config}
     --env_config={env_config}
@@ -150,10 +154,7 @@ def create_and_run_program(
   #TODO: could be made more general...
   command = make_program_command(
     agent=agent,
-    wandb_project=wandb_init_kwargs['project'],
-    wandb_group=wandb_init_kwargs['group'],
-    wandb_name=wandb_init_kwargs['name'],
-    wandb_entity=wandb_init_kwargs['entity'],
+    wandb_init_kwargs=wandb_init_kwargs,
     folder=log_dir,
     agent_config=agent_config_file,
     env_config=env_config_file,
@@ -205,6 +206,9 @@ def run(
   if isinstance(space, dict):
     space = [space]
 
+  from pprint import pprint
+  pprint(space)
+
   experiment_specs = [tune.Experiment(
       name=name,
       run=train_function,
@@ -215,3 +219,10 @@ def run(
     for s in space
   ]
   tune.run_experiments(experiment_specs)
+
+  import shutil
+  if use_wandb:
+    wandb_dir = wandb_init_kwargs.get("dir", './wandb')
+    if os.path.exists(wandb_dir):
+      import ipdb; ipdb.set_trace()
+      shutil.rmtree(wandb_dir)

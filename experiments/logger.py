@@ -38,6 +38,12 @@ try:
 except ImportError:
   WANDB_AVAILABLE=False
 
+def date_time(time: bool=False):
+  strkey = '%Y.%m.%d'
+  if time:
+    strkey += '-%H.%M'
+  return datetime.datetime.now().strftime(strkey)
+
 def gen_log_dir(
     base_dir="results/",
     date=True,
@@ -47,10 +53,7 @@ def gen_log_dir(
     path_skip=[],
     **kwargs):
 
-  strkey = '%Y.%m.%d'
-  if hourminute:
-    strkey += '-%H.%M'
-  job_name = datetime.datetime.now().strftime(strkey)
+  job_name = date_time(time=hourminute)
   kwpath = ','.join([f'{key[:4]}={value}' for key, value in kwargs.items() if not key in path_skip])
 
   if date:
