@@ -290,11 +290,13 @@ def main(_):
   # -----------------------
   # env setup
   # -----------------------
+  print("optionally set default kwargs for environment")
+  import ipdb; ipdb.set_trace()
   default_env_kwargs = dict(
-      tasks_file='place_split_hard',
-      room_size=5,
-      num_dists=1,
-      partial_obs=False,
+      # tasks_file='place_split_hard',
+      # room_size=5,
+      # num_dists=1,
+      # partial_obs=False,
   )
   run_distributed = FLAGS.run_distributed
   num_actors = FLAGS.num_actors
