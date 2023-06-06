@@ -211,13 +211,26 @@ class RestartableIteratorWrapper:
           self.iterator = self.cnstr(self.dataset)  # Restart the iterator
           return next(self.iterator)
 
+
+
 def make_demonstration_dataset_factory(
   data_directory: str,
   batch_size: int,
-  shift_discount: int = 1,
+  shift_discount: bool = True,
   trace_length: int = 10,
   obs_constructor=None) -> Callable[[jax_types.PRNGKey], Iterator[types.Transition]]:
-  """Returns the demonstration dataset factory for the given dataset."""
+  """Returns the demonstration dataset factory for the given dataset.`
+
+  Args:
+      data_directory (str): directiry to get data from
+      batch_size (int): batch size.
+      shift_discount (bool, optional): if discount=1 at T-1, then we need to shift it so discount=0. Currently, BabyAI env logger does this. Defaults to True.
+      trace_length (int, optional): length of batches. Defaults to 10.
+      obs_constructor (_type_, optional): constructor of observations. Defaults to None.
+
+  Returns:
+      Callable[[jax_types.PRNGKey], Iterator[types.Transition]]: _description_
+  """
 
 
   def demonstration_dataset_factory(
@@ -227,13 +240,25 @@ def make_demonstration_dataset_factory(
     # load dataset from directory
     dataset = tf_tfds.builder_from_directory(data_directory).as_dataset(split='all')
 
+    if shift_discount:
+      def concatenate_episode(episode):
+        episode[rlds.STEPS] = rlds.transformations.concatenate(
+            episode[rlds.STEPS],
+            rlds.transformations.zero_dataset_like(
+                dataset.element_spec[rlds.STEPS]))
+        return episode
+      # Concatenates the existing dataset with a zeros-like dataset.
+      # will later shift by 1 and this avoid deleting real data when doing so.
+      # will instead consume zeros.
+      dataset = dataset.map(concatenate_episode)
+
     # turn observations into obs-action-reward
     dataset = dataset.map(
         partial(episode_steps_to_oar_observations, obs_constructor=obs_constructor))
 
     if shift_discount:
-      # Shifts discountK1 steps backward in all episodes. (if negative, moves forward)
-      dataset = dataset.map(partial(shift_episode, timesteps=shift_discount))
+      # Shifts discount 1 step backward in all episodes. (if negative, moves forward)
+      dataset = dataset.map(partial(shift_episode, timesteps=1))
 
     # turn dataset into n-step trajectories per datapoint
     dataset = dataset.map(lambda e: episode_steps_to_nstep_transition(e, trace_length))
