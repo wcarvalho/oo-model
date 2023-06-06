@@ -13,32 +13,30 @@ from muzero.builder import MuZeroBuilder
 from muzero.config import MuZeroConfig
 from muzero.ve_losses import ValueEquivalentLoss
 
+from experiments.config_utils import update_config
 
-def setup(
-    debug: bool=False,
-    config_kwargs: dict = None):
+def load_config(
+        config_kwargs: dict = None,
+        config_class: MuZeroConfig = MuZeroConfig,
+        strict_config: bool = False):
   config_kwargs = config_kwargs or dict()
-  if debug: #DEBUG
-    config_kwargs.update(
-      min_replay_size=100,
-      # samples_per_insert=1.0,
-      # batch_size=4,
-      # trace_length=6,
-      # simulation_steps=2,
-      # num_simulations=1,
-      # td_steps=3,
-      burn_in_length=0,
-      # weight_decay=0.0,
-      # show_gradients=0,
-      # model_learn_prob=.1,
-    )
   logging.info(f'Config arguments')
   pprint(config_kwargs)
 
-  config = MuZeroConfig(**config_kwargs)
+  config = config_class()
+  update_config(config, strict=strict_config, **config_kwargs)
 
   if config.sequence_period is None:
     config.sequence_period = config.trace_length
+  return config
+
+def setup(
+    config: MuZeroConfig,
+    network_kwargs=None,
+    builder_kwargs: dict = None,
+    **kwargs):
+  network_kwargs = network_kwargs or dict()
+  builder_kwargs = builder_kwargs or dict()
 
   discretizer = muzero_utils.Discretizer(
       num_bins=config.num_bins,
@@ -63,21 +61,22 @@ def setup(
     num_simulations=config.num_simulations,
     discount=config.discount,
     td_steps=config.td_steps,
-    model_coef=config.model_coef,
-    policy_coef=config.policy_coef,
     root_policy_coef=config.root_policy_coef,
-    value_coef=config.value_coef,
-    reward_coef=config.reward_coef,
+    root_value_coef=config.root_value_coef,
+    model_policy_coef=config.model_policy_coef,
+    model_value_coef=config.model_value_coef,
+    model_reward_coef=config.model_reward_coef,
     v_target_source=config.v_target_source,
     # reanalyze_ratio=config.reanalyze_ratio,
     # metrics=config.metrics,
   )
 
-  builder = MuZeroBuilder(config, loss_fn=ve_loss_fn)
+  builder = MuZeroBuilder(config, loss_fn=ve_loss_fn, **builder_kwargs)
 
   network_factory = functools.partial(
       muzero_networks.make_babyai_networks,
       config=config,
-      discretizer=discretizer)
+      discretizer=discretizer,
+      **network_kwargs)
   
-  return config, builder, network_factory
+  return builder, network_factory

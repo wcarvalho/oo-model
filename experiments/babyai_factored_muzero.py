@@ -16,41 +16,28 @@ from factored_muzero.config import FactoredMuZeroConfig
 
 from experiments.config_utils import update_config
 
-def setup(
-    network_kwargs=None,
-    debug: bool=False,
+def load_config(
     config_kwargs: dict = None,
-    strict_config: bool=True,
-    builder_kwargs: dict = None):
-  network_kwargs = network_kwargs or dict()
+    config_class: FactoredMuZeroConfig=FactoredMuZeroConfig,
+    strict_config: bool = False):
   config_kwargs = config_kwargs or dict()
-  builder_kwargs = builder_kwargs or dict()
-  if debug: #DEBUG
-    config_kwargs.update(
-      min_replay_size=100,
-      samples_per_insert=1.0,
-      batch_size=2,
-      trace_length=6,
-      discount=.99,
-      simulation_steps=2,
-      num_simulations=1,
-      td_steps=3,
-      burn_in_length=0,
-      show_gradients=0,
-      pre_norm=True,
-      action_as_factor=False,
-      gating='sigtanh',
-      pred_gate='sum',
-      pred_input_selection='task_query',
-    )
   logging.info(f'Config arguments')
   pprint(config_kwargs)
-
-  config = FactoredMuZeroConfig()
+  config = config_class()
   update_config(config, strict=strict_config, **config_kwargs)
 
   if config.sequence_period is None:
     config.sequence_period = config.trace_length
+
+  return config
+
+def setup(
+    config: FactoredMuZeroConfig,
+    network_kwargs=None,
+    builder_kwargs: dict = None,
+    **kwargs):
+  network_kwargs = network_kwargs or dict()
+  builder_kwargs = builder_kwargs or dict()
 
   discretizer = muzero_utils.Discretizer(
       num_bins=config.num_bins,
@@ -74,11 +61,11 @@ def setup(
     num_simulations=config.num_simulations,
     discount=config.discount,
     td_steps=config.td_steps,
-    model_coef=config.model_coef,
-    policy_coef=config.policy_coef,
     root_policy_coef=config.root_policy_coef,
-    value_coef=config.value_coef,
-    reward_coef=config.reward_coef,
+    root_value_coef=config.root_value_coef,
+    model_policy_coef=config.model_policy_coef,
+    model_value_coef=config.model_value_coef,
+    model_reward_coef=config.model_reward_coef,
     v_target_source=config.v_target_source,
     # reanalyze_ratio=config.reanalyze_ratio,
     # metrics=config.metrics,
@@ -94,4 +81,4 @@ def setup(
           config=config,
           **network_kwargs)
   
-  return config, builder, network_factory
+  return builder, network_factory
