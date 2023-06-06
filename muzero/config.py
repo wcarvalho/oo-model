@@ -68,9 +68,9 @@ class MuZeroConfig(r2d2.R2D2Config):
   # max_priority_weight: float = 0.9
 
   #Loss hps
-  num_bins: Optional[int] = None  # number of bins for two-hot rep
-  scalar_step_size: Optional[float] = .25  # number of bins for two-hot rep
-  max_scalar_value: float = 10.0  # number of bins for two-hot rep
+  num_bins: Optional[int] = 101  # number of bins for two-hot rep
+  scalar_step_size: Optional[float] = None  # number of bins for two-hot rep
+  max_scalar_value: float = 5.0  # number of bins for two-hot rep
   td_steps: int = 5
   v_target_source: str = 'reanalyze' # this interpolates between mcts output vs. observed return
   reanalyze_ratio: float = .5 # percent of time to use mcts vs. observed return
@@ -113,10 +113,10 @@ class MuZeroConfig(r2d2.R2D2Config):
   # actor hps
   action_source: str = 'policy'  # 'policy', 'value', 'mcts'
 
-  model_coef: float = 10.0
-  policy_coef: float = 1.0
   root_policy_coef: float = 1.0
-  value_coef: float = 0.25
-  reward_coef: float = 1.0
+  root_value_coef: float = 1.0
+  model_policy_coef: float = 1.0
+  model_value_coef: float = 0.25
+  model_reward_coef: float = 1.0
 
   show_gradients: int = 0

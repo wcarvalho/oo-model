@@ -46,7 +46,7 @@ from acme.agents.jax.dqn import learning_lib
 from muzero import types as muzero_types
 from muzero.config import MuZeroConfig
 from muzero import ve_losses
-from muzero import utils as muzero_utils
+from muzero import learner_logger
 
 from pprint import pprint
 aprint = lambda a: pprint(jax.tree_map(lambda x:x.shape, a))
@@ -96,13 +96,16 @@ class MuZeroLearner(acme.Learner):
                LossFn = ve_losses.ValueEquivalentLoss,
                replay_client: Optional[reverb.Client] = None,
                counter: Optional[counting.Counter] = None,
-               logger: Optional[loggers.Logger] = None):
+               logger: Optional[loggers.Logger] = None,
+               update_logger: Optional[learner_logger.BaseLogger] = None,
+               ):
     """Initializes the learner."""
     self._config = config
     ema_update = config.ema_update
     show_gradients = config.show_gradients > 0
     self._num_sgd_steps_per_step = num_sgd_steps_per_step
     self._model_unroll_share_params = True
+    self._update_logger = update_logger
 
     def loss(
         params: muzero_types.MuZeroParams,
@@ -157,10 +160,25 @@ class MuZeroLearner(acme.Learner):
       target_outputs, target_state = networks.unroll(
         target_params_unroll, key2, data.observation, target_state)
 
+      # computing this outside of loss is important because only 1 branch is executed.
+      # if computed inside function, vmap would lead all branches to be executed
+      if config.model_learn_prob  == 1.0:
+        learn_model = True
+        conditional_learn_model = False
+      elif config.model_learn_prob < 1e-4:
+        learn_model = False
+        conditional_learn_model = False
+      else:
+        key_grad, sample_key = jax.random.split(key_grad)
+        learn_model = distrax.Bernoulli(
+            probs=config.model_learn_prob).sample(seed=sample_key)
+        conditional_learn_model = True
+
       ve_loss_fn = LossFn(
         networks=networks,
         params=params,
         target_params=target_params,
+        conditional_learn_model=conditional_learn_model,
       )
       # vmap over batch dimension
       ve_loss_fn = jax.vmap(ve_loss_fn, in_axes=(1, 1, 1, 1, 1, 0, 0, None, None, None), out_axes=0)
@@ -171,23 +189,13 @@ class MuZeroLearner(acme.Learner):
       is_terminal_mask = jnp.concatenate(
         (jnp.ones((1, B)), data.discount[:-1]), axis=0) == 0.0
       
-      # computing this outside of loss is important because only 1 branch is executed.
-      # if computed inside function, vmap would lead all branches to be executed
-      if config.model_learn_prob  == 1.0:
-        learn_model = True
-      elif config.model_learn_prob < 1e-4:
-        learn_model = False
-      else:
-        key_grad, sample_key = jax.random.split(key_grad)
-        learn_model = distrax.Bernoulli(
-            probs=config.model_learn_prob).sample(seed=sample_key)
 
       key_grad, sample_key = jax.random.split(key_grad)
       reanalyze = distrax.Bernoulli(
           probs=config.reanalyze_ratio).sample(seed=sample_key)
 
       # [B], B
-      batch_loss, metrics = ve_loss_fn(data,
+      batch_loss, loss_metrics, visualize_metrics, value_target, value_prediction = ve_loss_fn(data,
                                        in_episode,
                                        is_terminal_mask,
                                        online_outputs,
@@ -197,8 +205,10 @@ class MuZeroLearner(acme.Learner):
                                        key_grad,
                                        learn_model,
                                        reanalyze)
-
-
+      metrics=dict(
+        loss_metrics=loss_metrics,
+        visualize_metrics=visualize_metrics,
+      )
       if importance_sampling_exponent == 0.0:
         priorities = jnp.ones_like(batch_loss)
         mean_loss = jnp.mean(batch_loss)
@@ -211,19 +221,12 @@ class MuZeroLearner(acme.Learner):
         mean_loss = jnp.mean(importance_weights * batch_loss)
 
         # Calculate priorities as a mixture of max and mean sequence errors.
-        value_target = metrics['2.value_target']
-        value_prediction = metrics['2.value_prediction']
         batch_td_error = value_target - value_prediction
 
         abs_td_error = jnp.abs(batch_td_error).astype(batch_loss.dtype)
         max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
         mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
         priorities = (max_priority + mean_priority)
-      metrics = jax.tree_map(lambda x: x.mean(), metrics)
-      metrics.update(
-        in_episode=in_episode.mean(),
-        learn_model=jnp.asarray(learn_model, dtype=jnp.float32),
-        reanalyze=jnp.asarray(reanalyze, dtype=jnp.float32))
       extra = learning_lib.LossExtra(metrics=metrics,
                                      reverb_priorities=priorities)
 
@@ -270,14 +273,14 @@ class MuZeroLearner(acme.Learner):
           steps=steps,
           random_key=key)
 
-      metrics.update({
+      metrics['loss_metrics'].update({
         "0.0.total_loss": loss_value,
         '0.grad_norm': optax.global_norm(gradients),
         '0.update_norm': optax.global_norm(updates),
         '0.param_norm': optax.global_norm(state.params),
       })
       if show_gradients:
-        metrics['mean_grad'] = jax.tree_map(lambda x:x.mean(), gradients)
+        metrics['loss_metrics']['mean_grad'] = jax.tree_map(lambda x:x.mean(), gradients)
 
       return new_state, (priorities, metrics)
 
@@ -383,19 +386,23 @@ class MuZeroLearner(acme.Learner):
     # Take metrics from first replica.
     metrics = utils.get_from_first_device(metrics)
 
+    self._update_logger.log_metrics(metrics)
+    loss_metrics = metrics.pop('loss_metrics', {})
+    loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
+
     if self._config.show_gradients:
       if self._state.steps[0] % self._config.show_gradients == 0:
-        for k, v in metrics['mean_grad'].items():
-          metrics['mean_grad'][k] = float(next(iter(v.values())))
+        for k, v in loss_metrics['mean_grad'].items():
+          loss_metrics['mean_grad'][k] = float(next(iter(v.values())))
       else:
-        if 'mean_grad' in metrics:
-          metrics.pop('mean_grad')
+        if 'mean_grad' in loss_metrics:
+          loss_metrics.pop('mean_grad')
 
     # Update our counts and record it.
     time_elapsed = time.time() - start
-    metrics['Learnerduration'] = time_elapsed
+    loss_metrics['Learnerduration'] = time_elapsed
     steps_per_sec = (self._num_sgd_steps_per_step / time_elapsed) if time_elapsed else 0
-    metrics['steps_per_second'] = steps_per_sec
+    loss_metrics['steps_per_second'] = steps_per_sec
     counts = self._counter.increment(steps=self._num_sgd_steps_per_step,
                                      time_elapsed=time_elapsed)
 
@@ -404,7 +411,7 @@ class MuZeroLearner(acme.Learner):
       self._async_priority_updater.put((keys, priorities))
 
     # Attempt to write logs.
-    self._logger.write({**metrics, **counts})
+    self._logger.write({**loss_metrics, **counts})
 
   def get_variables(self, names: List[str]) -> List[muzero_types.MuZeroParams]:
     del names  # There's only one available set of params in this agent.

@@ -46,6 +46,7 @@ from acme.agents.jax import r2d2
 from muzero.learning import MuZeroLearner
 from muzero import actor as muzero_actor
 from muzero.ve_losses import ValueEquivalentLoss
+from muzero import learner_logger
 
 class MuZeroBuilder(r2d2.R2D2Builder):
   """MuZero Builder.
@@ -56,12 +57,14 @@ class MuZeroBuilder(r2d2.R2D2Builder):
   def __init__(self,
                config: r2d2_config.R2D2Config,
                loss_fn: ValueEquivalentLoss,
+               update_logger: Optional[learner_logger.BaseLogger] = None,
                **kwargs):
     """Creates a R2D2 learner, a behavior policy and an eval actor."""
     super().__init__(config=config, **kwargs)
     # self._config = config
     self._loss_fn = loss_fn
     self._use_stored_lstm_state = config.use_stored_lstm_state
+    self._update_logger = update_logger
     # self._sequence_length = (
     #     self._config.burn_in_length + self._config.trace_length + 1)
 
@@ -95,7 +98,8 @@ class MuZeroBuilder(r2d2.R2D2Builder):
         replay_client=replay_client,
         counter=counter,
         config=self._config,
-        logger=logger_fn('learner'))
+        logger=logger_fn('learner'),
+        update_logger=self._update_logger)
 
   def make_policy(self,
                   networks: r2d2_networks.R2D2Networks,
