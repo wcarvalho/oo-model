@@ -237,7 +237,7 @@ class ValueEquivalentLoss:
 
     if not learn_model:
       total_loss = root_value_loss + root_policy_loss
-      return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
+      return total_loss, loss_metrics, visualize_metrics, returns, mcts_values
 
     ###############################
     # Model losses
@@ -276,7 +276,8 @@ class ValueEquivalentLoss:
     extra_v = self._simulation_steps + int(dim_return < npreds)
     value_mask = jnp.concatenate((in_episode[1:dim_return], jnp.zeros(extra_v)))
     policy_mask = jnp.concatenate((in_episode[1:], jnp.zeros(self._simulation_steps)))
-    reward_mask = jnp.concatenate((in_episode, jnp.zeros(self._simulation_steps-1)))
+    reward_mask = jnp.concatenate(
+        (in_episode[1:], jnp.zeros(self._simulation_steps)))
     reward_model_mask = rolling_window(reward_mask, self._simulation_steps)
     value_model_mask = rolling_window(value_mask, self._simulation_steps)
     policy_model_mask = rolling_window(policy_mask, self._simulation_steps)
@@ -319,21 +320,21 @@ class ValueEquivalentLoss:
     # compute loss
     #------------
     def compute_losses(
-        model_outputs,
-        reward_probs_target, value_probs_target, policy_probs_target,
-        reward_model_mask, value_model_mask, policy_model_mask):
+        model_outputs_,
+        reward_target_, value_target_, policy_target_,
+        reward_mask_, value_mask_, policy_mask_):
       _batch_categorical_cross_entropy = jax.vmap(rlax.categorical_cross_entropy)
       reward_ce = _batch_categorical_cross_entropy(
-          reward_probs_target, model_outputs.reward_logits)
-      reward_loss = masked_mean(reward_ce, reward_model_mask)
+          reward_target_, model_outputs_.reward_logits)
+      reward_loss = masked_mean(reward_ce, reward_mask_)
 
       value_ce = _batch_categorical_cross_entropy(
-          value_probs_target, model_outputs.value_logits)
-      value_loss = masked_mean(value_ce, value_model_mask)
+          value_target_, model_outputs_.value_logits)
+      value_loss = masked_mean(value_ce, value_mask_)
 
       policy_ce = self._policy_loss_fn(
-          policy_probs_target, model_outputs.policy_logits)
-      policy_loss = masked_mean(policy_ce, policy_model_mask)
+          policy_target_, model_outputs_.policy_logits)
+      policy_loss = masked_mean(policy_ce, policy_mask_)
 
       return reward_ce, value_ce, policy_ce, reward_loss, value_loss, policy_loss
 
@@ -368,7 +369,7 @@ class ValueEquivalentLoss:
       # model value
       value_model_ce=value_model_ce[0],
       value_model_mask=value_model_mask[0],
-      value_model_target=self._discretizer.probs_to_scalar(value_model_target[0]),
+      value_model_target=jnp.concatenate((returns[1:], jnp.zeros(nz)))[:self._simulation_steps],
       value_model_prediction=self._discretizer.logits_to_scalar(model_outputs.value_logits[0]),
     )
 
@@ -403,7 +404,7 @@ class ValueEquivalentLoss:
         root_value_loss + model_value_loss + 
         root_policy_loss + model_policy_loss)
 
-    return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
+    return total_loss, loss_metrics, visualize_metrics, returns, mcts_values
 
     # REWARD: reward vs. prediction
 
