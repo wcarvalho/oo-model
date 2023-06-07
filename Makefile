@@ -125,4 +125,4 @@ offline_babyai_async:
 		--search=$(search) \
 		--num_actors=$(actors) \
 		--num_gpus=$(gpus) \
-		--num_cpus=$(cpus)
+		--num_cpus=2
