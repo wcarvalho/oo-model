@@ -2,3 +2,5 @@ train:
 
   - name: pickup
     task_kinds: pickup
+
+valid_actions: [left, right, forward, pickup_container]
