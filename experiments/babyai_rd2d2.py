@@ -45,7 +45,9 @@ def make_r2d2_babyai_networks(
 
 def setup(
     debug: bool=False,
+    config_class: R2D2Config=None,
     config_kwargs: dict = None):
+  config_class = config_class or R2D2Config
   config_kwargs = config_kwargs or dict()
   if debug: #DEBUG
     config_kwargs['min_replay_size'] = 100

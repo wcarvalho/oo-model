@@ -40,12 +40,12 @@ class MuZeroConfig(r2d2.R2D2Config):
   sequence_period: Optional[int] = None
   # learning_rate: float = e-3
   use_stored_lstm_state: bool = True
+  warmup_steps: int = 0
   learning_rate_decay: float = .1
   lr_transition_steps: int = 100_000
   weight_decay: float = 1e-4
   # max_grad_norm: float = 80.0
   # adam_eps: float = 1e-3
-  warmup_steps: int = 0
   ema_update: float = 0.0
   metrics: str = 'dense'
   # bootstrap_n: int = 5
@@ -68,13 +68,14 @@ class MuZeroConfig(r2d2.R2D2Config):
   # max_priority_weight: float = 0.9
 
   #Loss hps
-  num_bins: Optional[int] = 101  # number of bins for two-hot rep
-  scalar_step_size: Optional[float] = None  # number of bins for two-hot rep
+  num_bins: Optional[int] = None  # number of bins for two-hot rep
+  scalar_step_size: Optional[float] = .05  # number of bins for two-hot rep
   max_scalar_value: float = 5.0  # number of bins for two-hot rep
   td_steps: int = 5
   v_target_source: str = 'reanalyze' # this interpolates between mcts output vs. observed return
-  reanalyze_ratio: float = .5 # percent of time to use mcts vs. observed return
+  reanalyze_ratio: float = 0.5 # percent of time to use mcts vs. observed return
   policy_loss: str = 'cross_entropy'
+  mask_model: bool = False
 
   # MCTS general hps
   simulation_steps: int = 5

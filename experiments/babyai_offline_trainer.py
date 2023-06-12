@@ -11,9 +11,10 @@ import os.path
 
 from acme import specs
 from acme.jax import experiments
-from acme.utils import paths
 import dm_env
-import rlds
+import jax.numpy as jnp
+import numpy as np
+from pprint import pprint
 
 from envs.multitask_kitchen import Observation
 from experiments.observers import LevelAvgReturnObserver, ExitObserver
@@ -27,11 +28,6 @@ from experiments import logger as wandb_logger
 from experiments import offline_configs
 from experiments.babyai_online_trainer import setup_agents
 
-# flags.DEFINE_string('search', 'default', 'which search to use.')
-# flags.DEFINE_bool(
-    # 'train_single', False, 'Run many or 1 experiments')
-# flags.DEFINE_bool(
-#     'make_path', False, 'Create a path under `FLAGS.folder` for the experiment')
 flags.DEFINE_bool(
     'make_dataset', False, 'Make dataset if does not exist.')
 
@@ -40,6 +36,7 @@ FLAGS = flags.FLAGS
 
 def setup_experiment_inputs(
     agent : str,
+    nepisode_dataset: int,
     path: str = '.',
     agent_config_kwargs: dict=None,
     agent_config_file: str=None,
@@ -66,16 +63,46 @@ def setup_experiment_inputs(
     env_kwargs = config_utils.load_config(env_config_file)
   logging.info(f'env_kwargs: {str(env_kwargs)}')
 
+  # -----------------------
+  # setup agent
+  # -----------------------
+  if agent == 'r2d2':
+    config_class = offline_configs.R2D2Config
+  elif agent == 'muzero':
+    config_class = offline_configs.MuZeroConfig
+    loss_kwargs = dict(behavior_clone=True)
+
+  elif agent == 'factored':
+    config_class = offline_configs.FactoredMuZeroConfig
+    loss_kwargs = dict(behavior_clone=True)
+
+  env_actions = ['left', 'right', 'forward', 'pickup_container',
+                 'pickup_contents', 'place', 'toggle', 'slice']
+  tasks = babyai_env_utils.open_kitchen_tasks_file(
+    tasks_file=env_kwargs['tasks_file'], path=path)
+  valid_actions = [(a in tasks['valid_actions']) for a in env_actions]
+  invalid_actions = 1-jnp.array(valid_actions, dtype=jnp.float32)
+
   config, builder, network_factory = setup_agents(
     agent=agent,
     debug=debug,
     config_kwargs=config_kwargs,
     env_kwargs=env_kwargs,
+    config_class=config_class,
+    setup_kwargs=dict(
+      loss_kwargs=loss_kwargs,
+      invalid_actions=invalid_actions,
+    ),
     update_logger_kwargs=dict(
         action_names=['left', 'right', 'forward', 'pickup_1',
-                      'pickup_2', 'place', 'toggle', 'slice'],
+                  'pickup_c', 'place', 'toggle', 'slice'],
+        invalid_actions=np.asarray(invalid_actions),
     )
   )
+  logging.info(f'Config')
+
+  pprint(config.__dict__)
+
   # -----------------------
   # setup environment
   # -----------------------
@@ -99,6 +126,7 @@ def setup_experiment_inputs(
       room_size=env_kwargs['room_size'],
       num_dists=env_kwargs['num_dists'],
       partial_obs=env_kwargs['partial_obs'],
+      nepisodes=nepisode_dataset,
       evaluation=False,
       debug=debug)
   
@@ -146,6 +174,7 @@ def setup_experiment_inputs(
 def train_single(
     default_env_kwargs: dict,
     wandb_init_kwargs: dict = None,
+    terminal: str = 'output_to_files',
     **kwargs
 ):
   debug = FLAGS.debug
@@ -157,6 +186,7 @@ def train_single(
     env_kwargs=default_env_kwargs,
     env_config_file=FLAGS.env_config,
     make_dataset=FLAGS.make_dataset,
+    nepisode_dataset=babyai_collect_data.get_episodes(FLAGS.size, debug),
     debug=debug)
 
   def custom_steps_keys(name: str):
@@ -198,7 +228,7 @@ def train_single(
     }
     lp.launch(program,
               lp.LaunchType.LOCAL_MULTI_PROCESSING,
-              terminal='current_terminal',
+              terminal=terminal,
               local_resources=local_resources)
   else:
     # NOTE: DEBUGGING ONLY. otherwise change settings below
@@ -234,14 +264,40 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     space = [
         {
             "seed": tune.grid_search([2]),
-            "group": tune.grid_search(['muzero8']),
+            "group": tune.grid_search(['bc_muzero5']),
             "agent": tune.grid_search(['muzero']),
             "num_learner_steps": tune.grid_search([int(1e5)]),
-            "v_target_source": tune.grid_search(['reanalyze']),
+            # "v_target_source": tune.grid_search(['reanalyze']),
             "tasks_file": tune.grid_search(['place_split_easy']),
-            # "reanalyze_ratio": tune.grid_search([0.0, 0.5, 1.0]),
-            # "num_bins": tune.grid_search([101, 301]),
-            # "max_scalar_value": tune.grid_search([5.0, 10.0]),
+            "warmup_steps": tune.grid_search([1_000, 10_000, 100_000]),
+            "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
+            # "target_update_period": tune.grid_search([100, 2500]),
+            "learning_rate": tune.grid_search([1e-3, 1e-4, 1e-6, 1e-5]),
+            "action_source": tune.grid_search(['policy']),
+            # "output_init": tune.grid_search([None, 0.0]),
+            # "mask_model": tune.grid_search([True, False]),
+        }
+    ]
+  elif search == 'muzero2':
+    space = [
+        {
+            "seed": tune.grid_search([2]),
+            "group": tune.grid_search(['muzero16']),
+            "agent": tune.grid_search(['muzero']),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
+            # "v_target_source": tune.grid_search(['reanalyze']),
+            "tasks_file": tune.grid_search(['place_split_easy']),
+
+            "warmup_steps": tune.grid_search([0]),
+            "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
+            "learning_rate": tune.grid_search([1e-3]),
+            # "scalar_step_size": tune.grid_search([.2, .1, .05]),
+            # # "num_bins": tune.grid_search([51, 101, 201]),
+            # # "target_update_period": tune.grid_search([100, 2500]),
+            # # "learning_rate": tune.grid_search([1e-3, 1e-4]),
+            # "action_source": tune.grid_search(['value', 'policy']),
+            # # "output_init": tune.grid_search([None, 0.0]),
+            # "gumbel_scale": tune.grid_search([.01, 1.0]),
         }
     ]
   elif search == 'factored':
@@ -315,7 +371,6 @@ def main(_):
       default_env_kwargs=default_env_kwargs)
   else:
     run_distributed = FLAGS.run_distributed
-    num_actors = FLAGS.num_actors
     train_many.run(
       name='babyai_offline_trainer',
       wandb_init_kwargs=wandb_init_kwargs,
@@ -327,7 +382,7 @@ def main(_):
         train_many.make_program_command,
         filename='experiments/babyai_offline_trainer.py',
         run_distributed=run_distributed,
-        num_actors=num_actors,
+        num_actors=1,
         ),
     )
 

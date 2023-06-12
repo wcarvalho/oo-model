@@ -18,7 +18,7 @@ from experiments import experiment_builders
 from experiments import babyai_env_utils
 from experiments.observers import LevelAvgReturnObserver
 from experiments import logger as wandb_logger
-
+from r2d2 import R2D2Config
 
 flags.DEFINE_string('search', 'default', 'which search to use.')
 flags.DEFINE_bool(
@@ -35,10 +35,14 @@ def setup_agents(
     config_kwargs: dict = None,
     env_kwargs: dict = None,
     debug: bool = False,
-    update_logger_kwargs=None,
+    update_logger_kwargs: dict = None,
+    setup_kwargs: dict = None,
+    config_class: R2D2Config = None,
 ):
   config_kwargs = config_kwargs or dict()
   update_logger_kwargs = update_logger_kwargs or dict()
+  setup_kwargs = setup_kwargs or dict()
+
   # -----------------------
   # load agent config, builder, network factory
   # -----------------------
@@ -46,13 +50,16 @@ def setup_agents(
     from experiments import babyai_rd2d2
     config, builder, network_factory = babyai_rd2d2.setup(
         debug=debug,
-        config_kwargs=config_kwargs)
+        config_kwargs=config_kwargs,
+        config_class=config_class,
+        **setup_kwargs)
   elif agent == 'muzero':
     from experiments import babyai_muzero
     from muzero import learner_logger
 
     config = babyai_muzero.load_config(
-        config_kwargs=config_kwargs)
+      config_class=config_class,
+      config_kwargs=config_kwargs)
 
     builder_kwargs = dict(
         update_logger=learner_logger.LearnerLogger(
@@ -64,8 +71,10 @@ def setup_agents(
     )
     builder, network_factory = babyai_muzero.setup(
         config=config,
+        config_class=config_class,
         builder_kwargs=builder_kwargs,
-        config_kwargs=config_kwargs)
+        config_kwargs=config_kwargs,
+        **setup_kwargs)
 
   elif agent == 'factored':
     from experiments import babyai_factored_muzero
@@ -86,13 +95,15 @@ def setup_agents(
             discount=config.discount,
             **update_logger_kwargs,
         ),
+
     )
     assert env_kwargs is not None
     room_size = env_kwargs['room_size']
     return babyai_factored_muzero.setup(
         config=config,
         network_kwargs=dict(num_spatial_vectors=room_size**2),
-        builder_kwargs=builder_kwargs)
+        builder_kwargs=builder_kwargs,
+        **setup_kwargs)
   else:
     raise NotImplementedError
 
