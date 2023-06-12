@@ -21,6 +21,7 @@ babyai_offline_folder?=../results/factored_muzero/babyai_offline
 wandb_dir?=../results/factored_muzero/wandb
 
 wandb_entity?=wcarvalho92
+tasks_file?=place_split_easy
 
 export PYTHONPATH:=$(PYTHONPATH):.
 
@@ -34,8 +35,9 @@ jupyter_lab:
 	jupyter lab --port 5558 --no-browser --ip 0.0.0.0
 
 babyai_dataset:
-	python experiments/babyai_collect_data.py \
-	--tasks_file=$(tasks_file)
+	python -m ipdb -c continue experiments/babyai_collect_data.py \
+	--tasks_file=$(tasks_file) \
+	--debug=$(debug)
 
 babyai_datasets:
 	python make_babyai_datasets.py \
