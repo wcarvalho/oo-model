@@ -31,7 +31,7 @@ FLAGS = flags.FLAGS
 # flags.DEFINE_string('data_file', '', 'data_file')
 # flags.DEFINE_bool('debug', False, 'whether to debug script')
 flags.DEFINE_string('tasks_file', 'place_split_easy', 'tasks_file')
-flags.DEFINE_integer('episodes', int(1e5), 'number of episodes')
+flags.DEFINE_string('size', 'large', 'small=1e4, medium=1e5, large=1e6, xl=1e7')
 flags.DEFINE_integer('room_size', 7, 'room size')
 flags.DEFINE_integer('num_dists', 2, 'number of distractors')
 flags.DEFINE_bool('partial_obs', False, 'partial observability')
@@ -85,17 +85,38 @@ def collect_episode(gym_env, dm_env, idx=None):
     print('-'*30, idx)
     print(f"Episode terminated with no reward after {steps} steps.")
 
+def get_episodes(size, debug: bool = False):
+  if debug: return 100
+  sizes = dict(
+    small=int(1e4),
+    medium=int(1e5),
+    large=int(1e6),
+    xl=int(1e7),
+  )
+  return sizes[size]
+
+def get_name(nepisodes):
+  return {
+    int(1e2) : "1e2",
+    int(1e3) : "1e3",
+    int(1e4) : "1e4",
+    int(1e5) : "1e5",
+    int(1e6) : "1e6",
+    int(1e7) : "1e7",
+  }[nepisodes]
+
 def directory_name(tasks_file,
                    room_size,
                    num_dists,
                    partial_obs,
+                   nepisodes: int = None,
                    evaluation: bool = False,
-                   debug: bool = False):
+                   **kwargs):
+
   prefix=f"{tasks_file},r={room_size},d={num_dists},p={partial_obs}"
   suffix = 'test' if evaluation else 'train'
-  data_directory=f'data/babyai_kitchen/{prefix}/{suffix}'
-  if debug:
-    data_directory+="_debug"
+  data_directory=f'data/babyai_kitchen/{prefix}/{suffix}_{get_name(nepisodes)}'
+
   return data_directory
 
 def named_tuple_to_dict(nt):
@@ -140,10 +161,10 @@ def make_dataset(env_kwargs: dict, nepisodes: int, debug: bool = False):
 
   tf_tensor = lambda x: tfds.features.Tensor(shape=x.shape, dtype=x.dtype)
   obs_spec = environment.observation_spec()
-  obs_spec = jax.tree_map(lambda v: tf_tensor(v), obs_spec)
+  tf_obs_spec = jax.tree_map(lambda v: tf_tensor(v), obs_spec)
   dataset_config = tfds.rlds.rlds_base.DatasetConfig(
       name=env_kwargs['tasks_file'],
-      observation_info=obs_spec,
+      observation_info=tf_obs_spec,
       action_info=tf.int64,
       reward_info=tf.float64,
       discount_info=tf.float64,
@@ -160,7 +181,7 @@ def make_dataset(env_kwargs: dict, nepisodes: int, debug: bool = False):
         return_gym_env=True)
 
     data_directory = directory_name(
-      **env_kwargs, evaluation=evaluation, debug=debug)
+      **env_kwargs, evaluation=evaluation, nepisodes=nepisodes, debug=debug)
     paths.process_path(data_directory)  # create directory
 
     with envlogger.EnvLogger(
@@ -177,14 +198,16 @@ def make_dataset(env_kwargs: dict, nepisodes: int, debug: bool = False):
         collect_episode(gym_env, dm_env, idx=episode_idx)
 
 def main(unused_argv):
+
   env_kwargs = dict(
       tasks_file=FLAGS.tasks_file,
       room_size=FLAGS.room_size,
       num_dists=FLAGS.num_dists,
       partial_obs=FLAGS.partial_obs,
   )
+  nepisodes = get_episodes(FLAGS.size, FLAGS.debug)
   make_dataset(env_kwargs=env_kwargs,
-               nepisodes=100 if FLAGS.debug else FLAGS.episodes)
+               nepisodes=nepisodes)
 
 
 if __name__ == '__main__':
