@@ -45,6 +45,7 @@ class LevelAvgReturnObserver(EnvLoopObserver):
     self.idx += 1
     if self.level is not None:
       self.returns[self.level].append(self._episode_return)
+      self.returns['0.overall'].append(self._episode_return)
 
     self._episode_return = tree.map_structure(
       _generate_zeros_from_spec,
