@@ -10,7 +10,10 @@ import rlax
 
 from acme.types import NestedArray as Array
 
-from muzero.types import TaskAwareState
+State = Array
+Action = Array
+
+from muzero.types import TaskAwareState, ModelOutput
 
 def add_batch(nest, batch_size: Optional[int]):
   """Adds a batch dimension at axis 0 to the leaves of a nested structure."""
@@ -65,6 +68,9 @@ class Discretizer:
         min_value=self._min_value,
         max_value=self._max_value,
         num_bins=self._num_bins)
+     probs = jnp.clip(probs, 0, 1)  # for numerical stability
+    #  total = jnp.sum(probs, axis=-1, keepdims=True)
+    #  probs = probs/total
      return probs
 
 class TaskAwareRecurrentFn(hk.RNNCore):
@@ -129,3 +135,39 @@ class TaskAwareRecurrentFn(hk.RNNCore):
       hidden = TaskAwareState(state=hidden, task=task)
 
     return hidden, state
+
+
+def compute_q_values(state: State,
+                     discount: float,
+                     num_actions: int,
+                     apply_model: Callable[[State, Action], ModelOutput],
+                     discretizer: Discretizer,
+                     invalid_actions=None):
+  """Compute Q(s,a) = r(s,a,s') + gamma*Value(s').
+
+  Unroll 1-step model, compute value at next-time, and combine
+  with current reward.
+
+  Args:
+      state (jnp.ndarray): [D]
+      value_logits (jnp.ndarray): [N]
+      policy_logits (jnp.ndarray): [A]
+
+  Returns:
+      jnp.ndarray: Q(s,a) [A]
+  """
+  actions = jnp.arange(num_actions, dtype=jnp.int32)
+  # vmap over action dimension, to get 1 estimate per action
+  apply_model = jax.vmap(apply_model, in_axes=(None, 0))
+
+  # [A, ...]
+  next_logits, _ = apply_model(state, actions)
+
+  value = discretizer.logits_to_scalar(next_logits.value_logits)
+  reward = discretizer.logits_to_scalar(next_logits.reward_logits)
+
+  q_value = reward + discount*value
+  if invalid_actions is not None:
+    q_value = jnp.where(invalid_actions>0, -1e10, q_value)
+
+  return q_value
