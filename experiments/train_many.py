@@ -34,6 +34,7 @@ def make_program_command(
     filename: str = '',
     num_actors: int = 2,
     run_distributed: bool = False,
+    **kwargs,
 ):
   wandb_project = wandb_init_kwargs['project']
   wandb_group = wandb_init_kwargs['group']
@@ -42,7 +43,7 @@ def make_program_command(
   wandb_dir = wandb_init_kwargs.get("dir", None)
 
   assert filename, 'please provide file'
-  return f"""python {filename}
+  str = f"""python {filename}
 		--agent={agent}
 		--use_wandb=True
 		--wandb_project={wandb_project}
@@ -57,6 +58,9 @@ def make_program_command(
     --run_distributed={run_distributed}
     --train_single=True
   """
+  for k, v in kwargs:
+    str += "--{k}={v}"
+  return str
 
 
 def create_and_run_program(
@@ -114,7 +118,7 @@ def create_and_run_program(
     hourminute=False,
     return_kwpath=True,
     date=False,
-    path_skip=['num_steps'],
+    path_skip=['num_steps', 'group'],
     **log_path_config
     )
 
@@ -224,5 +228,4 @@ def run(
   if use_wandb:
     wandb_dir = wandb_init_kwargs.get("dir", './wandb')
     if os.path.exists(wandb_dir):
-      import ipdb; ipdb.set_trace()
       shutil.rmtree(wandb_dir)
