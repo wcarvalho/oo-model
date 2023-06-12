@@ -18,6 +18,21 @@ ValueLogits = jnp.ndarray
 RootFn = Callable[[State], Tuple[PolicyLogits, ValueLogits]]
 ModelFn = Callable[[State], Tuple[RewardLogits, PolicyLogits, ValueLogits]]
 
+def mask_policy_logits(output, invalid_actions = None):
+  logits = output.policy_logits
+  if invalid_actions is None:
+    return output
+  
+  if invalid_actions.ndim < logits.ndim:
+    diff = logits.ndim - invalid_actions.ndim
+    tile = logits.shape[:diff] + (1,)*(logits.ndim - diff)
+    invalid_actions = jnp.tile(invalid_actions, tile)
+
+  logits = logits - jnp.max(logits, axis=-1, keepdims=True)
+  min_logit = jnp.finfo(logits.dtype).min
+  logits = jnp.where(invalid_actions, min_logit, logits)
+  return output.replace(policy_logits=logits)
+
 class MuZeroArch(hk.RNNCore):
   """MuZero Network Architecture.
   """
@@ -29,6 +44,7 @@ class MuZeroArch(hk.RNNCore):
                transition_fn: TaskAwareRecurrentFn,
                root_pred_fn: RootFn,
                model_pred_fn: ModelFn,
+               invalid_actions: Optional[jnp.ndarray] = None,
                prep_state_input: Callable[
                   [types.NestedArray], types.NestedArray] = lambda x: x,
                prep_model_state_input: Callable[
@@ -46,6 +62,7 @@ class MuZeroArch(hk.RNNCore):
     self._prep_state_input = prep_state_input
     self._prep_model_state_input = prep_model_state_input
     self._combine_hidden_obs = combine_hidden_obs
+    self._invalid_actions = invalid_actions
 
   def initial_state(self, batch_size: Optional[int],
                     **unused_kwargs) -> State:
@@ -75,13 +92,8 @@ class MuZeroArch(hk.RNNCore):
     hidden, new_state = self._state_fn(state_input, state)
 
     hidden = self._combine_hidden_obs(hidden, embeddings)
-    policy_logits, value_logits = self._root_pred_fn(hidden)
+    root_outputs = self._root_pred_fn(hidden)
 
-    root_outputs = muzero_types.RootOutput(
-      state=hidden,
-      value_logits=value_logits,
-      policy_logits=policy_logits,
-    )
     return root_outputs, new_state
 
   def unroll(
@@ -105,13 +117,10 @@ class MuZeroArch(hk.RNNCore):
         self._state_fn, state_input, state)
 
     all_hidden = self._combine_hidden_obs(all_hidden, embeddings)
-    policy_logits, value_logits = hk.BatchApply(self._root_pred_fn)(all_hidden)
+    root_output = hk.BatchApply(self._root_pred_fn)(all_hidden)
+    root_output = mask_policy_logits(root_output, self._invalid_actions)
 
-    return muzero_types.RootOutput(
-        state=all_hidden,
-        value_logits=value_logits,
-        policy_logits=policy_logits,
-    ), new_state
+    return root_output, new_state
 
   def apply_model(
       self,
@@ -135,14 +144,9 @@ class MuZeroArch(hk.RNNCore):
     # [B, D], [B, D]
     hidden, new_state = self._transition_fn(action_onehot, state)
 
-    reward_logits, policy_logits, value_logits = self._model_pred_fn(hidden)
+    model_output = self._model_pred_fn(hidden)
+    model_output = mask_policy_logits(model_output, self._invalid_actions)
 
-    model_output = muzero_types.ModelOutput(
-      new_state=hidden,
-      value_logits=value_logits,
-      policy_logits=policy_logits,
-      reward_logits=reward_logits,
-    )
     # [B, D], [B, D]
     return model_output, new_state
 
@@ -170,13 +174,8 @@ class MuZeroArch(hk.RNNCore):
         self._transition_fn, action_onehot, state)
 
     # [T, D]
-    reward_logits, policy_logits, value_logits = self._model_pred_fn(all_hidden)
+    model_output = self._model_pred_fn(all_hidden)
+    model_output = mask_policy_logits(model_output, self._invalid_actions)
 
-    model_output = muzero_types.ModelOutput(
-      new_state=all_hidden,
-      value_logits=value_logits,
-      policy_logits=policy_logits,
-      reward_logits=reward_logits,
-    )
     # [T, D], [D]
     return model_output, new_state
