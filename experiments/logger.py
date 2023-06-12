@@ -180,7 +180,7 @@ class WandbLogger(base.Logger):
   def __init__(
       self,
       label: str = 'Logs',
-      labels_skip=('Loss'),
+      labels_skip=('learner'),
       steps_key: Optional[str] = None,
       max_number_of_steps: Optional[int] = None,
   ):
@@ -192,7 +192,7 @@ class WandbLogger(base.Logger):
     """
     self._time = time.time()
     self.label = label
-    self.labels_skip =labels_skip
+    self.labels_skip = [x.lower() for x in labels_skip]
     self._iter = 0
     # self.summary = tf.summary.create_file_writer(logdir)
     self._steps_key = steps_key
@@ -221,7 +221,7 @@ class WandbLogger(base.Logger):
     to_log={}
     for key in values.keys() - [self._steps_key]:
 
-      if self.label in self.labels_skip: # e.g. [Loss]
+      if self.label.lower() in self.labels_skip: # e.g. [Loss]
         key_pieces = key.split("/")
         if len(key_pieces) == 1: # e.g. [step]
           name = f'{self.label}/{_format_key(key)}'
