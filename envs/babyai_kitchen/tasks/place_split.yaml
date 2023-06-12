@@ -12,4 +12,4 @@ train:
       x: pickupable
       y: fridge
 
-valid_actions: [left, right, forward, pickup_container, place]
+valid_actions: [left, right, forward, pickup_contents, place]

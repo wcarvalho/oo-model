@@ -6,4 +6,4 @@ train:
       x: lettuce
     num_dists: 0
 
-valid_actions: [left, right, forward, pickup_container]
+valid_actions: [left, right, forward, pickup_contents]
