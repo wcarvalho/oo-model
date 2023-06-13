@@ -332,6 +332,7 @@ class MuZeroLearner(acme.Learner):
         sgd_step,
         num_sgd_steps_per_step)
 
+    self._loss = jax.pmap(loss, axis_name=_PMAP_AXIS_NAME)
     self._sgd_step = jax.pmap(sgd_step, axis_name=_PMAP_AXIS_NAME)
     self._async_priority_updater = async_utils.AsyncExecutor(update_priorities)
 
@@ -391,6 +392,29 @@ class MuZeroLearner(acme.Learner):
     # Replicate parameters.
     self._state = utils.replicate_in_all_devices(state)
 
+  def compute_loss(self,
+                   sample: reverb.ReplaySample,
+                   loss_key: networks_lib.PRNGKey,
+                   log_label: str = None,
+                   update_visualizations: bool = False):
+
+    # key, key_grad = jax.random.split(state.random_key)
+    loss_value, extra = self._loss(
+      params=self._state.params, 
+      target_params=self._state.target_params,
+      key_grad=utils.replicate_in_all_devices(loss_key),
+      sample=sample)
+    metrics = extra.metrics
+    # Take metrics from first replica.
+    metrics = utils.get_from_first_device(metrics)
+
+    if update_visualizations:
+      self._update_logger.log_metrics(metrics, label=log_label)
+    loss_metrics = metrics.pop('loss_metrics', {})
+    loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
+
+    return loss_value, loss_metrics
+
   def step(self):
     prefetching_split = next(self._iterator)
     # The split_sample method passed to utils.sharded_prefetch specifies what
@@ -430,6 +454,7 @@ class MuZeroLearner(acme.Learner):
     ###############################
     # updating
     ###############################
+    self._update_logger.step()
     self._update_logger.log_metrics(metrics)
     loss_metrics = metrics.pop('loss_metrics', {})
     loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
