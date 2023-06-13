@@ -99,7 +99,7 @@ def setup_agents(
     )
     assert env_kwargs is not None
     room_size = env_kwargs['room_size']
-    return babyai_factored_muzero.setup(
+    builder, network_factory = babyai_factored_muzero.setup(
         config=config,
         network_kwargs=dict(num_spatial_vectors=room_size**2),
         builder_kwargs=builder_kwargs,
