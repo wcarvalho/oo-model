@@ -41,6 +41,24 @@ class ObservationWrapper(acme.wrappers.base.EnvironmentWrapper):
     )
 
 
+class MultiTaskPushWorld(dm_env.Environment):
+  def __init__(self, envs):
+    self.envs = envs
+
+  def reset(self, **kwargs):
+    self.env = self.envs[np.random.randint(len(self.envs))]
+    return self.env.reset()
+
+  def step(self, action: acme.types.NestedArray) -> dm_env.TimeStep:
+    return self.env.step(action)
+
+  def observation_spec(self):
+    return self.envs[0].observation_spec()
+
+  def action_spec(self):
+    return self.envs[0].action_spec()
+
+
 def make_environment(
   evaluation: bool = False,
   path='.',
@@ -48,24 +66,37 @@ def make_environment(
   nseeds=0,
   **kwargs,
   ) -> dm_env.Environment:
-
-  # initialize dm_env
-  dm_env = PushWorldEnvDM(
-    puzzle_path="_pushworld/benchmark/puzzles/level0/base/train/level_0_base_train_0.pwp",
-    max_steps=kwargs["horizon"],
-    pixels_per_cell=12,
-  )
-
-  # set levelname for logging purpose
-  dm_env.current_levelname = "pushworld_level_0_base_train_0"
-
-  # apply wrappers to dm_env
-  wrapper_list = [
-    ObservationWrapper,
-    acme.wrappers.ObservationActionRewardWrapper,
-    acme.wrappers.SinglePrecisionWrapper,
+  # set tasks
+  # TODO get tasks from kwargs
+  tasks = [
+    "_pushworld/benchmark/puzzles/level0/base/train/level_0_base_train_0.pwp",
+    "_pushworld/benchmark/puzzles/level0/base/train/level_0_base_train_0.pwp",
   ]
-  dm_env = acme.wrappers.wrap_all(dm_env, wrapper_list)
 
-  # return dm_env
-  return dm_env
+  # get list of dm_envs
+  dm_envs = []
+  for task in tasks:
+    # initialize dm_env
+    dm_env = PushWorldEnvDM(
+      puzzle_path="_pushworld/benchmark/puzzles/level0/base/train/level_0_base_train_0.pwp",
+      max_steps=kwargs["horizon"],
+      pixels_per_cell=12,
+    )
+
+    # set levelname for logging purpose
+    dm_env.current_levelname = "pushworld_level_0_base_train_0"
+
+    # apply wrappers to dm_env
+    wrapper_list = [
+      ObservationWrapper,
+      acme.wrappers.ObservationActionRewardWrapper,
+      acme.wrappers.SinglePrecisionWrapper,
+    ]
+    dm_env = acme.wrappers.wrap_all(dm_env, wrapper_list)
+
+    # append to list
+    dm_envs.append(dm_env)
+
+  # convert to multi tasks and return it
+  multi_dm_env = MultiTaskPushWorld(dm_envs)
+  return multi_dm_env

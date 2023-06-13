@@ -147,7 +147,7 @@ def setup_experiment_inputs(
   # -----------------------
   # setup observer factory for environment
   # -----------------------
-  get_task_name = lambda env: str(env.current_levelname)
+  get_task_name = lambda env: str(env.env.current_levelname)
   observers = [
       LevelAvgReturnObserver(
               get_task_name=get_task_name,
