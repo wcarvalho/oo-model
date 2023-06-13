@@ -234,11 +234,26 @@ def make_demonstration_dataset_factory(
 
 
   def demonstration_dataset_factory(
-      random_key: jax_types.PRNGKey) -> Iterator[types.Transition]:
+      random_key: jax_types.PRNGKey,
+      split: str = 'train',
+      buffer_size: int = 10_000) -> Iterator[types.Transition]:
     """Returns an iterator of demonstration samples."""
 
     # load dataset from directory
-    dataset = tf_tfds.builder_from_directory(data_directory).as_dataset(split='all')
+    builder = tf_tfds.builder_from_directory(data_directory)
+    dataset = builder.as_dataset(split=split)
+
+    # Shuffle the datasets
+    total_examples = builder.info.splits[split].num_examples
+    buffer_size = buffer_size or total_examples
+    print(f"Buffer size: {buffer_size}/{total_examples}")
+
+    buffer_percent = 100*(float(buffer_size)/total_examples)
+    print("Buffer percent:", buffer_percent)
+    dataset = dataset.shuffle(
+        buffer_size=buffer_size,
+        reshuffle_each_iteration=True)
+    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
     if shift_discount:
       def concatenate_episode(episode):
@@ -279,5 +294,130 @@ def make_demonstration_dataset_factory(
           )
     )
     return iterator
+
+  return demonstration_dataset_factory
+
+
+def make_supervised_rl_factory(
+        data_directory: str,
+        batch_size: int,
+        trace_length: int = 10,
+        obs_constructor=None,
+        buffer_size: int = 1000,
+        **kwargs) -> Callable[[jax_types.PRNGKey], Iterator[types.Transition]]:
+  """Returns the demonstration dataset factory for the given dataset.`
+
+  Args:
+      data_directory (str): directiry to get data from
+      batch_size (int): batch size.
+      shift_discount (bool, optional): if discount=1 at T-1, then we need to shift it so discount=0. Currently, BabyAI env logger does this. Defaults to True.
+      trace_length (int, optional): length of batches. Defaults to 10.
+      obs_constructor (_type_, optional): constructor of observations. Defaults to None.
+
+  Returns:
+      Callable[[jax_types.PRNGKey], Iterator[types.Transition]]: _description_
+  """
+
+  def prepare_acme_dataset_iterator(dataset):
+    dataset = dataset.shuffle(
+          buffer_size=buffer_size,
+          reshuffle_each_iteration=True)
+    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
+    # Concatenates the existing dataset with a zeros-like dataset.
+    # will later shift by 1 and this avoid deleting real data when doing so.
+    # will instead consume zeros.
+    def concatenate_episode(episode):
+      episode[rlds.STEPS] = rlds.transformations.concatenate(
+          episode[rlds.STEPS],
+          rlds.transformations.zero_dataset_like(
+              dataset.element_spec[rlds.STEPS]))
+      return episode
+    dataset = dataset.map(concatenate_episode)
+
+    # turn observations into obs-action-reward
+    dataset = dataset.map(
+        partial(episode_steps_to_oar_observations, obs_constructor=obs_constructor))
+
+    # Shifts discount 1 step backward in all episodes
+    dataset = dataset.map(partial(shift_episode, timesteps=1))
+
+    # turn dataset into n-step trajectories per datapoint
+    dataset = dataset.map(
+        lambda e: episode_steps_to_nstep_transition(e, trace_length))
+
+    # batch into n-step trajectories to get [B, T] data-points per sample
+    dataset = rlds.transformations.batch(
+        dataset.flat_map(
+            lambda episode: episode[rlds.STEPS]),
+        batch_size,
+        shift=1, drop_remainder=True)
+
+    iterator = RestartableIteratorWrapper(
+        dataset=dataset,
+        cnstr=(lambda x:
+               utils.multi_device_put(x.as_numpy_iterator(),
+                                      devices=jax.local_devices(),
+                                      split_fn=None)
+               )
+    )
+    return iterator
+
+  def demonstration_dataset_factory(
+          random_key: jax_types.PRNGKey,
+          split: str = 'train',
+          split_size: int = 100,
+          percent: int = 100) -> Iterator[types.Transition]:
+    """Returns an iterator of demonstration samples."""
+    del random_key
+
+    # load dataset from directory
+    builder = tf_tfds.builder_from_directory(data_directory)
+
+    if split_size < 100:
+      if percent < 100:
+         split_size = int(split_size*percent/100)
+      split = [
+          f'{split}[:{split_size}%]',
+          f'{split}[{split_size}%:]',
+          ]
+      train_dataset, validation_dataset = builder.as_dataset(split=split)
+      print('split:', split)
+    else:
+      if percent < 100:
+         split = f'{split}[:{percent}%]'
+      print('split:', split)
+      dataset = builder.as_dataset(split=split)
+      return prepare_acme_dataset_iterator(dataset)
+
+    # # Compute the size of the dataset
+    # # dataset_size = tf.data.experimental.cardinality(dataset).numpy()
+    # # dataset_size = builder.info.splits[split].num_examples
+
+    # if percent < 100:
+    #   dataset_size = (percent / 100) * dataset_size
+    #   print('percent_size', dataset_size)
+    #   # Create the train and validation subsets
+    #   dataset = dataset.take(int(dataset_size))
+
+    # Compute the number of examples for the train split and for the subset
+    # num_train_examples = int((split_size / 100) * dataset_size)
+    # print('num_train_examples', num_train_examples)
+
+    # # Create the train and validation subsets
+    # train_dataset = dataset.take(num_train_examples)
+
+    # if split_size == 100:
+    #   train_iterator = prepare_acme_dataset_iterator(train_dataset)
+    #   return train_iterator
+
+    # num_valid_examples = int(((100 - split_size) / 100) * dataset_size)
+    # print('validation_examples', num_valid_examples)
+    # validation_dataset = dataset.skip(num_train_examples).take(
+    #     num_valid_examples)
+
+    train_iterator = prepare_acme_dataset_iterator(train_dataset)
+    validation_iterator = prepare_acme_dataset_iterator(validation_dataset)
+
+    return train_iterator, validation_iterator
 
   return demonstration_dataset_factory
