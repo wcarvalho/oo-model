@@ -118,7 +118,7 @@ def create_and_run_program(
     hourminute=False,
     return_kwpath=True,
     date=False,
-    path_skip=['num_steps', 'group'],
+    path_skip=['num_steps', 'num_learner_steps', 'group'],
     **log_path_config
     )
 
@@ -185,6 +185,8 @@ def run(
   root_path = str(Path().absolute())
   folder = FLAGS.folder
   skip = FLAGS.skip
+
+
   def train_function(config):
     """Run inside threads and creates new process.
     """

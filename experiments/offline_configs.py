@@ -11,7 +11,7 @@ class R2D2Config(r2d2.R2D2Config):
 @dataclasses.dataclass
 class MuZeroConfig(R2D2Config, muzero_config.MuZeroConfig):
   discount: float = 0.99
-  v_target_source = 'return'
+  v_target_source: str = 'return'
   action_source: str = 'value'  # 'policy', 'value', 'mcts'
   target_update_period: int = 100
   batch_size: int = 64

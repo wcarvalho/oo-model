@@ -86,13 +86,13 @@ class LearnerLogger(learner_logger.LearnerLogger):
           vmin_pre=None,
           vmax_pre=None,
           base_width=1))
-    to_log['img_attn_01_normalized'] = [wandb.Image(img) for img in img_attn_01]
-    to_log['img_attn_unnormalized'] = [wandb.Image(img) for img in img_attn_reg]
+    to_log['0.img_attn_01_normalized'] = [wandb.Image(img) for img in img_attn_01]
+    to_log['0.img_attn_unnormalized'] = [wandb.Image(img) for img in img_attn_reg]
 
     ######################
     # plot slot entropy
     ######################
     attn_entropy = attn_analysis.slot_attn_entropy(attn, normalize=True)
-    to_log['attn_entropy'] = attn_entropy
+    to_log['0.attn_entropy'] = attn_entropy
 
     return to_log
