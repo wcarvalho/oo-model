@@ -31,9 +31,8 @@ FLAGS = flags.FLAGS
 # flags.DEFINE_string('data_file', '', 'data_file')
 # flags.DEFINE_bool('debug', False, 'whether to debug script')
 flags.DEFINE_string('tasks_file', 'place_split_easy', 'tasks_file')
-flags.DEFINE_string('size', 'large', 'small=1e4, medium=1e5, large=1e6, xl=1e7')
+flags.DEFINE_string('size', 'medium', 'small=1e4, medium=1e5, large=1e6, xl=1e7')
 flags.DEFINE_integer('room_size', 7, 'room size')
-flags.DEFINE_integer('num_dists', 2, 'number of distractors')
 flags.DEFINE_bool('partial_obs', False, 'partial observability')
 
 
@@ -107,13 +106,12 @@ def get_name(nepisodes):
 
 def directory_name(tasks_file,
                    room_size,
-                   num_dists,
                    partial_obs,
                    nepisodes: int = None,
                    evaluation: bool = False,
                    **kwargs):
 
-  prefix=f"{tasks_file},r={room_size},d={num_dists},p={partial_obs}"
+  prefix=f"{tasks_file},r={room_size},p={partial_obs}"
   suffix = 'test' if evaluation else 'train'
   data_directory=f'data/babyai_kitchen/{prefix}/{suffix}_{get_name(nepisodes)}'
 
@@ -202,7 +200,6 @@ def main(unused_argv):
   env_kwargs = dict(
       tasks_file=FLAGS.tasks_file,
       room_size=FLAGS.room_size,
-      num_dists=FLAGS.num_dists,
       partial_obs=FLAGS.partial_obs,
   )
   nepisodes = get_episodes(FLAGS.size, FLAGS.debug)

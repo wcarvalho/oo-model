@@ -180,7 +180,6 @@ def run_experiment(
     return babyai_collect_data.directory_name(
       tasks_file=env_kwargs['tasks_file'],
       room_size=env_kwargs['room_size'],
-      num_dists=env_kwargs['num_dists'],
       partial_obs=env_kwargs['partial_obs'],
       nepisodes=nepisodes,
       evaluation=eval,
@@ -445,7 +444,6 @@ def main(_):
   default_env_kwargs = dict(
       tasks_file=FLAGS.tasks_file,
       room_size=FLAGS.room_size,
-      num_dists=FLAGS.num_dists,
       partial_obs=FLAGS.partial_obs,
   )
   if FLAGS.train_single:
