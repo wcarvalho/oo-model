@@ -117,8 +117,6 @@ class LearnerLogger(BaseLogger):
     def wandb_images(images_):
       return [wandb.Image(img) for img in images_]
 
-
-
     ######################
     # plot episode images
     ######################
@@ -343,24 +341,25 @@ class LearnerLogger(BaseLogger):
         )
     to_log['z.simulation_masks'] = wandb.Image(plot_img)
 
-
-    to_log = {f'{self._label}/{k}': v for k, v in to_log.items()}
-
     return to_log
 
-  def log_metrics(self, metrics):
+  def step(self):
     self._idx += 1
+
+  def log_metrics(self, metrics, label: str = None):
     if not (self._idx % self._log_frequency == 0): return
 
-    logging.info(f'creating {self._label} data. idx {self._idx}')
+    label = label or self._label
+    logging.info(f'creating {label} data. idx {self._idx}')
     to_log = self.create_log_metrics(metrics)
 
+    to_log = {f'{label}/{k}': v for k, v in to_log.items()}
     if not to_log: return
 
     try:
       wandb.log(to_log)
-      logging.info(f'logged {self._label} data. idx {self._idx}')
+      logging.info(f'logged {label} data. idx {self._idx}')
     except Exception as e:
       logging.warning(e)
-      logging.warning(f"{self._label}: turning off logging.")
+      logging.warning(f"{label}: turning off logging.")
       self._log_frequency = np.inf

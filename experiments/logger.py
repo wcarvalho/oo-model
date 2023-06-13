@@ -99,7 +99,6 @@ def make_logger(
     serialize_fn: Optional[Callable[[Mapping[str, Any]], str]] = copy_numpy,
     steps_key: str = 'steps',
     log_with_key: Optional[str] = None,
-    max_number_of_steps: Optional[int] = None,
 ) -> base.Logger:
   """Makes a default Acme logger.
 
@@ -144,7 +143,6 @@ def make_logger(
     loggers.append(WandbLogger(
       label=label,
       steps_key=steps_key,
-      max_number_of_steps=max_number_of_steps
       ))
 
   # Dispatch to all writers and filter Nones and by time.
@@ -182,7 +180,6 @@ class WandbLogger(base.Logger):
       label: str = 'Logs',
       labels_skip=('learner'),
       steps_key: Optional[str] = None,
-      max_number_of_steps: Optional[int] = None,
   ):
     """Initializes the logger.
     Args:
@@ -196,21 +193,9 @@ class WandbLogger(base.Logger):
     self._iter = 0
     # self.summary = tf.summary.create_file_writer(logdir)
     self._steps_key = steps_key
-    self.max_number_of_steps = max_number_of_steps
-    if max_number_of_steps is not None:
-      logging.warning(f"Will exit after {max_number_of_steps} steps")
-
-  def try_terminate(self, step: int):
-
-    if step > int(1.05*self.max_number_of_steps):
-      logging.warning("Exiting launchpad")
-      import launchpad as lp  # pylint: disable=g-import-not-at-top
-      lp.stop()
-      import signal
-      signal.raise_signal( signal.SIGTERM )
-
 
   def write(self, values: base.LoggingData):
+    label = self.label
     if self._steps_key is not None and self._steps_key not in values:
       logging.warning('steps key "%s" not found. Skip logging.', self._steps_key)
       logging.warning('Available keys:', str(values.keys()))
@@ -221,18 +206,18 @@ class WandbLogger(base.Logger):
     to_log={}
     for key in values.keys() - [self._steps_key]:
 
-      if self.label.lower() in self.labels_skip: # e.g. [Loss]
+      if label.lower() in self.labels_skip: # e.g. [Loss]
         key_pieces = key.split("/")
         if len(key_pieces) == 1: # e.g. [step]
-          name = f'{self.label}/{_format_key(key)}'
+          name = f'{label}/{_format_key(key)}'
         else: 
           if 'grad' in key.lower():
           # e.g. [MeanGrad/FarmSharedOutput/~/FeatureAttention/Conv2D1] --> [Loss/MeanGrad-FarmSharedOutput-~-FeatureAttention-Conv2D1]
             name = f'z.grads/{_format_key(key)}'
           else: # e.g. [r2d1/xyz] --> [Loss_r2d1/xyz]
-            name = f'{self.label}_{_format_loss(key)}'
+            name = f'{label}_{_format_loss(key)}'
       else: # e.g. [actor_SmallL2NoDist]
-        name = f'{self.label}/{_format_key(key)}'
+        name = f'{label}/{_format_key(key)}'
 
       to_log[name] = values[key]
 
@@ -241,15 +226,6 @@ class WandbLogger(base.Logger):
     wandb.log(to_log)
 
     self._iter += 1
-    if self.max_number_of_steps is not None:
-      if self._steps_key == 'actor_steps':
-        self.try_terminate(step)
-      else:
-        try:
-          self.try_terminate(values['actor_steps'])
-        except Exception as e:
-          pass
-
 
   def close(self):
     try:
