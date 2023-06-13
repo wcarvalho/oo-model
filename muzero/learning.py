@@ -454,8 +454,8 @@ class MuZeroLearner(acme.Learner):
     ###############################
     # updating
     ###############################
-    self._update_logger.step()
     self._update_logger.log_metrics(metrics)
+    self._update_logger.step()
     loss_metrics = metrics.pop('loss_metrics', {})
     loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
 

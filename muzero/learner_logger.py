@@ -211,7 +211,7 @@ class LearnerLogger(BaseLogger):
     # root
 
     num_actions = policy_probs.shape[-1]
-    onehot_actions = jax.nn.one_hot(actions, num_classes=num_actions)
+    onehot_env_actions = jax.nn.one_hot(actions, num_classes=num_actions)
 
     plot_images = []
     for idx in range(policy_root_target.shape[0]):
@@ -220,7 +220,7 @@ class LearnerLogger(BaseLogger):
           xlabels=self._action_names,
           pmfs=[policy_root_target[idx],
                 policy_root_prediction[idx],
-                onehot_actions[idx],
+                onehot_env_actions[idx],
                 ],
           pmf_labels=['Target', 'Prediction', 'Environment Action'],
           title=f'Policy Root Predictions (T={idx})',
@@ -231,22 +231,22 @@ class LearnerLogger(BaseLogger):
     # compare actions by model w/ actions in environment
     # as reminder: simulation simulated future states using
     # s_0, a_0, a_1, ....
-    environment_actions = jax.nn.one_hot(
-      simulation_actions[0, 1:], num_classes=num_actions)
+    # environment_actions = jax.nn.one_hot(
+    #   simulation_actions[0, 1:], num_classes=num_actions)
     plot_images = []
-    for idx in range(environment_actions.shape[0]):
+    sim_steps = len(policy_model_target)
+    for idx in range(sim_steps):
         if idx + 1 < len(in_episode):
           sim_in_episode = in_episode[idx+1] == 1
         else:
           sim_in_episode = False
-
         if sim_in_episode:
           plot_images.append(analyis_utils.plot_compare_pmfs(
               xlabels=self._action_names,
               pmfs=[
                 policy_model_target[idx],
                 policy_model_prediction[idx],
-                environment_actions[idx],
+                onehot_env_actions[idx+1],
                 ],
               pmf_labels=[
                 'Target',
