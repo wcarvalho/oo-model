@@ -31,3 +31,6 @@ test:
     taskarg_options:
       x: food
       y: [sink, pot, pan, plates, bowl]
+
+
+valid_actions: [left, right, forward, pickup_contents, place]

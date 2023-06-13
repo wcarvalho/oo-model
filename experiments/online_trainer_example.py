@@ -1,5 +1,5 @@
 
-import functools
+import functools 
 
 from absl import flags
 from absl import app
@@ -100,14 +100,14 @@ def setup_agents(
 
 
 def setup_experiment_inputs(
-    agent: str,
+    agent : str,
     path: str = '.',
-    agent_config_kwargs: dict = None,
-    agent_config_file: str = None,
-    env_kwargs: dict = None,
-    env_config_file: str = None,
+    agent_config_kwargs: dict=None,
+    agent_config_file: str=None,
+    env_kwargs: dict=None,
+    env_config_file: str=None,
     debug: bool = False,
-):
+  ):
   """Setup."""
 
   # -----------------------
@@ -126,49 +126,56 @@ def setup_experiment_inputs(
   # -----------------------
   # setup environment factory
   # -----------------------
-  def environment_factory(seed: int,
-                          evaluation: bool = False) -> dm_env.Environment:
-    del seed
-    return babyai_env_utils.make_kitchen_environment(
-        path=path,
-        debug=debug,
-        evaluation=evaluation,
-        **env_kwargs)
+  print("please setup the environment factory")
+  import ipdb; ipdb.set_trace()
+  environment_factory = None
+  # def environment_factory(seed: int,
+  #                         evaluation: bool = False) -> dm_env.Environment:
+  #   del seed
+  #   return babyai_env_utils.make_kitchen_environment(
+  #       path=path,
+  #       debug=debug,
+  #       evaluation=evaluation,
+  #       **env_kwargs)
 
   # -----------------------
   # load agent config, builder, network factory
   # -----------------------
   # Configure the agent & update with config kwargs
-
+  print("optionally set action names")
+  import ipdb; ipdb.set_trace()
+  env_action_names = None
   config, builder, network_factory = setup_agents(
       agent=agent,
       debug=debug,
       config_kwargs=config_kwargs,
       env_kwargs=env_kwargs,
       update_logger_kwargs=dict(
-          action_names=['left', 'right', 'forward', 'pickup_1',
-                        'pickup_2', 'place', 'toggle', 'slice'],
+          action_names=env_action_names,
       )
   )
   # -----------------------
   # setup observer factory for environment
   # -----------------------
+  print("optionally set fn for getting the current level ")
+  # get_task_name = lambda env: str(env.env.current_levelname)
+  get_task_name = None
+  import ipdb; ipdb.set_trace()
   observers = [
       LevelAvgReturnObserver(
-          get_task_name=lambda env: str(env.env.current_levelname),
-          reset=50 if not debug else 5),
-      # ExitObserver(window_length=500, exit_at_success=.99),  # will exit at certain success rate
-  ]
+              get_task_name=get_task_name,
+              reset=50 if not debug else 5),
+          # ExitObserver(window_length=500, exit_at_success=.99),  # will exit at certain success rate
+      ]
 
   return experiment_builders.OnlineExperimentConfigInputs(
-      agent_config=config,
-      final_env_kwargs=env_kwargs,
-      builder=builder,
-      network_factory=network_factory,
-      environment_factory=environment_factory,
-      observers=observers,
+    agent_config=config,
+    final_env_kwargs=env_kwargs,
+    builder=builder,
+    network_factory=network_factory,
+    environment_factory=environment_factory,
+    observers=observers,
   )
-
 
 def train_single(
     default_env_kwargs: dict = None,
@@ -179,12 +186,12 @@ def train_single(
   debug = FLAGS.debug
 
   experiment_config_inputs = setup_experiment_inputs(
-      agent=FLAGS.agent,
-      path=FLAGS.path,
-      agent_config_file=FLAGS.agent_config,
-      env_kwargs=default_env_kwargs,
-      env_config_file=FLAGS.env_config,
-      debug=debug)
+    agent=FLAGS.agent,
+    path=FLAGS.path,
+    agent_config_file=FLAGS.agent_config,
+    env_kwargs=default_env_kwargs,
+    env_config_file=FLAGS.env_config,
+    debug=debug)
 
   log_dir = FLAGS.folder
   if FLAGS.make_path:
@@ -198,13 +205,14 @@ def train_single(
       logging.info(f'wandb name: {str(date_time)}')
       wandb_init_kwargs['name'] = date_time
 
+
   experiment = experiment_builders.build_online_experiment_config(
-      experiment_config_inputs=experiment_config_inputs,
-      agent=FLAGS.agent,
-      log_dir=log_dir,
-      wandb_init_kwargs=wandb_init_kwargs,
-      debug=debug,
-      **kwargs,
+    experiment_config_inputs=experiment_config_inputs,
+    agent=FLAGS.agent,
+    log_dir=log_dir,
+    wandb_init_kwargs=wandb_init_kwargs,
+    debug=debug,
+    **kwargs,
   )
   if FLAGS.run_distributed:
     program = experiments.make_distributed_experiment(
@@ -226,6 +234,7 @@ def train_single(
     experiments.run_experiment(experiment=experiment)
 
 
+
 def sweep(search: str = 'default', agent: str = 'muzero'):
   if search == 'default':
     space = [
@@ -243,7 +252,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "tasks_file": tune.grid_search([
                 'place_split_easy',
                 # 'place_split_hard'
-            ]),
+                ]),
         }
     ]
   else:
@@ -266,12 +275,10 @@ def main(_):
   )
   if FLAGS.train_single:
     # overall group
-    wandb_init_kwargs[
-        'group'] = FLAGS.wandb_group if FLAGS.wandb_group else f"{search}_{FLAGS.agent}"
+    wandb_init_kwargs['group'] = FLAGS.wandb_group if FLAGS.wandb_group else f"{search}_{FLAGS.agent}"
   else:
     if FLAGS.wandb_group:
-      logging.info(
-          f'IGNORING `wandb_group`. This will be set using the current `search`')
+      logging.info(f'IGNORING `wandb_group`. This will be set using the current `search`')
     wandb_init_kwargs['group'] = search
 
   if FLAGS.wandb_name:
@@ -283,34 +290,35 @@ def main(_):
   # -----------------------
   # env setup
   # -----------------------
+  print("optionally set default kwargs for environment")
+  import ipdb; ipdb.set_trace()
   default_env_kwargs = dict(
-      tasks_file='place_split_hard',
-      room_size=5,
-      num_dists=1,
-      partial_obs=False,
+      # tasks_file='place_split_hard',
+      # room_size=5,
+      # num_dists=1,
+      # partial_obs=False,
   )
   run_distributed = FLAGS.run_distributed
   num_actors = FLAGS.num_actors
   if FLAGS.train_single:
     train_single(
-        wandb_init_kwargs=wandb_init_kwargs,
-        default_env_kwargs=default_env_kwargs)
+      wandb_init_kwargs=wandb_init_kwargs,
+      default_env_kwargs=default_env_kwargs)
   else:
     train_many.run(
-        name='babyai_online_trainer',
-        wandb_init_kwargs=wandb_init_kwargs,
-        default_env_kwargs=default_env_kwargs,
-        use_wandb=use_wandb,
-        debug=FLAGS.debug,
-        space=sweep(search, FLAGS.agent),
-        make_program_command=functools.partial(
-            train_many.make_program_command,
-            filename='experiments/babyai_online_trainer.py',
-            run_distributed=run_distributed,
-            num_actors=num_actors,
+      name='pushworld_online_trainer',
+      wandb_init_kwargs=wandb_init_kwargs,
+      default_env_kwargs=default_env_kwargs,
+      use_wandb=use_wandb,
+      debug=FLAGS.debug,
+      space=sweep(search, FLAGS.agent),
+      make_program_command=functools.partial(
+        train_many.make_program_command,
+        filename='experiments/pushworld_online_trainer.py',
+        run_distributed=run_distributed,
+        num_actors=num_actors,
         ),
     )
-
 
 if __name__ == '__main__':
   app.run(main)

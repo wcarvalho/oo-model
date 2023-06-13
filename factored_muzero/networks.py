@@ -33,7 +33,7 @@ from modules import language
 from modules import vision_language
 from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
 from muzero.arch import MuZeroArch
-from muzero.types import MuZeroNetworks, TaskAwareState
+from muzero.types import MuZeroNetworks, TaskAwareState, RootOutput, ModelOutput
 from muzero.utils import Discretizer, TaskAwareRecurrentFn, scale_gradient
 from muzero.networks import make_network
 
@@ -57,7 +57,9 @@ def make_save_input(embedding: vision_language.TorsoOutput):
 def make_babyai_networks(
   env_spec: specs.EnvironmentSpec,
   num_spatial_vectors: dict,
-  config: MuZeroConfig) -> MuZeroNetworks:
+  config: MuZeroConfig,
+  invalid_actions=None,
+  **kwargs) -> MuZeroNetworks:
   """Builds default MuZero networks for BabyAI tasks."""
 
   num_actions = env_spec.actions.num_values
@@ -300,7 +302,11 @@ def make_babyai_networks(
                                            task_query=queries[0])
         policy_logits = policy_fn(policy_input)
         value_logits = value_fn(policy_input)
-        return policy_logits, value_logits
+        return RootOutput(
+            state=state,
+            value_logits=value_logits,
+            policy_logits=policy_logits,
+        )
       assert state.task.ndim in (1,2), "should be [D] or [B, D]"
       if state.task.ndim == 2:
         _root_predictor = jax.vmap(_root_predictor)
@@ -325,7 +331,13 @@ def make_babyai_networks(
                                            task_query=queries[0])
         policy_logits = policy_fn(policy_input)
         value_logits = value_fn(policy_input)
-        return reward_logits, policy_logits, value_logits
+        return ModelOutput(
+            new_state=state,
+            value_logits=value_logits,
+            policy_logits=policy_logits,
+            reward_logits=reward_logits,
+            # termination=termination,
+        )
       assert state.task.ndim in (1,2), "should be [D] or [B, D]"
       if state.task.ndim == 2:
         _model_predictor = jax.vmap(_model_predictor)
@@ -342,8 +354,13 @@ def make_babyai_networks(
       combine_hidden_obs=combine_hidden_obs,
       transition_fn=transition_fn,
       root_pred_fn=root_pred_fn,
-      model_pred_fn=model_pred_fn)
+      model_pred_fn=model_pred_fn,
+      invalid_actions=invalid_actions)
 
     return arch
 
-  return make_network(env_spec, make_core_module)
+  return make_network(config=config,
+                      environment_spec=env_spec,
+                      make_core_module=make_core_module,
+                      invalid_actions=invalid_actions,
+                      **kwargs)

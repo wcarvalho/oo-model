@@ -113,9 +113,9 @@ class MultitaskKitchen(dm_env.Environment):
               task_kinds=[task],
               **level_kwargs
           )
-    from pprint import pprint
-    pprint(all_level_kwargs)
-
+    # from pprint import pprint
+    # pprint(all_level_kwargs)
+    self.all_level_kwargs = all_level_kwargs
     # -----------------------
     # load env
     # -----------------------

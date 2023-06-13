@@ -5,3 +5,5 @@ train:
 
   - name: place
     task_kinds: place
+
+valid_actions: [left, right, forward, pickup_contents]

@@ -23,7 +23,7 @@ def main(unused_argv):
   tasks_files = ['place_split_easy', 'place_split_medium', 'place_split_hard']
   room_sizes = [7]
   num_dists = [2]
-  partial_obs = [False, True]
+  partial_obs = [False]
 
   debug = FLAGS.debug
   for (t, r, n, p) in itertools.product(tasks_files, room_sizes, num_dists, partial_obs):

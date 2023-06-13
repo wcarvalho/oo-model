@@ -17,8 +17,9 @@ from experiments.config_utils import update_config
 
 def load_config(
         config_kwargs: dict = None,
-        config_class: MuZeroConfig = MuZeroConfig,
+        config_class: MuZeroConfig = None,
         strict_config: bool = False):
+  config_class = config_class or MuZeroConfig
   config_kwargs = config_kwargs or dict()
   logging.info(f'Config arguments')
   pprint(config_kwargs)
@@ -32,10 +33,13 @@ def load_config(
 
 def setup(
     config: MuZeroConfig,
-    network_kwargs=None,
+    network_kwargs: dict = None,
+    loss_kwargs: dict = None,
     builder_kwargs: dict = None,
+    invalid_actions = None,
     **kwargs):
   network_kwargs = network_kwargs or dict()
+  loss_kwargs = loss_kwargs or dict()
   builder_kwargs = builder_kwargs or dict()
 
   discretizer = muzero_utils.Discretizer(
@@ -67,8 +71,9 @@ def setup(
     model_value_coef=config.model_value_coef,
     model_reward_coef=config.model_reward_coef,
     v_target_source=config.v_target_source,
-    # reanalyze_ratio=config.reanalyze_ratio,
-    # metrics=config.metrics,
+    mask_model=config.mask_model,
+    invalid_actions=invalid_actions,
+    **loss_kwargs,
   )
 
   builder = MuZeroBuilder(config, loss_fn=ve_loss_fn, **builder_kwargs)
@@ -77,6 +82,7 @@ def setup(
       muzero_networks.make_babyai_networks,
       config=config,
       discretizer=discretizer,
+      invalid_actions=invalid_actions,
       **network_kwargs)
   
   return builder, network_factory

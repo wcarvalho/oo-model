@@ -50,8 +50,8 @@ def remove_excluded(objects, exclude):
 class KitchenTask(Instr):
   """docstring for KitchenTasks"""
   def __init__(self,
-    env,
-    kitchen,
+    env = None,
+    kitchen = None,
     done_delay=0,
     reward=1.0,
     verbosity=0.0,

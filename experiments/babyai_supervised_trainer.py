@@ -1,23 +1,30 @@
 
 import functools 
 
+from typing import Optional, Callable
+
 from absl import flags
 from absl import app
-from ray import tune
 from absl import logging
-from launchpad.nodes.python.local_multi_processing import PythonProcess
-import launchpad as lp
-import os.path
+import collections
+from ray import tune
 
+
+import acme
 from acme import specs
 from acme.jax import experiments
+from acme.jax.experiments import config
+from acme.utils import counting
+from acme.tf import savers
+from acme.utils import paths
+
 import dm_env
+import jax
 import jax.numpy as jnp
 import numpy as np
 from pprint import pprint
 
 from envs.multitask_kitchen import Observation
-from experiments.observers import LevelAvgReturnObserver, ExitObserver
 from experiments import config_utils
 from experiments import train_many
 from experiments import experiment_builders
@@ -28,13 +35,66 @@ from experiments import logger as wandb_logger
 from experiments import offline_configs
 from experiments.babyai_online_trainer import setup_agents
 
-flags.DEFINE_bool(
-    'make_dataset', False, 'Make dataset if does not exist.')
-
 FLAGS = flags.FLAGS
 
 
-def setup_experiment_inputs(
+def setup_logger_factory(
+    agent_config,
+    save_config_dict: dict = None,
+    log_dir: str = None,
+    log_every: int = 30.0,
+    custom_steps_keys: Optional[Callable[[str], str]] = None,
+    wandb_init_kwargs=None,
+):
+  """Builds experiment config."""
+
+  assert log_dir, 'provide directory for logging experiments via FLAGS.folder'
+  paths.process_path(log_dir)
+  config_utils.save_config(f'{log_dir}/config.pkl', agent_config.__dict__)
+  # -----------------------
+  # wandb setup
+  # -----------------------
+  wandb_init_kwargs = wandb_init_kwargs or dict()
+  save_config_dict = save_config_dict or dict()
+
+  use_wandb = len(wandb_init_kwargs)
+  if use_wandb:
+    import wandb
+
+    # add config to wandb
+    wandb_config = wandb_init_kwargs.get("config", {})
+    save_config_dict = save_config_dict or dict()
+    save_config_dict.update(agent_config.__dict__)
+    wandb_config.update(save_config_dict)
+
+    wandb_init_kwargs['config'] = wandb_config
+    wandb_init_kwargs['dir'] = log_dir
+    wandb_init_kwargs['reinit'] = True
+    wandb_init_kwargs['settings'] = wandb.Settings(
+        code_dir=log_dir,
+        start_method="fork")
+    wandb.init(**wandb_init_kwargs)
+
+  # -----------------------
+  # create logger factory
+  # -----------------------
+  def logger_factory(
+      name: str,
+      steps_key: Optional[str] = None,
+  ):
+    if custom_steps_keys is not None:
+      steps_key = custom_steps_keys(name)
+    return wandb_logger.make_logger(
+        log_dir=log_dir,
+        label=name,
+        time_delta=log_every,
+        steps_key=steps_key,
+        use_wandb=use_wandb,
+        asynchronous=True)
+  return logger_factory
+
+
+def run_experiment(
     agent : str,
     nepisode_dataset: int,
     path: str = '.',
@@ -43,7 +103,13 @@ def setup_experiment_inputs(
     env_kwargs: dict=None,
     env_config_file: str=None,
     debug: bool = False,
-    make_dataset: bool = False,
+    log_dir: str = None,
+    wandb_init_kwargs=None,
+    dataset_percent: int = 100,
+    min_validation: float = 1e10,
+    tolerance: int = 10,
+    train_batches: int = int(1e4),
+    eval_batches: int = int(1e2),
   ):
   """Setup."""
 
@@ -100,76 +166,130 @@ def setup_experiment_inputs(
     )
   )
   logging.info(f'Config')
-
   pprint(config.__dict__)
 
-  # -----------------------
-  # setup environment
-  # -----------------------
-  def environment_factory(seed: int,
-                          evaluation: bool = False) -> dm_env.Environment:
-    del seed
-    return babyai_env_utils.make_kitchen_environment(
-        path=path,
-        debug=debug,
-        evaluation=evaluation,
-        evaluate_train_test=True,
-        **env_kwargs)
 
-  # Create an environment and make the environment spec
-  environment = environment_factory(0)
+  environment = babyai_env_utils.make_kitchen_environment(**env_kwargs)
   environment_spec = specs.make_environment_spec(environment)
+  # Create the networks and policy.
+  networks = network_factory(environment_spec)
+
 
   # Define the demonstrations factory.
-  data_directory = babyai_collect_data.directory_name(
+  def make_data_directory(eval, nepisodes):
+    return babyai_collect_data.directory_name(
       tasks_file=env_kwargs['tasks_file'],
       room_size=env_kwargs['room_size'],
       num_dists=env_kwargs['num_dists'],
       partial_obs=env_kwargs['partial_obs'],
-      nepisodes=nepisode_dataset,
-      evaluation=False,
+      nepisodes=nepisodes,
+      evaluation=eval,
       debug=debug)
-  
-  dataset_info_path = os.path.join(data_directory, 'dataset_info.json')
-  if not os.path.exists(dataset_info_path):
-    if make_dataset:
-      logging.info(f'MAKING DATASET: {data_directory}')
-      import ipdb; ipdb.set_trace()
-      babyai_collect_data.make_dataset(
-        env_kwargs=env_kwargs,
-        nepisodes=100 if debug else int(1e5),
-        debug=debug,
-      )
-    else:
-      raise RuntimeError(f"Does not exist: {dataset_info_path}")
 
-
-  demonstration_dataset_factory = dataset_utils.make_demonstration_dataset_factory(
+  def make_iterator(data_directory: str,
+                    split: str,
+                    buffer_size: int = 10_000):
+    dataset_factory = dataset_utils.make_demonstration_dataset_factory(
       data_directory=data_directory,
       obs_constructor=Observation,
       batch_size=config.batch_size,
       trace_length=config.trace_length)
+    return dataset_factory(0,
+                           split=split,
+                           buffer_size=buffer_size)
+  
+  train_split = 'train'
+  if dataset_percent < 100:
+    train_split = 'train[:{dataset_percent}%]'
+  train_iterator = make_iterator(
+    data_directory=make_data_directory(
+      eval=False, nepisodes=nepisode_dataset),
+    split=train_split)
+  validation_iterator = make_iterator(
+    data_directory=make_data_directory(
+      eval=False, nepisodes=int(1e5)),
+    split='train')
+  eval_iterator = make_iterator(
+    data_directory=make_data_directory(
+      eval=True, nepisodes=int(1e5)),
+    split='test')
 
-  # -----------------------
-  # setup observer factory for environment
-  # -----------------------
-  observers = [
-      LevelAvgReturnObserver(
-              get_task_name=lambda env: str(env.env.current_levelname),
-              reset=50 if not debug else 5),
-          # ExitObserver(window_length=500, exit_at_success=.99),  # will exit at certain success rate
-      ]
 
-  return experiment_builders.OfflineExperimentConfigInputs(
+  # Create learners.
+  parent_counter = counting.Counter(time_delta=0.)
+  logger_fn = setup_logger_factory(
     agent_config=config,
-    final_env_kwargs=env_kwargs,
-    builder=builder,
-    network_factory=network_factory,
-    environment_factory=environment_factory,
-    observers=observers,
-    demonstration_dataset_factory=demonstration_dataset_factory,
-    environment_spec=environment_spec,
+    log_dir=log_dir,
+    wandb_init_kwargs=wandb_init_kwargs,
   )
+
+  key = jax.random.PRNGKey(config.seed)
+  learner_key, key = jax.random.split(key)
+  learner = builder.make_learner(
+        random_key=learner_key,
+        networks=networks,
+        dataset=train_iterator,
+        logger_fn=logger_fn,
+        environment_spec=environment_spec,
+        counter=counting.Counter(parent_counter,
+                                 prefix='learner',
+                                 time_delta=0.))
+  validation_logger = logger_fn('valid_loss')
+  eval_logger = logger_fn('eval_loss')
+
+  # -----------------------
+  # training loop
+  # -----------------------
+  valid_increases = 0
+  steps = 0
+  num_learner_steps = config.num_learner_steps
+  if debug:
+    train_batches = eval_batches = 1
+    num_learner_steps = 10
+
+  while True:
+    losses = collections.defaultdict(list)
+    update_visualizations = True
+    for _ in range(eval_batches):
+      learner_key, key = jax.random.split(key)
+      valid_loss, metrics = learner.compute_loss(
+        sample=next(validation_iterator),
+        loss_key=learner_key,
+        update_visualizations=update_visualizations,
+        log_label='validation')
+      validation_logger.write(metrics)
+      losses['valid_loss'].append(valid_loss)
+
+      learner_key, key = jax.random.split(key)
+      eval_loss, metrics = learner.compute_loss(
+        sample=next(eval_iterator),
+        loss_key=learner_key,
+        update_visualizations=update_visualizations,
+        log_label='eval')
+      eval_logger.write(metrics)
+      losses['eval_loss'].append(eval_loss)
+      update_logger = False
+
+    for _ in range(train_batches):
+      learner.step()
+      steps += 1
+
+      if steps > num_learner_steps:
+        break
+
+    valid_loss = np.array(losses['valid_loss']).mean()
+
+    if valid_loss < min_validation:
+      min_validation = valid_loss
+      valid_increases = 0
+    else:
+      valid_increases += 1
+
+    if valid_increases >= tolerance:
+      return
+
+    if steps > num_learner_steps:
+      return
 
 def train_single(
     default_env_kwargs: dict,
@@ -179,20 +299,7 @@ def train_single(
 ):
   debug = FLAGS.debug
 
-  experiment_config_inputs = setup_experiment_inputs(
-    agent=FLAGS.agent,
-    path=FLAGS.path,
-    agent_config_file=FLAGS.agent_config,
-    env_kwargs=default_env_kwargs,
-    env_config_file=FLAGS.env_config,
-    make_dataset=FLAGS.make_dataset,
-    nepisode_dataset=babyai_collect_data.get_episodes(FLAGS.size, debug),
-    debug=debug)
-
-  def custom_steps_keys(name: str):
-    return f'{name}_steps'
   log_dir = FLAGS.folder
-
   if FLAGS.make_path:
     log_dir = wandb_logger.gen_log_dir(
       base_dir=log_dir,
@@ -204,40 +311,16 @@ def train_single(
       logging.info(f'wandb name: {str(date_time)}')
       wandb_init_kwargs['name'] = date_time
 
-  experiment = experiment_builders.build_offline_experiment_config(
-    experiment_config_inputs=experiment_config_inputs,
+  run_experiment(
     agent=FLAGS.agent,
+    path=FLAGS.path,
+    agent_config_file=FLAGS.agent_config,
+    env_kwargs=default_env_kwargs,
+    env_config_file=FLAGS.env_config,
+    nepisode_dataset=babyai_collect_data.get_episodes(FLAGS.size, debug),
     log_dir=log_dir,
     wandb_init_kwargs=wandb_init_kwargs,
-    debug=debug,
-    logger_factory_kwargs=dict(
-      custom_steps_keys=custom_steps_keys,
-    ),
-    **kwargs
-  )
-  if FLAGS.run_distributed:
-    program = experiments.make_distributed_offline_experiment(
-        experiment=experiment)
-
-    local_resources = {
-        "actor": PythonProcess(env={"CUDA_VISIBLE_DEVICES": ""}),
-        "evaluator": PythonProcess(env={"CUDA_VISIBLE_DEVICES": ""}),
-        "counter": PythonProcess(env={"CUDA_VISIBLE_DEVICES": ""}),
-        "replay": PythonProcess(env={"CUDA_VISIBLE_DEVICES": ""}),
-        "coordinator": PythonProcess(env={"CUDA_VISIBLE_DEVICES": ""}),
-    }
-    lp.launch(program,
-              lp.LaunchType.LOCAL_MULTI_PROCESSING,
-              terminal=terminal,
-              local_resources=local_resources)
-  else:
-    # NOTE: DEBUGGING ONLY. otherwise change settings below
-    experiments.run_offline_experiment(
-      experiment=experiment,
-      eval_every=5,
-      num_eval_episodes=5,
-      )
-
+    debug=debug)
 
 
 def sweep(search: str = 'default', agent: str = 'muzero'):
@@ -269,11 +352,11 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "num_learner_steps": tune.grid_search([int(1e5)]),
             # "v_target_source": tune.grid_search(['reanalyze']),
             "tasks_file": tune.grid_search(['place_split_easy']),
-            "warmup_steps": tune.grid_search([1_000, 10_000, 100_000]),
-            "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
+            # "warmup_steps": tune.grid_search([1_000, 10_000, 100_000]),
+            # "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
             # "target_update_period": tune.grid_search([100, 2500]),
-            "learning_rate": tune.grid_search([1e-3, 1e-4, 1e-6, 1e-5]),
-            "action_source": tune.grid_search(['policy']),
+            "learning_rate": tune.grid_search([1e-3, 1e-4, 1e-5, 1e-6]),
+            # "action_source": tune.grid_search(['policy']),
             # "output_init": tune.grid_search([None, 0.0]),
             # "mask_model": tune.grid_search([True, False]),
         }
@@ -372,7 +455,7 @@ def main(_):
   else:
     run_distributed = FLAGS.run_distributed
     train_many.run(
-      name='babyai_offline_trainer',
+      name='babyai_supervised_trainer',
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
       use_wandb=use_wandb,
@@ -380,7 +463,7 @@ def main(_):
       space=sweep(search, FLAGS.agent),
       make_program_command=functools.partial(
         train_many.make_program_command,
-        filename='experiments/babyai_offline_trainer.py',
+        filename='experiments/babyai_supervised_trainer.py',
         run_distributed=run_distributed,
         num_actors=1,
         ),

@@ -45,6 +45,7 @@ StateFn = Callable[[Params, PRNGKey, Observation, RecurrentState],
                   Tuple[NetworkOutput, RecurrentState]]
 ModelFn = Callable[[Params, PRNGKey, RecurrentState, Action],
                    Tuple[NetworkOutput, RecurrentState]]
+QFn = Callable[[Params, PRNGKey, RecurrentState], chex.Array]
 
 @dataclasses.dataclass
 class MuZeroNetworks:
@@ -56,6 +57,7 @@ class MuZeroNetworks:
   apply_model: ModelFn
   unroll_model: ModelFn
   model_init: Optional[InitFn] = None
+  compute_q_values: Optional[QFn] = None
 
 
 class MuZeroParams(NamedTuple):

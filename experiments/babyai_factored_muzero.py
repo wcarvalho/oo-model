@@ -18,9 +18,10 @@ from experiments.config_utils import update_config
 
 def load_config(
     config_kwargs: dict = None,
-    config_class: FactoredMuZeroConfig=FactoredMuZeroConfig,
+    config_class: FactoredMuZeroConfig=None,
     strict_config: bool = False):
   config_kwargs = config_kwargs or dict()
+  config_class = config_class or FactoredMuZeroConfig
   logging.info(f'Config arguments')
   pprint(config_kwargs)
   config = config_class()
@@ -33,10 +34,13 @@ def load_config(
 
 def setup(
     config: FactoredMuZeroConfig,
-    network_kwargs=None,
+    network_kwargs: dict = None,
+    loss_kwargs: dict = None,
     builder_kwargs: dict = None,
+    invalid_actions = None,
     **kwargs):
   network_kwargs = network_kwargs or dict()
+  loss_kwargs = loss_kwargs or dict()
   builder_kwargs = builder_kwargs or dict()
 
   discretizer = muzero_utils.Discretizer(
@@ -48,9 +52,10 @@ def setup(
   config.num_bins = discretizer._num_bins
 
   muzero_policy = functools.partial(
-    mctx.gumbel_muzero_policy,
-    max_depth=config.max_sim_depth,
-    gumbel_scale=config.gumbel_scale)
+      mctx.gumbel_muzero_policy,
+      max_depth=config.max_sim_depth,
+      gumbel_scale=config.gumbel_scale)
+
   policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
 
   ve_loss_fn = functools.partial(ValueEquivalentLoss,
@@ -67,8 +72,9 @@ def setup(
     model_value_coef=config.model_value_coef,
     model_reward_coef=config.model_reward_coef,
     v_target_source=config.v_target_source,
-    # reanalyze_ratio=config.reanalyze_ratio,
-    # metrics=config.metrics,
+    mask_model=config.mask_model,
+    invalid_actions=invalid_actions,
+    **loss_kwargs,
     )
 
   builder = MuZeroBuilder(
@@ -79,6 +85,7 @@ def setup(
   network_factory = functools.partial(
           networks.make_babyai_networks,
           config=config,
+          invalid_actions=invalid_actions,
           **network_kwargs)
   
   return builder, network_factory

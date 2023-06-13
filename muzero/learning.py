@@ -56,6 +56,28 @@ _PMAP_AXIS_NAME = 'data'
 # putting item keys (uint64) on device for the purposes of priority updating.
 R2D2ReplaySample = utils.PrefetchingSplit
 
+def sample_maybe(prob_: float, key):
+  if prob_  > .999:
+    sample = True
+    is_conditional = False
+  elif prob_ < 1e-4:
+    sample = False
+    is_conditional = False
+  else:
+    sample = distrax.Bernoulli(
+        probs=prob_).sample(seed=key)
+    is_conditional = True
+  return sample, is_conditional
+
+def flatten_dict(dictionary, parent_key='', separator='.'):
+    flattened_dict = {}
+    for key, value in dictionary.items():
+        new_key = f"{parent_key}{separator}{key}" if parent_key else key
+        if isinstance(value, dict):
+            flattened_dict.update(flatten_dict(value, new_key, separator))
+        else:
+            flattened_dict[new_key] = value
+    return flattened_dict
 
 def episode_mean(x, mask):
   if len(mask.shape) < len(x.shape):
@@ -162,17 +184,16 @@ class MuZeroLearner(acme.Learner):
 
       # computing this outside of loss is important because only 1 branch is executed.
       # if computed inside function, vmap would lead all branches to be executed
-      if config.model_learn_prob  == 1.0:
-        learn_model = True
-        conditional_learn_model = False
-      elif config.model_learn_prob < 1e-4:
-        learn_model = False
-        conditional_learn_model = False
-      else:
-        key_grad, sample_key = jax.random.split(key_grad)
-        learn_model = distrax.Bernoulli(
-            probs=config.model_learn_prob).sample(seed=sample_key)
-        conditional_learn_model = True
+
+      key_grad, sample_key = jax.random.split(key_grad)
+      learn_model, conditional_learn_model = sample_maybe(
+        prob_=config.model_learn_prob,
+        key=sample_key)
+
+      key_grad, sample_key = jax.random.split(key_grad)
+      reanalyze, _ = sample_maybe(
+        prob_=config.reanalyze_ratio,
+        key=sample_key)
 
       ve_loss_fn = LossFn(
         networks=networks,
@@ -188,14 +209,9 @@ class MuZeroLearner(acme.Learner):
       in_episode = jnp.concatenate((jnp.ones((2, B)), data.discount[:-2]), axis=0)
       is_terminal_mask = jnp.concatenate(
         (jnp.ones((1, B)), data.discount[:-1]), axis=0) == 0.0
-      
-
-      key_grad, sample_key = jax.random.split(key_grad)
-      reanalyze = distrax.Bernoulli(
-          probs=config.reanalyze_ratio).sample(seed=sample_key)
 
       # [B], B
-      batch_loss, loss_metrics, visualize_metrics, value_target, value_prediction = ve_loss_fn(data,
+      batch_loss, loss_metrics, visualize_metrics, nstep_return, mcts_values = ve_loss_fn(data,
                                        in_episode,
                                        is_terminal_mask,
                                        online_outputs,
@@ -221,12 +237,16 @@ class MuZeroLearner(acme.Learner):
         mean_loss = jnp.mean(importance_weights * batch_loss)
 
         # Calculate priorities as a mixture of max and mean sequence errors.
-        batch_td_error = value_target - value_prediction
+        nsteps = min(nstep_return.shape[1], mcts_values.shape[1])
+
+        # [B, T]
+        batch_td_error = nstep_return[:, :nsteps] - mcts_values[:, :nsteps]
 
         abs_td_error = jnp.abs(batch_td_error).astype(batch_loss.dtype)
-        max_priority = max_priority_weight * jnp.max(abs_td_error, axis=0)
-        mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=0)
+        max_priority = max_priority_weight * jnp.max(abs_td_error, axis=1)
+        mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=1)
         priorities = (max_priority + mean_priority)
+
       extra = learning_lib.LossExtra(metrics=metrics,
                                      reverb_priorities=priorities)
 
@@ -312,6 +332,7 @@ class MuZeroLearner(acme.Learner):
         sgd_step,
         num_sgd_steps_per_step)
 
+    self._loss = jax.pmap(loss, axis_name=_PMAP_AXIS_NAME)
     self._sgd_step = jax.pmap(sgd_step, axis_name=_PMAP_AXIS_NAME)
     self._async_priority_updater = async_utils.AsyncExecutor(update_priorities)
 
@@ -326,11 +347,15 @@ class MuZeroLearner(acme.Learner):
           lambda module_name, name, value: True if name == "w" else False,
           initial_params,
       )
-      if config.warmup_steps > 0:
+      if config.warmup_steps > 0 or config.lr_transition_steps > 0:
+        warmup_steps = config.warmup_steps
+        if config.warmup_steps == 0:
+          warmup_steps = 1
         learning_rate = optax.warmup_exponential_decay_schedule(
             init_value=0.0,
+            end_value=1e-8,
             peak_value=config.learning_rate,
-            warmup_steps=config.warmup_steps,
+            warmup_steps=warmup_steps,
             transition_steps=config.lr_transition_steps,
             decay_rate=config.learning_rate_decay,
             staircase=True,
@@ -367,6 +392,29 @@ class MuZeroLearner(acme.Learner):
     # Replicate parameters.
     self._state = utils.replicate_in_all_devices(state)
 
+  def compute_loss(self,
+                   sample: reverb.ReplaySample,
+                   loss_key: networks_lib.PRNGKey,
+                   log_label: str = None,
+                   update_visualizations: bool = False):
+
+    # key, key_grad = jax.random.split(state.random_key)
+    loss_value, extra = self._loss(
+      params=self._state.params, 
+      target_params=self._state.target_params,
+      key_grad=utils.replicate_in_all_devices(loss_key),
+      sample=sample)
+    metrics = extra.metrics
+    # Take metrics from first replica.
+    metrics = utils.get_from_first_device(metrics)
+
+    if update_visualizations:
+      self._update_logger.log_metrics(metrics, label=log_label)
+    loss_metrics = metrics.pop('loss_metrics', {})
+    loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
+
+    return loss_value, loss_metrics
+
   def step(self):
     prefetching_split = next(self._iterator)
     # The split_sample method passed to utils.sharded_prefetch specifies what
@@ -386,6 +434,27 @@ class MuZeroLearner(acme.Learner):
     # Take metrics from first replica.
     metrics = utils.get_from_first_device(metrics)
 
+    ###############################
+    # checking for nans
+    ###############################
+    def nan_runtime(x):
+      if jnp.isnan(x): raise ValueError
+    means = jax.tree_map(lambda x: x.mean(), metrics)
+
+    try:
+      jax.tree_map(lambda x: nan_runtime(x), means)
+    except ValueError as e:
+      logging.warning("Nans found")
+      means = flatten_dict(means)
+      for k, v in means.items():
+        if jnp.isscalar(v) and jnp.isnan(v):
+          print(k, v)
+      raise RuntimeError("exiting")
+
+    ###############################
+    # updating
+    ###############################
+    self._update_logger.step()
     self._update_logger.log_metrics(metrics)
     loss_metrics = metrics.pop('loss_metrics', {})
     loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
