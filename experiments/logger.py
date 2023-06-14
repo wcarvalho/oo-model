@@ -164,10 +164,13 @@ def _format_key(key: str) -> str:
   new = key.title().replace("_", "").replace("/", "-")
   return new
 
-def _format_loss(key: str) -> str:
-  """Internal function for formatting keys in Tensorboard format."""
-  new = key.title().replace("_", "")
-  return new
+def default_logger_name_fn(logger_label, value_key):
+  if 'grad' in value_key.lower():
+    # e.g. [MeanGrad/FarmSharedOutput/~/FeatureAttention/Conv2D1] --> [Loss/MeanGrad-FarmSharedOutput-~-FeatureAttention-Conv2D1]
+    name = f'z.grads_{logger_label}/{_format_key(value_key)}'
+  else:
+    name = f'{logger_label}/{_format_key(value_key)}'
+  return name
 
 class WandbLogger(base.Logger):
   """Logs to a tf.summary created in a given logdir.
@@ -178,8 +181,9 @@ class WandbLogger(base.Logger):
   def __init__(
       self,
       label: str = 'Logs',
-      labels_skip=('learner'),
       steps_key: Optional[str] = None,
+      name_fn = None,
+      **kwargs,
   ):
     """Initializes the logger.
     Args:
@@ -189,10 +193,11 @@ class WandbLogger(base.Logger):
     """
     self._time = time.time()
     self.label = label
-    self.labels_skip = [x.lower() for x in labels_skip]
     self._iter = 0
-    # self.summary = tf.summary.create_file_writer(logdir)
     self._steps_key = steps_key
+    if name_fn is None:
+      name_fn = default_logger_name_fn
+    self._name_fn = name_fn
 
   def write(self, values: base.LoggingData):
     label = self.label
@@ -205,20 +210,7 @@ class WandbLogger(base.Logger):
 
     to_log={}
     for key in values.keys() - [self._steps_key]:
-
-      if label.lower() in self.labels_skip: # e.g. [Loss]
-        key_pieces = key.split("/")
-        if len(key_pieces) == 1: # e.g. [step]
-          name = f'{label}/{_format_key(key)}'
-        else: 
-          if 'grad' in key.lower():
-          # e.g. [MeanGrad/FarmSharedOutput/~/FeatureAttention/Conv2D1] --> [Loss/MeanGrad-FarmSharedOutput-~-FeatureAttention-Conv2D1]
-            name = f'z.grads/{_format_key(key)}'
-          else: # e.g. [r2d1/xyz] --> [Loss_r2d1/xyz]
-            name = f'{label}_{_format_loss(key)}'
-      else: # e.g. [actor_SmallL2NoDist]
-        name = f'{label}/{_format_key(key)}'
-
+      name = self._name_fn(self.label, key)
       to_log[name] = values[key]
 
     to_log[f'{self.label}/step']  = step
@@ -232,27 +224,6 @@ class WandbLogger(base.Logger):
       wandb.finish()
     except Exception as e:
       pass
-
-
-
-class FlattenFilter(base.Logger):
-  """"""
-
-  def __init__(self, to: base.Logger):
-    """Initializes the logger.
-    Args:
-      to: A `Logger` object to which the current object will forward its results
-        when `write` is called.
-    """
-    self._to = to
-
-  def write(self, values: base.LoggingData):
-    values = flatten_dict(values, sep='/')
-    self._to.write(values)
-
-  def close(self):
-    self._to.close()
-
 
 class HasKeyFilter(base.Logger):
   """Logger which writes to another logger at a given time interval."""

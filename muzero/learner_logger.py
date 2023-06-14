@@ -101,7 +101,7 @@ class LearnerLogger(BaseLogger):
     policy_loss_mask = root_data['policy_root_mask']
 
     model_data_t0 = metrics.get("visualize_model_data_t0", {})
-    simulation_actions = model_data_t0['simulation_actions']
+    # simulation_actions = model_data_t0['simulation_actions']
     policy_model_target = model_data_t0['policy_model_target']
     policy_model_prediction = model_data_t0['policy_model_prediction']
     value_model_mask = model_data_t0['value_model_mask']
@@ -127,8 +127,8 @@ class LearnerLogger(BaseLogger):
       r_t = str(reward[idx])
       d_t =str(is_terminal[idx])
 
-      if in_episode[idx] == 0:
-        break
+      # if in_episode[idx] == 0:
+      #   break
 
       title = f't={idx}, r_tm1={r_tm1}, a_t={a_t}, r_t={r_t}, d_t={d_t}'
       r_tm1 = r_t
