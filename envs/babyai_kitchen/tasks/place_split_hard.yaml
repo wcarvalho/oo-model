@@ -6,7 +6,6 @@ train:
 
   - name: pickup
     task_kinds: pickup
-    num_dists: 2
 
   - name: place_on_y_nodist
     task_kinds: place
@@ -24,14 +23,12 @@ train:
 
   - name: place_on_y
     task_kinds: place
-    num_dists: 2
     taskarg_options:
       x: lettuce
       y: can_contain
 
   - name: place_x
     task_kinds: place
-    num_dists: 2
     taskarg_options:
       x: food
       y: fridge
@@ -39,14 +36,12 @@ train:
 test:
   - name: place_on_y_test  # all except lettuce
     task_kinds: place
-    num_dists: 2
     taskarg_options:
       x: [tomato, onion, potato, apple, orange]
       y: can_contain
 
   - name: place_x_test # all except fridge
     task_kinds: place
-    num_dists: 2
     taskarg_options:
       x: food
       y: [sink, pot, pan, plates, bowl]

@@ -32,8 +32,6 @@ def reject_next_to(env, pos):
   return d < 2
 
 class KitchenLevel(RoomGridLevel):
-  """
-  """
   def __init__(
     self,
     room_size=8,
@@ -41,13 +39,11 @@ class KitchenLevel(RoomGridLevel):
     num_cols=1,
     num_dists=0,
     debug=False,
-    # locked_room_prob=0,
     unblocking=False,
     kitchen=None,
     random_object_state=False,
     objects = [],
     actions = ['left', 'right', 'forward', 'pickup_container', 'pickup_contents', 'place', 'toggle', 'slice'],
-    load_actions_from_tasks=False,
     task_kinds=['slice', 'clean', 'cook'],
     valid_tasks=[],
     taskarg_options=None,
@@ -61,7 +57,7 @@ class KitchenLevel(RoomGridLevel):
     distant_vision=False,
     agent_view_size=7,
     reward_coeff=1.0,
-    extra_timesteps=1,
+    extra_timesteps=0,
     seed=None,
     verbosity=0,
     nseeds=500,
@@ -70,7 +66,7 @@ class KitchenLevel(RoomGridLevel):
     self.num_dists = num_dists
     self.debug = debug
     self.nseeds = nseeds
-    # self.locked_room_prob = locked_room_prob
+
     self.use_time_limit = use_time_limit
     self.unblocking = unblocking
     self.valid_tasks = list(valid_tasks)
@@ -104,12 +100,7 @@ class KitchenLevel(RoomGridLevel):
     # agent view
     # ======================================================
     self.agent_view_width = agent_view_size
-    if distant_vision:
-        raise NotImplementedError
-        # for far agent can see is length of room (-1 for walls)
-        self.agent_view_height = room_size - 1
-    else:
-        self.agent_view_height = agent_view_size
+    self.agent_view_height = agent_view_size
 
     # ======================================================
     # setup env
@@ -148,9 +139,6 @@ class KitchenLevel(RoomGridLevel):
     if candrop:
       backwards['drop'] =  self.actiondict['place']
 
-    # ActionCls = collections.namedtuple('Action', actions 
-    #   + ['pickup', 'done'] 
-    #   + (['drop'] if candrop else []))
 
     backwards_action_dict = {**self.actiondict, **backwards}
     self.actions = AttrDict(**backwards_action_dict)
@@ -486,7 +474,7 @@ class KitchenLevel(RoomGridLevel):
     # copied from babyai.levels.levelgen:RoomGridLevel.reset
     # ======================================================
     if self.task is not None:
-        reward, done = self.task.check_status()
+        _, done = self.task.check_status()
         if done:
             raise RuntimeError(f"`{self.mission}` started off as done")
 
@@ -533,7 +521,6 @@ class KitchenLevel(RoomGridLevel):
     # Rotate left
     action_info = None
     self.interaction_info = {}
-    interaction = False
     if action == self.actiondict.get('left', -1):
         self.agent_dir -= 1
         if self.agent_dir < 0:
@@ -547,11 +534,6 @@ class KitchenLevel(RoomGridLevel):
     elif action == self.actiondict.get('forward', -1):
         if object_infront == None or object_infront.can_overlap():
             self.agent_pos = fwd_pos
-        # if object_infront != None and object_infront.type == 'goal':
-        #     done = True
-        #     reward = self._reward()
-        # if object_infront != None and object_infront.type == 'lava':
-        #     done = True
     else:
         try:
           action_info = self.kitchen.interact(
@@ -565,15 +547,25 @@ class KitchenLevel(RoomGridLevel):
             self.interaction_info = dict(
               action=str(self.idx2action[int(action)]),
               object=str(object_infront.type) if object_infront else None)
+
+            interaction_object = action_info.get('object_name')
+            task_objects = [o.name for o in self.task.task_objects]
+            task_objects += [o.name for o in self.distractors_added]
+            if not interaction_object in task_objects:
+               print(f'bug... {str(action_info)}')
+               from pprint import pprint
+               print("TASK OBJECTS:")
+               pprint(task_objects)
+               raise RuntimeError(f"interaction object {interaction_object} not task object")
+
           self.carrying = self.kitchen.carrying
-          interaction = True
         except Exception as e:
           print("Action:", int(action))
           print("Actions available:", self.idx2action)
           print("Object in front:", object_infront)
           raise e
 
-    step_info = self.kitchen.step()
+    self.kitchen.step()
 
     if self.verbosity > 0:
         from pprint import pprint
@@ -600,7 +592,6 @@ class KitchenLevel(RoomGridLevel):
     info = {'success': False}
     done = False
     if self.task is not None:
-        # reward, done = self.task.get_reward_done()
         reward, done = self.task.check_and_update_status()
         reward = float(reward)
         if self.verbosity > 0:

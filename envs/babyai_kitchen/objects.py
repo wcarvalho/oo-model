@@ -215,7 +215,8 @@ class KitchenObject(WorldObj):
     info = dict(
         name=name,
         success=success,
-        message=f'{self.name}: {message}',
+        message=message,
+        object_name=self.name,
     )
 
     return info
@@ -258,7 +259,6 @@ class KitchenObject(WorldObj):
         message=f"need to carry knife. Was carrying {str(carrying.type)}."
         )
 
-
   def toggle(self):
     can_toggle = self.has_prop('on')
     # can't toggle, action fails
@@ -284,12 +284,12 @@ class KitchenObject(WorldObj):
           success=True,
           message='turned on')
 
-
   def pickup_self(self):
     if self.can_pickup(): 
-        return self, self.action_info(name='pickup_self')
+        return self, self.action_info(name=f'pickup_{self.type}')
+
     return None, self.action_info(
-        name='pickup_self',
+        name=f'pickup_{self.type}',
         success=False,
         message='cannot be picked up')
 
@@ -314,6 +314,19 @@ class KitchenObject(WorldObj):
         return contents, info
     else:
         return self.pickup_self()
+
+  def place_on_tile(self, grid, fwd_pos):
+    grid.set(*fwd_pos, self)
+    self.cur_pos = fwd_pos
+    return self.action_info(name=f'place_{self.type}_on_tile')
+
+  def place_inside(self, carrying):
+    # place object inside container
+    self.contains = carrying
+    carrying.cur_pos = np.array([-1, -1])
+
+    return self.action_info(
+       name=f'place_{carrying.name}_inside_{self.type}')
 
   def apply_to_contents(self, change):
     """Only applies to children. not to self.

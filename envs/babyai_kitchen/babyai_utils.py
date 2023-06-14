@@ -1,3 +1,5 @@
+
+from absl import logging
 import os
 import copy
 import yaml
@@ -111,6 +113,14 @@ def construct_kitchenlevel_kwargs(task_dict, level_kwargs=None, sets=None):
   task_dict = copy.deepcopy(task_dict) or dict()
   sets = sets or dict()
 
+  level_kwargs_num_dists = level_kwargs.get('num_dists')
+  task_dict_num_dists = task_dict.get('num_dists')
+  if level_kwargs_num_dists is not None and task_dict_num_dists is not None:
+    num_dists = min(level_kwargs_num_dists, task_dict_num_dists)
+  elif level_kwargs_num_dists is not None:
+    num_dists = level_kwargs_num_dists
+  elif task_dict_num_dists is not None:
+    num_dists = task_dict_num_dists
 
   def set_items(name):
       if name in sets:
@@ -140,9 +150,12 @@ def construct_kitchenlevel_kwargs(task_dict, level_kwargs=None, sets=None):
               raise RuntimeError(str(names))
 
           argops[k] = items
-  
-  task_dict.pop("name", None)
+
+  name = task_dict.pop("name", None)
   level_kwargs.update(task_dict)
+  if level_kwargs['num_dists'] != num_dists:
+    logging.info(f"{name}: setting num_dists to {num_dists}")
+    level_kwargs['num_dists'] = num_dists
 
   return level_kwargs
 

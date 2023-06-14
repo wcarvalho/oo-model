@@ -20,28 +20,17 @@ class Kitchen(object):
     max_obj_states = 0
     for idx, object in enumerate(self._objects):
       num_states = len(object.state2idx)
-      # print(object.name, num_states)
       max_obj_states = max(max_obj_states, num_states)
 
-    # print(max_obj_states)
-    # self.object2idx = {}
-    # self.name2object = {}
     self.objectid2object = {}
     for idx, object in enumerate(self._objects):
         start_idx = idx*max_obj_states
         object.set_verbosity(self.verbosity)
-        # set id
-        # self.object2idx[object.name] = idx + idx_offset
         object.set_id(start_idx + idx_offset)
         self.objectid2object[start_idx + idx_offset] = object
 
-        # self.name2object[object.name] = object
-
 
     self._max_states = object.object_id + max_obj_states
-    # for idx, object in enumerate(self._objects):
-    #   print(object.name, object.encode())
-    # import ipdb; ipdb.set_trace()
     self.reset()
 
     self._active = self._objects
@@ -88,35 +77,33 @@ class Kitchen(object):
   def interact(self, action, object_infront, fwd_pos, grid, env):
     # Pick up an object
 
-    if action == 'pickup_contents':
-        return self.pickup_contents(
+    if action in ('pickup_contents', 'pickup_container'):
+        action_info = self.pickup_object(
             object_infront=object_infront,
             fwd_pos=fwd_pos,
-            grid=grid
-            )
-
-    elif action == 'pickup_container':
-        return self.pickup_container(
-            object_infront=object_infront,
-            fwd_pos=fwd_pos,
+            action_name=action,
             grid=grid)
 
     # place an object in front
     elif action == 'place':
-        return self.place(
+        action_info = self.place(
             object_infront=object_infront,
             fwd_pos=fwd_pos,
             grid=grid)
 
     # Toggle/activate an object
     elif action == 'toggle':
-        return self.toggle(object_infront, env, fwd_pos)
+        action_info = self.toggle(object_infront, env, fwd_pos)
+
     # slice
     elif action == 'slice':
-        return self.slice(object_infront)
+        action_info = self.slice(object_infront)
 
     else:
         raise RuntimeError(f"Unknown action: {action}")
+
+    return action_info
+
   def step(self):
     for object in self.objects:
         object.step()
@@ -154,41 +141,17 @@ class Kitchen(object):
 
     return action_info
 
-  def pickup_container(self, object_infront, fwd_pos, grid, **kwargs):
-    """pickup object. if container, pickup outter most object, i.e. container.
-    """
-    action_info = dict(
-            action='pickup_container',
-            success=False,
-            message='No object in front',
-            )
-    if object_infront:
-        if self.carrying is None:
-            if object_infront.can_pickup():
-                self.carrying = object_infront
-                self.carrying.cur_pos = np.array([-1, -1])
-                grid.set(*fwd_pos, None)
-                action_info['success'] = True
-                action_info['message'] = ''
-            else:
-                action_info['success'] = False
-                action_info['message'] = f"Cannot pickup: {object_infront.type}"
-        else:
-            action_info['success'] = False
-            action_info['message'] = f"Carrying: {str(self.carrying)}"
-
-
-    return action_info
-
-  def pickup_contents(self, object_infront, fwd_pos, grid, **kwargs):
+  def pickup_object(self, object_infront, fwd_pos, grid,
+                    action_name: str, **kwargs):
     """pickup object. if container, pickup inner most object. 
     e.g., if applied to stove with pot with tomato. inner most is tomato.
     """
     action_info = dict(
-            action='pickup_contents',
-            success=False,
-            message='Nothing in front',
-            )
+        action=action_name,
+        success=False,
+        message='Nothing in front',
+    )
+    assert action_name in ('pickup_contents', 'pickup_container')
     if object_infront:
         if self.carrying is None:
             # ======================================================
@@ -196,7 +159,11 @@ class Kitchen(object):
             # ======================================================
             # for kitchen objects
             if hasattr(object_infront, 'kitchen_object'):
-                self.carrying, action_info = object_infront.pickup_contents()
+                if action_name == 'pickup_contents':
+                  self.carrying, action_info = object_infront.pickup_contents()
+                elif action_name == 'pickup_container':
+                  self.carrying, action_info = object_infront.pickup_self()
+
                 # -----------------------
                 # update grid
                 # -----------------------
@@ -205,30 +172,21 @@ class Kitchen(object):
                         # set grid to None, ONLY if pickup container
                         self.carrying.cur_pos = np.array([-1, -1])
                         grid.set(*fwd_pos, None)
-                    else:
-                        #picked up what was inside, don't do anything
-                        pass
-
 
             # for older objects
             else:
                 if object_infront.can_pickup():
                     self.carrying = object_infront
                     action_info['success'] = True
+                    # update grid
+                    if self.carrying is not None:
+                        self.carrying.cur_pos = np.array([-1, -1])
+                        grid.set(*fwd_pos, None)
                 else:
                     action_info['message'] = f"Cannot pickup {object_infront.type}"
 
-                # -----------------------
-                # update grid
-                # -----------------------
-                if self.carrying is not None:
-                    self.carrying.cur_pos = np.array([-1, -1])
-                    grid.set(*fwd_pos, None)
-
-
         else:
-            action_info['message'] = f"couldn't pickup {object_infront.type}. already carrying {self.carrying.type}"
-
+            action_info['message'] = f"could not {action_name} with {object_infront.type}. already carrying {self.carrying.type}"
 
     return action_info
 
@@ -241,33 +199,28 @@ class Kitchen(object):
     if self.carrying:
 
         # something in front
-        if object_infront is not None and hasattr(object_infront, "kitchen_object"):
+        if object_infront is not None:
+          if hasattr(object_infront, "kitchen_object"):
             action_info = self.place_inside(object_infront)
+          else:
+            action_info['message'] = f"cannot place in/on {object_infront.type}"
 
+        # nothing in front
         else:
             if not object_infront:
-                action_info = self.place_on_tile(
+                action_info = self.carrying.place_on_tile(
                     grid=grid,
                     fwd_pos=fwd_pos)
+                self.carrying = None
             else:
                 action_info['message'] = f"cannot place in/on {object_infront.type}"
 
-
     return action_info
-
-  def place_on_tile(self, grid, fwd_pos):
-    grid.set(*fwd_pos, self.carrying)
-    self.carrying.cur_pos = fwd_pos
-    self.carrying = None
-    action_success = True
-    return dict(
-            action='place_on_tile',
-            success=True,
-            )
 
   def place_inside(self, container):
     # not container, keep object
-    if not container.is_container: return dict(
+    if not container.is_container:
+       return dict(
             action='place_inside',
             success=False,
             message=f"can't place inside {container.type}. not a container",
@@ -277,28 +230,20 @@ class Kitchen(object):
     if container.contains is not None:
         # try recursively placing. e.g. if stove, to put in pot
         return self.place_inside(container.contains)
-        # return carrying
 
     # container doesn't accept the type being carried
-    if not container.accepts(self.carrying): return dict(
+    if not container.accepts(self.carrying): 
+       return dict(
             action='place_inside',
             success=False,
             message=f"can't place inside {container.type}. doesn't accept {self.carrying.type}",
             )
 
-
-
-    # place object inside container
-    container.contains = self.carrying
-    self.carrying.cur_pos = np.array([-1, -1])
+    action_info = container.place_inside(self.carrying)
 
     # no longer have object
     self.carrying = None
-
-    return dict(
-            action='place_inside',
-            success=True,
-            message="")
+    return action_info
 
   # ======================================================
   # Objects
