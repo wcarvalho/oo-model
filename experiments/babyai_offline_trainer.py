@@ -124,9 +124,8 @@ def setup_experiment_inputs(
   data_directory = babyai_collect_data.directory_name(
       tasks_file=env_kwargs['tasks_file'],
       room_size=env_kwargs['room_size'],
-      num_dists=env_kwargs['num_dists'],
       partial_obs=env_kwargs['partial_obs'],
-      nepisodes=nepisode_dataset,
+      nepisodes=100 if debug else nepisode_dataset,
       evaluation=False,
       debug=debug)
   
@@ -134,10 +133,9 @@ def setup_experiment_inputs(
   if not os.path.exists(dataset_info_path):
     if make_dataset:
       logging.info(f'MAKING DATASET: {data_directory}')
-      import ipdb; ipdb.set_trace()
       babyai_collect_data.make_dataset(
         env_kwargs=env_kwargs,
-        nepisodes=100 if debug else int(1e5),
+        nepisodes=100 if debug else nepisode_dataset,
         debug=debug,
       )
     else:
@@ -264,13 +262,13 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     space = [
         {
             "seed": tune.grid_search([2]),
-            "group": tune.grid_search(['bc_muzero5']),
+            "group": tune.grid_search(['bc_muzero6_shuffle']),
             "agent": tune.grid_search(['muzero']),
             "num_learner_steps": tune.grid_search([int(1e5)]),
             # "v_target_source": tune.grid_search(['reanalyze']),
             "tasks_file": tune.grid_search(['place_split_easy']),
-            "warmup_steps": tune.grid_search([1_000, 10_000, 100_000]),
-            "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
+            "warmup_steps": tune.grid_search([1_000, 10_000]),
+            # "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
             # "target_update_period": tune.grid_search([100, 2500]),
             "learning_rate": tune.grid_search([1e-3, 1e-4, 1e-6, 1e-5]),
             "action_source": tune.grid_search(['policy']),
@@ -362,7 +360,6 @@ def main(_):
   default_env_kwargs = dict(
       tasks_file=FLAGS.tasks_file,
       room_size=FLAGS.room_size,
-      num_dists=FLAGS.num_dists,
       partial_obs=FLAGS.partial_obs,
   )
   if FLAGS.train_single:

@@ -62,7 +62,7 @@ def setup_agents(
       config_kwargs=config_kwargs)
 
     builder_kwargs = dict(
-        update_logger=learner_logger.LearnerLogger(
+        visualization_logger=learner_logger.LearnerLogger(
             label='MuZeroLearnerLogger',
             log_frequency=5 if debug else 2500,
             discount=config.discount,
@@ -88,8 +88,8 @@ def setup_agents(
         actorCls=functools.partial(
             VisualizeActor,
             logger=AttnLogger(),
-            log_frequency=5 if debug else 2500),
-        update_logger=learner_logger.LearnerLogger(
+            log_frequency=50 if debug else 2500),
+        visualization_logger=learner_logger.LearnerLogger(
             label='FactoredMuZeroLearnerLogger',
             log_frequency=5 if debug else 2500,
             discount=config.discount,
@@ -161,6 +161,10 @@ def setup_experiment_inputs(
                         'pickup_2', 'place', 'toggle', 'slice'],
       )
   )
+  if debug:
+    config.show_gradients = 1
+    config.samples_per_insert = 1.0
+    config.min_replay_size = 50_000
   # -----------------------
   # setup observer factory for environment
   # -----------------------
@@ -250,12 +254,31 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     space = [
         {
             "seed": tune.grid_search([1]),
-            "group": tune.grid_search(['benchmark3']),
+            "group": tune.grid_search(['benchmark4']),
             "agent": tune.grid_search(['muzero', 'factored']),
             "tasks_file": tune.grid_search([
                 'place_split_easy',
-                # 'place_split_hard'
+                'place_split_medium',
+                'place_split_hard'
+            ]),
+        }
+    ]
+  elif search == 'muzero':
+    space = [
+        {
+            "seed": tune.grid_search([1]),
+            "group": tune.grid_search(['muzero4']),
+            "agent": tune.grid_search(['muzero']),
+            "tasks_file": tune.grid_search([
+                'place_split_easy',
+                'place_split_medium',
+                'place_split_hard'
                 ]),
+            # 'root_value_coef': tune.grid_search([.25]),
+            # 'model_policy_coef': tune.grid_search([10.0]),
+            # 'model_value_coef': tune.grid_search([10.0, 2.5]),
+            # 'mask_model': tune.grid_search([True]),
+            # 'clip_probs': tune.grid_search([True, False]),
         }
     ]
   else:
@@ -294,7 +317,7 @@ def main(_):
   # env setup
   # -----------------------
   default_env_kwargs = dict(
-      tasks_file='place_split_hard',
+      tasks_file='place_split_easy',
       room_size=5,
       num_dists=1,
       partial_obs=False,
