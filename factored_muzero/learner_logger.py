@@ -31,37 +31,25 @@ class LearnerLogger(learner_logger.LearnerLogger):
     super().__init__(**kwargs)
     self.image_columns = image_columns
 
-  def create_data_metrics(
-      self,
-      data: acme_types.NestedArray,
-      in_episode: acme_types.NestedArray,
-      is_terminal_mask: acme_types.NestedArray,
-      online_outputs: muzero_types.RootOutput,
-      online_state: State,
-  ):
-    metrics = super().create_metrics(
-      data=data,
-      in_episode=in_episode,
-      is_terminal_mask=is_terminal_mask,
-      online_outputs=online_outputs,
-      online_state=online_state,
-    )
-    metrics['data_metrics']['attn'] = jax.tree_map(lambda x: x[:, 0], online_state.attn)
-
-    return metrics
-
   def create_log_metrics(self, metrics):
-    to_log = super().create_log_metrics(metrics)
-    data = metrics.get("data_metrics", None)
+    # NOTE: RNN hidden is available, not RNN state...
+    return super().create_log_metrics(metrics)
 
-    if not data: return to_log
+    metrics = metrics.get('visualize_metrics', {})
+    # get data from batch-idx = 0
+    metrics = jax.tree_map(lambda x: x[0], metrics)
+    root_data = metrics.get("visualize_root_data", {})
+    import ipdb; ipdb.set_trace()
+    if not root_data: return to_log
 
     ######################
     # plot image attention
     ######################
-    attn = data['attn']      # [T, num_slots, spatial_positions]
+    online_state = root_data['online_state']
+    import ipdb; ipdb.set_trace()
+    attn = jax.tree_map(lambda x: x[:, 0], online_state.attn)  # [T, num_slots, spatial_positions]
     ntime, slots, spatial_positions = attn.shape[0]
-    images = data['images']  # [T, H, W, C]
+    images = root_data['images']  # [T, H, W, C]
 
     assert images.shape[1] == images.shape[2]
     width = np.sqrt(spatial_positions)

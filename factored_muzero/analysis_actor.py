@@ -97,7 +97,6 @@ class AttnLogger(BaseLogger):
           "actor_images/img_attn_reg": [wandb.Image(img) for img in self.data['img_attn_reg']],
           "actor_images/attn_entropy": wandb.Image(attn_entropy),
           "actor_images/max_attn": wandb.Image(max_attn),
-          "actor_images/step": step,
         })
 
 class VisualizeActor(actors.GenericActor):
