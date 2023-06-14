@@ -38,9 +38,11 @@ class Discretizer:
                num_bins: Optional[int] = None,
                step_size: Optional[int] = None,
                min_value: Optional[int] = None,
+               clip_probs: bool = False,
                tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR):
     self._max_value = max_value
     self._min_value = min_value if min_value is not None else -max_value
+    self._clip_probs = clip_probs
     if step_size is None:
       assert num_bins is not None
     else:
@@ -68,7 +70,8 @@ class Discretizer:
         min_value=self._min_value,
         max_value=self._max_value,
         num_bins=self._num_bins)
-     probs = jnp.clip(probs, 0, 1)  # for numerical stability
+     if self._clip_probs:
+      probs = jnp.clip(probs, 0, 1)  # for numerical stability
     #  total = jnp.sum(probs, axis=-1, keepdims=True)
     #  probs = probs/total
      return probs

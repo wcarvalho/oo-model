@@ -19,7 +19,7 @@ from experiments.config_utils import update_config
 def load_config(
     config_kwargs: dict = None,
     config_class: FactoredMuZeroConfig=None,
-    strict_config: bool = False):
+    strict_config: bool = True):
   config_kwargs = config_kwargs or dict()
   config_class = config_class or FactoredMuZeroConfig
   logging.info(f'Config arguments')
@@ -48,6 +48,7 @@ def setup(
       step_size=config.scalar_step_size,
       max_value=config.max_scalar_value,
       tx_pair=config.tx_pair,
+      clip_probs=config.clip_probs,
   )
   config.num_bins = discretizer._num_bins
 
