@@ -119,7 +119,7 @@ class MuZeroLearner(acme.Learner):
                replay_client: Optional[reverb.Client] = None,
                counter: Optional[counting.Counter] = None,
                logger: Optional[loggers.Logger] = None,
-               update_logger: Optional[learner_logger.BaseLogger] = None,
+               visualization_logger: Optional[learner_logger.BaseLogger] = None,
                ):
     """Initializes the learner."""
     self._config = config
@@ -127,7 +127,7 @@ class MuZeroLearner(acme.Learner):
     show_gradients = config.show_gradients > 0
     self._num_sgd_steps_per_step = num_sgd_steps_per_step
     self._model_unroll_share_params = True
-    self._update_logger = update_logger
+    self._visualization_logger = visualization_logger
 
     def loss(
         params: muzero_types.MuZeroParams,
@@ -211,7 +211,7 @@ class MuZeroLearner(acme.Learner):
         (jnp.ones((1, B)), data.discount[:-1]), axis=0) == 0.0
 
       # [B], B
-      batch_loss, loss_metrics, visualize_metrics, nstep_return, mcts_values = ve_loss_fn(data,
+      batch_loss, loss_metrics, visualize_metrics, value_target, value_pred = ve_loss_fn(data,
                                        in_episode,
                                        is_terminal_mask,
                                        online_outputs,
@@ -237,10 +237,10 @@ class MuZeroLearner(acme.Learner):
         mean_loss = jnp.mean(importance_weights * batch_loss)
 
         # Calculate priorities as a mixture of max and mean sequence errors.
-        nsteps = min(nstep_return.shape[1], mcts_values.shape[1])
+        nsteps = min(value_target.shape[1], value_pred.shape[1])
 
         # [B, T]
-        batch_td_error = nstep_return[:, :nsteps] - mcts_values[:, :nsteps]
+        batch_td_error = value_target[:, :nsteps] - value_pred[:, :nsteps]
 
         abs_td_error = jnp.abs(batch_td_error).astype(batch_loss.dtype)
         max_priority = max_priority_weight * jnp.max(abs_td_error, axis=1)
@@ -395,7 +395,7 @@ class MuZeroLearner(acme.Learner):
   def compute_loss(self,
                    sample: reverb.ReplaySample,
                    loss_key: networks_lib.PRNGKey,
-                   log_label: str = None,
+                   vis_label: str = None,
                    update_visualizations: bool = False):
 
     # key, key_grad = jax.random.split(state.random_key)
@@ -409,13 +409,13 @@ class MuZeroLearner(acme.Learner):
     metrics = utils.get_from_first_device(metrics)
 
     if update_visualizations:
-      self._update_logger.log_metrics(metrics, label=log_label)
+      self._visualization_logger.log_metrics(metrics, label=vis_label)
     loss_metrics = metrics.pop('loss_metrics', {})
     loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
 
     return loss_value, loss_metrics
 
-  def step(self):
+  def step(self, vis_label: str = None):
     prefetching_split = next(self._iterator)
     # The split_sample method passed to utils.sharded_prefetch specifies what
     # parts of the objects returned by the original iterator are kept in the
@@ -437,25 +437,26 @@ class MuZeroLearner(acme.Learner):
     ###############################
     # checking for nans
     ###############################
-    def nan_runtime(x):
-      if jnp.isnan(x): raise ValueError
-    means = jax.tree_map(lambda x: x.mean(), metrics)
+    if self._config.check_nan:
+      def nan_runtime(x):
+        if jnp.isnan(x): raise ValueError
+      means = jax.tree_map(lambda x: x.mean(), metrics)
 
-    try:
-      jax.tree_map(lambda x: nan_runtime(x), means)
-    except ValueError as e:
-      logging.warning("Nans found")
-      means = flatten_dict(means)
-      for k, v in means.items():
-        if jnp.isscalar(v) and jnp.isnan(v):
-          print(k, v)
-      raise RuntimeError("exiting")
+      try:
+        jax.tree_map(lambda x: nan_runtime(x), means)
+      except ValueError as e:
+        logging.warning("Nans found")
+        means = flatten_dict(means)
+        for k, v in means.items():
+          if jnp.isscalar(v) and jnp.isnan(v):
+            print(k, v)
+        raise RuntimeError("exiting")
 
     ###############################
     # updating
     ###############################
-    self._update_logger.log_metrics(metrics)
-    self._update_logger.step()
+    self._visualization_logger.log_metrics(metrics, label=vis_label)
+    self._visualization_logger.step()
     loss_metrics = metrics.pop('loss_metrics', {})
     loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
 

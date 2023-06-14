@@ -71,7 +71,7 @@ class ValueEquivalentLoss:
                model_reward_coef: float = 1.0,
                conditional_learn_model: bool = False,
                mask_model: bool = False,
-               v_target_source: str = 'returns',
+               v_target_source: str = 'return',
                invalid_actions: Optional[chex.Array] = None,
                behavior_clone: bool = False,
                **kwargs,
@@ -359,7 +359,7 @@ class ValueEquivalentLoss:
 
     if not learn_model:
       total_loss = root_value_loss + root_policy_loss
-      return total_loss, loss_metrics, visualize_metrics, returns, mcts_values
+      return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
 
     ###############################
     # Model losses
@@ -405,7 +405,7 @@ class ValueEquivalentLoss:
     policy_mask = jnp.concatenate((in_episode[1:], jnp.zeros(self._simulation_steps)))
     if self._mask_model:
       value_mask = jnp.concatenate((in_episode[1:dim_return], jnp.zeros(extra_v)))
-      reward_mask = policy_mask
+      reward_mask = jnp.concatenate((in_episode[:-1], jnp.zeros(self._simulation_steps)))
     else:
       reward_mask = value_mask = jnp.ones_like(policy_mask)
     reward_model_mask = rolling_window(reward_mask, self._simulation_steps)
@@ -534,7 +534,7 @@ class ValueEquivalentLoss:
         root_value_loss + model_value_loss + 
         root_policy_loss + model_policy_loss)
 
-    return total_loss, loss_metrics, visualize_metrics, returns, mcts_values
+    return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
 
 
 
