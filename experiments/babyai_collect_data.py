@@ -30,9 +30,9 @@ FLAGS = flags.FLAGS
 # Agent flags
 # flags.DEFINE_string('data_file', '', 'data_file')
 # flags.DEFINE_bool('debug', False, 'whether to debug script')
-flags.DEFINE_string('tasks_file', 'place_split_easy', 'tasks_file')
-flags.DEFINE_string('size', 'medium', 'small=1e4, medium=1e5, large=1e6, xl=1e7')
-flags.DEFINE_integer('room_size', 7, 'room size')
+flags.DEFINE_string('tasks_file', 'pickup_sanity', 'tasks_file')
+flags.DEFINE_string('size', 'large', 'small=1e4, medium=1e5, large=1e6, xl=1e7')
+flags.DEFINE_integer('room_size', 5, 'room size')
 flags.DEFINE_bool('partial_obs', False, 'partial observability')
 
 
@@ -152,7 +152,6 @@ def make_dataset(env_kwargs: dict, nepisodes: int, debug: bool = False):
   environment = babyai_env_utils.make_kitchen_environment(
       **env_kwargs,
       wrapper_list=[
-          # acme_wrappers.ObservationActionRewardWrapper,
           EnvLoggerWrapper],
       evaluation=False)
 
@@ -173,7 +172,7 @@ def make_dataset(env_kwargs: dict, nepisodes: int, debug: bool = False):
 
   for evaluation in [False, True]:
     dm_env, gym_env = babyai_env_utils.make_kitchen_environment(
-        tasks_file=env_kwargs['tasks_file'],
+        **env_kwargs,
         wrapper_list=[EnvLoggerWrapper],
         evaluation=evaluation,
         return_gym_env=True)
