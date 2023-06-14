@@ -58,8 +58,8 @@ def make_program_command(
     --run_distributed={run_distributed}
     --train_single=True
   """
-  for k, v in kwargs:
-    str += "--{k}={v}"
+  for k, v in kwargs.items():
+    str += f"--{k}={v}"
   return str
 
 
