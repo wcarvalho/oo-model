@@ -81,13 +81,15 @@ def setup_logger_factory(
   def logger_factory(
       name: str,
       steps_key: Optional[str] = None,
+      time_delta: Optional[float] = None,
   ):
+    time_delta = time_delta or log_every
     if custom_steps_keys is not None:
       steps_key = custom_steps_keys(name)
     return wandb_logger.make_logger(
         log_dir=log_dir,
         label=name,
-        time_delta=log_every,
+        time_delta=time_delta,
         steps_key=steps_key,
         use_wandb=use_wandb,
         asynchronous=True)
@@ -196,7 +198,7 @@ def run_experiment(
     return dataset_factory(0,
                            split=split,
                            buffer_size=buffer_size)
-  
+
   train_split = 'train'
   if dataset_percent < 100:
     train_split = 'train[:{dataset_percent}%]'
@@ -233,8 +235,8 @@ def run_experiment(
         counter=counting.Counter(parent_counter,
                                  prefix='learner',
                                  time_delta=0.))
-  validation_logger = logger_fn('valid_loss')
-  eval_logger = logger_fn('eval_loss')
+  validation_logger = logger_fn('learner_z1.valid', time_delta=0.0)
+  eval_logger = logger_fn('learner_z1.eval', time_delta=0.0)
 
   # -----------------------
   # training loop
@@ -245,32 +247,35 @@ def run_experiment(
   if debug:
     train_batches = eval_batches = 1
     num_learner_steps = 10
-
+  ndevices = len(jax.local_devices())
+  assert ndevices == 1, 'not tested for anything else'
   while True:
     losses = collections.defaultdict(list)
     update_visualizations = True
     for _ in range(eval_batches):
       learner_key, key = jax.random.split(key)
-      valid_loss, metrics = learner.compute_loss(
+      valid_loss, valid_metrics = learner.compute_loss(
         sample=next(validation_iterator),
         loss_key=learner_key,
         update_visualizations=update_visualizations,
-        log_label='validation')
-      validation_logger.write(metrics)
+        vis_label='vis:1.validation')
       losses['valid_loss'].append(valid_loss)
 
       learner_key, key = jax.random.split(key)
-      eval_loss, metrics = learner.compute_loss(
+      eval_loss, eval_metrics = learner.compute_loss(
         sample=next(eval_iterator),
         loss_key=learner_key,
         update_visualizations=update_visualizations,
-        log_label='eval')
-      eval_logger.write(metrics)
+        vis_label='vis:2.eval')
       losses['eval_loss'].append(eval_loss)
-      update_logger = False
+
+      if update_visualizations:
+        validation_logger.write(valid_metrics)
+        eval_logger.write(eval_metrics)
+      update_visualizations = False
 
     for _ in range(train_batches):
-      learner.step()
+      learner.step(vis_label='vis:0.train')
       steps += 1
 
       if steps > num_learner_steps:
@@ -335,11 +340,12 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'benchmark':
     space = [
         {
-            "seed": tune.grid_search([4]),
-            "group": tune.grid_search(['benchmark4']),
+            "seed": tune.grid_search([2]),
+            "group": tune.grid_search(['benchmark2']),
             "agent": tune.grid_search(['muzero', 'factored']),
             "tasks_file": tune.grid_search([
-                'place_split_easy']),
+                'place_split_easy', 'place_split_medium', 'place_split_hard'
+            ]),
         }
     ]
   elif search == 'muzero':
@@ -464,6 +470,7 @@ def main(_):
         filename='experiments/babyai_supervised_trainer.py',
         run_distributed=run_distributed,
         num_actors=1,
+        size=FLAGS.size,
         ),
     )
 
