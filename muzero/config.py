@@ -28,10 +28,7 @@ Array = acme_types.NestedArray
 @dataclasses.dataclass
 class MuZeroConfig(r2d2.R2D2Config):
   """Configuration options for MuZero agent."""
-  discount: float = 0.997**4  # from paper
-  # target_update_period: int = 2500
-  # evaluation_epsilon: float = 0.
-  # variable_update_period: int = 400
+  discount: float = 0.997**4
   num_sgd_steps_per_step: int = 1
 
   # Learner options
@@ -42,7 +39,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   use_stored_lstm_state: bool = True
   warmup_steps: int = 0
   learning_rate_decay: float = .1
-  lr_transition_steps: int = 100_000
+  lr_transition_steps: int = 0
   weight_decay: float = 1e-4
   # max_grad_norm: float = 80.0
   # adam_eps: float = 1e-3
@@ -69,20 +66,21 @@ class MuZeroConfig(r2d2.R2D2Config):
 
   #Loss hps
   num_bins: Optional[int] = None  # number of bins for two-hot rep
-  scalar_step_size: Optional[float] = .05  # number of bins for two-hot rep
-  max_scalar_value: float = 5.0  # number of bins for two-hot rep
+  clip_probs: bool = True
+  scalar_step_size: Optional[float] = .25  # number of bins for two-hot rep
+  max_scalar_value: float = 10.0  # number of bins for two-hot rep
   td_steps: int = 5
   v_target_source: str = 'reanalyze' # this interpolates between mcts output vs. observed return
   reanalyze_ratio: float = 0.5 # percent of time to use mcts vs. observed return
-  policy_loss: str = 'cross_entropy'
-  mask_model: bool = False
+  # policy_loss: str = 'cross_entropy'
+  mask_model: bool = True
 
   # MCTS general hps
   simulation_steps: int = 5
   num_simulations: int = 4
   max_sim_depth: Optional[int] = None
   q_normalize_epsilon: float = 0.01  # copied from `jax_muzero`
-  muzero_policy: str = 'gumbel_muzero'
+  # muzero_policy: str = 'gumbel_muzero'
 
   # MCTS muzero hps
   dirichlet_fraction: float = 0.25
@@ -115,9 +113,10 @@ class MuZeroConfig(r2d2.R2D2Config):
   action_source: str = 'policy'  # 'policy', 'value', 'mcts'
 
   root_policy_coef: float = 1.0
-  root_value_coef: float = 1.0
-  model_policy_coef: float = 1.0
-  model_value_coef: float = 0.25
+  root_value_coef: float = 0.25
+  model_policy_coef: float = 10.0
+  model_value_coef: float = 2.5
   model_reward_coef: float = 1.0
 
   show_gradients: int = 0
+  check_nan: bool = False

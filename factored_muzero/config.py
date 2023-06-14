@@ -26,7 +26,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   w_init_attn: float = 1.0
   pre_norm: bool = False
   share_w_init_out: bool = False
-  slots_use_task: bool = True
+  slots_use_task: bool = False
   pos_layernorm: str = 'pre'
 
   # postion embedding
