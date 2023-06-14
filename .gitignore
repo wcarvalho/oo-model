@@ -1,4 +1,6 @@
 archive/
+analysis/*.ipynb
+analysis/*.mp4
 data
 _acme
 _babyai

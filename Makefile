@@ -23,6 +23,7 @@ wandb_dir?=../results/factored_muzero/wandb
 
 wandb_entity?=wcarvalho92
 tasks_file?=place_split_easy
+size?=large
 
 export PYTHONPATH:=$(PYTHONPATH):.
 
@@ -59,12 +60,9 @@ supervised_babyai_debug:
 		--wandb_group=$(group) \
 		--wandb_notes=$(notes) \
 		--wandb_dir=$(wandb_dir) \
-		--skip=$(skip) \
 		--search=$(search) \
 		--agent=$(agent) \
-		--num_actors=$(actors) \
-		--num_gpus=$(gpus) \
-		--num_cpus=$(cpus)
+		--size=$(size) \
 
 supervised_babyai_run:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
@@ -79,9 +77,12 @@ supervised_babyai_run:
 		--wandb_group=$(group) \
 		--wandb_notes=$(notes) \
 		--wandb_dir=$(wandb_dir) \
+		--skip=$(skip) \
 		--search=$(search) \
 		--agent=$(agent) \
-
+		--size=$(size) \
+		--num_gpus=$(gpus) \
+		--num_cpus=$(cpus)
 
 online_babyai_sync:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
@@ -93,7 +94,7 @@ online_babyai_sync:
 		--debug=$(debug_sync) \
 		--folder="$(folder)/$(babyai_online_project)_sync" \
 		--agent=$(agent) \
-		--use_wandb=$(wandb) \
+		--use_wandb=$(wandb_sync) \
 		--wandb_project="$(babyai_online_project)_sync" \
 		--wandb_entity=$(wandb_entity) \
 		--wandb_group=$(group) \
