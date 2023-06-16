@@ -18,6 +18,7 @@ from typing import Callable, Optional, Tuple
 import functools
 
 from acme import specs
+from acme import types as acme_types
 from acme.jax import networks as networks_lib
 from acme.jax import types as jax_types
 from acme.jax import utils as jax_utils
@@ -31,10 +32,10 @@ import jax.numpy as jnp
 from modules import vision
 from modules import language
 from modules import vision_language
-from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
+from modules.mlp_muzero import PredictionMlp
 from muzero.arch import MuZeroArch
-from muzero.types import MuZeroNetworks, TaskAwareState, RootOutput, ModelOutput
-from muzero.utils import Discretizer, TaskAwareRecurrentFn, scale_gradient
+from muzero.types import MuZeroNetworks, TaskAwareRep
+from muzero.utils import TaskAwareRecurrentFn, scale_gradient
 from muzero.networks import make_network
 
 
@@ -42,16 +43,59 @@ from factored_muzero.config import FactoredMuZeroConfig as MuZeroConfig
 from factored_muzero import attention
 from factored_muzero import encoder
 from factored_muzero import gates
+from factored_muzero.types import RootOutput, ModelOutput
 
 # MuZeroNetworks = networks_lib.UnrollableNetwork
 NetworkOutput = networks_lib.NetworkOutput
 RecurrentState = networks_lib.RecurrentState
+Array = acme_types.NestedArray
+GateFn = Callable[[Array, Array], Array]
 
 def make_save_input(embedding: vision_language.TorsoOutput):
   return attention.SaviInputs(
     image=embedding.image,
     task=embedding.task
   )
+
+
+def make_slot_selection_fn(selection: str,
+                           attn_head: attention.GeneralMultiHeadAttention,
+                           gate: GateFn,
+                           name: str = 'pred_input'):
+  """This creates a function which aggregates slot information to single vector.
+
+  attention: use task-vector to select slot information
+  mean: mean of slot information
+  """
+  def selection_module(slot_reps: Array,
+                       task_query: Array):
+    # slot_reps: [N, D]
+    # task_query: [D]
+    if selection == 'attention_gate':
+      # [D]
+      pred_inputs, _ = attn_head(
+        query=task_query[None],  # convert to [1, D] for attention
+        key=slot_reps)
+      pred_inputs = pred_inputs[0]  # query only
+      pred_inputs = gate(task_query, pred_inputs)
+      pred_inputs = hk.LayerNorm(
+        axis=(-1),
+        create_scale=True,
+        create_offset=True)(pred_inputs)
+
+    elif selection == 'attention':
+      # [D]
+      pred_inputs, _ = attn_head(
+        query=task_query[None],  # convert to [1, D] for attention
+        key=slot_reps)
+      pred_inputs = pred_inputs[0] # query only
+    elif selection == 'slot_mean':
+      pred_inputs = slot_reps.mean(0)
+    elif selection == 'task_query':
+      pred_inputs = task_query
+
+    return pred_inputs
+  return hk.to_module(selection_module)(name=name)
 
 
 def make_babyai_networks(
@@ -114,57 +158,67 @@ def make_babyai_networks(
     assert config.gru_init in ('orthogonal', 'default')
     if config.gru_init == 'orthogonal':
       # used in Slot Attention paper
-      gru_w_i_init = hk.initializers.Orthogonal()
+      rnn_w_i_init = hk.initializers.Orthogonal()
     elif config.gru_init == 'default':
       # from haiku
-      gru_w_i_init = None
+      rnn_w_i_init = None
+    if config.savi_rnn == 'gru':
+      rnn_class = functools.partial(hk.GRU,
+        w_i_init=rnn_w_i_init,)
+    elif config.savi_rnn == 'lstm':
+      rnn_class = hk.LSTM
+
     state_fn = attention.SlotAttention(
         num_iterations=config.savi_iterations,
         qkv_size=config.slot_size,
         num_slots=config.num_slots,
+        temperature=config.savi_temp,
         num_spatial=num_spatial_vectors,
+        rnn_class=rnn_class,
         w_init=w_init_attn,
-        gru_w_i_init=gru_w_i_init,
+        rnn_w_i_init=rnn_w_i_init,
         use_task=config.slots_use_task,
     )
-    def combine_hidden_obs(hidden: jnp.ndarray, emb: vision_language.TorsoOutput):
+
+    def combine_hidden_obs(hidden: Array,
+                           emb: vision_language.TorsoOutput):
       """After get hidden from SlotAttention, combine with task from embedding."""
-      return TaskAwareState(state=hidden, task=emb.task)
+      return TaskAwareRep(rep=hidden, task=emb.task)
+
 
     ###########################
     # Setup gating functions
     ###########################
-    assert config.gating in ('sum', 'gru', 'sigtanh')
-    # following options from GTRxL: https://arxiv.org/pdf/1910.06764.pdf
     get_gate_factory = functools.partial(
       gates.get_gate_factory,
       b_init=hk.initializers.Constant(config.b_init_attn),
       w_init=w_init_attn)
 
+
     ###########################
     # Setup transition function: transformer
     ###########################
-
-    def transformer_model(action_onehot: jnp.ndarray, 
-                          state: TaskAwareState):
+    def transformer_model(action_onehot: Array, 
+                          state: TaskAwareRep):
       assert action_onehot.ndim in (1, 2), "should be [A] or [B, A]"
       def _transformer_model(action_onehot, state):
         """Just make long sequence of state slots + action."""
         # action: [A]
         # state (slots): [N, D]
+        slots = state.slots
         action_w_init = hk.initializers.TruncatedNormal()
-        encoded_action = hk.Linear(state.shape[-1],
+        encoded_action = hk.Linear(slots.shape[-1],
                                   w_init=action_w_init,
                                   with_bias=False)(action_onehot)
         if config.action_as_factor:
           # [N+1, D]
-          queries = jnp.concatenate((state, encoded_action[None]))
+          queries = jnp.concatenate((slots, encoded_action[None]))
         else:
           join = lambda a,b: a+b
           # [N, D]
-          queries = jax.vmap(join, (0, None))(state, encoded_action)
+          queries = jax.vmap(join, (0, None))(slots, encoded_action)
 
-        out = attention.Transformer(
+        outputs: attention.TransformerOutput = attention.Transformer(
             num_heads=slot_tran_heads,
             qkv_size=slot_tran_qkv_size,
             mlp_size=slot_tran_mlp_size,
@@ -173,11 +227,18 @@ def make_babyai_networks(
             gate_factory=get_gate_factory(config.gating),
             w_init=w_init_attn,
             name='transition')(queries)
+
         if config.action_as_factor:
-          out = out[:-1]  # remove action representation
+          outputs = outputs._replace(
+            attn_output=outputs.attn_output[:-1]  # remove action representation
+          )
         if config.scale_grad:
-          out = scale_gradient(out, config.scale_grad)
-        return out, out
+          outputs = outputs._replace(
+            attn_output=scale_gradient(
+              outputs.attn_output, config.scale_grad)
+          )
+
+        return outputs, outputs
       if action_onehot.ndim == 2:
         _transformer_model = jax.vmap(_transformer_model)
       return _transformer_model(action_onehot, state)
@@ -185,7 +246,7 @@ def make_babyai_networks(
     # transition gets task from state and stores in state
     transition_fn = TaskAwareRecurrentFn(
         get_task=lambda inputs, state: state.task,
-        prep_state=lambda state: state.state,  # get state-vector from TaskAwareState
+        prep_state=lambda state: state.rep,  # get state-vector from TaskAwareRep
         couple_state_task=True,
         core=hk.to_module(transformer_model)(name='transformer_model'),
     )
@@ -218,38 +279,17 @@ def make_babyai_networks(
         return hk.nets.MLP(tuple(sizes) + (num_preds,),
                            w_init=w_init_out,
                            name=name)
-    def make_pred_input_module(selection, attn_head, gate, name='pred_input'):
-      """This creates a function which aggregates slot information tto single vector.
-
-      attention: use task-vector to select slot information
-      mean: mean of slot information
-      """
-      def pred_input_module(slots, task_query):
-        # slots: [N, D]
-        # task_query: [D]
-        if selection == 'attention':
-          # [D]
-          out = attn_head(query=task_query[None],  # convert to [1, D] for attention
-                          key=slots)[0]
-          out = gate(task_query, out)
-          return hk.LayerNorm(
-            axis=(-1), create_scale=True, create_offset=True)(out)
-        elif selection == 'slot_mean':
-          return slots.mean(0)
-        elif selection == 'task_query':
-          return task_query
-      return hk.to_module(pred_input_module)(name=name)
 
     assert config.seperate_model_nets == False, 'need to redo function for this'
     # root
-    pre_blocks_base = max(1, config.prediction_blocks//2)
-    transformer1 = make_transformer(
-      'transformer1', num_layers=pre_blocks_base)
-    transformer2 = make_transformer(
-      'transformer2', num_layers=pre_blocks_base)
+    # pre_blocks_base = max(1, config.prediction_blocks//2)
+    pred_transformer = make_transformer(
+      'pred_transformer', num_layers=config.prediction_blocks)
+    # transformer2 = make_transformer(
+    #   'transformer2', num_layers=pre_blocks_base)
 
-    policy_input_module = make_pred_input_module(
-      name='policy_input_module',
+    prediction_input_fn = make_slot_selection_fn(
+      name='prediction_input_fn',
       selection=config.pred_input_selection,
       gate=get_gate_factory(config.pred_gate)(),
       attn_head=attention.GeneralMultiHeadAttention(
@@ -264,7 +304,7 @@ def make_babyai_networks(
       name='value', sizes=config.vpi_mlps, num_preds=config.num_bins)
 
     # model
-    reward_input_module = make_pred_input_module(
+    reward_input_module = make_slot_selection_fn(
       name='reward_input_module',
       selection=config.pred_input_selection,
       gate=get_gate_factory(config.pred_gate)(),
@@ -280,71 +320,73 @@ def make_babyai_networks(
                                 w_init=w_init_attn,
                                 with_bias=False)
 
-    def state_task_to_queries(state: TaskAwareState):
+    def combine_slots_task(slots: Array, task: Array):
       # state (slot): [N, D]
-      state_hidden = state.state
-      task = task_projection(state.task)  # [D]
+      task = task_projection(task)  # [D]
       task = jnp.expand_dims(task, 0)  # [1, D]
 
-      return jnp.concatenate((task, state_hidden))  #[N+1, D]
+      return jnp.concatenate((task, slots))  #[N+1, D]
 
-    def root_predictor(state: TaskAwareState):
-      def _root_predictor(state: TaskAwareState):
-        queries = state.state
+    def root_predictor(state_rep: TaskAwareRep):
+      def _root_predictor(state_rep: TaskAwareRep):
+        queries = state_rep.rep.slots
         if config.pred_input_selection == 'attention':
-          queries = state_task_to_queries(state)
-        queries = transformer1(queries)  # [N, D]
-        queries = transformer2(queries)  # [N, D]
+          queries = combine_slots_task(
+              slots=state_rep.rep.slots, task=state_rep.task)
+        outputs: attention.TransformerOutput = pred_transformer(queries)  # [N, D]
 
-        # [1, D]
-        # use None to make query [1, D]. Needed for attention on [N, D] queries.
-        policy_input = policy_input_module(slots=queries[1:],
-                                           task_query=queries[0])
+        policy_input = prediction_input_fn(
+          slot_reps=outputs.attn_output[1:],
+          task_query=state_rep.task)
         policy_logits = policy_fn(policy_input)
         value_logits = value_fn(policy_input)
+
         return RootOutput(
-            state=state,
+            pred_attn_outputs=outputs,
+            state=state_rep,
             value_logits=value_logits,
             policy_logits=policy_logits,
         )
-      assert state.task.ndim in (1,2), "should be [D] or [B, D]"
-      if state.task.ndim == 2:
+      assert state_rep.task.ndim in (1,2), "should be [D] or [B, D]"
+      if state_rep.task.ndim == 2:
         _root_predictor = jax.vmap(_root_predictor)
-      return _root_predictor(state)
+      return _root_predictor(state_rep)
 
-    def model_predictor(state: TaskAwareState):
-      def _model_predictor(state: TaskAwareState):
-        queries = state.state
+    def model_predictor(state_rep: TaskAwareRep):
+      def _model_predictor(state_rep: TaskAwareRep):
+        # output of transformer model
+        model_outputs: attention.TransformerOutput = state_rep.rep
+
+        queries = model_outputs.attn_output
         if config.pred_input_selection == 'attention':
-          queries = state_task_to_queries(state)
-        queries = transformer1(queries)
+          queries = combine_slots_task(
+              slots=queries,
+              task=state_rep.task)
+        outputs: attention.TransformerOutput = pred_transformer(queries)
 
-        # use None to make query [1, D]. Needed for attention on [N, D] queries.
-        reward_input = reward_input_module(slots=queries[1:],
-                                           task_query=queries[0])
+        pred_inputs = prediction_input_fn(
+          slot_reps=outputs.attn_output[1:],
+          task_query=state_rep.task)
 
-        reward_logits = reward_fn(reward_input)
+        reward_logits = reward_fn(pred_inputs)
+        policy_logits = policy_fn(pred_inputs)
+        value_logits = value_fn(pred_inputs)
 
-        queries = transformer2(queries)
-        # use None to make query [1, D]. Needed for attention on [N, D] queries.
-        policy_input = policy_input_module(slots=queries[1:],
-                                           task_query=queries[0])
-        policy_logits = policy_fn(policy_input)
-        value_logits = value_fn(policy_input)
         return ModelOutput(
-            new_state=state,
+            pred_attn_outputs=outputs,
+            new_state=model_outputs,
             value_logits=value_logits,
             policy_logits=policy_logits,
             reward_logits=reward_logits,
-            # termination=termination,
         )
-      assert state.task.ndim in (1,2), "should be [D] or [B, D]"
-      if state.task.ndim == 2:
+      assert state_rep.task.ndim in (1,2), "should be [D] or [B, D]"
+      if state_rep.task.ndim == 2:
         _model_predictor = jax.vmap(_model_predictor)
-      return _model_predictor(state)
+      return _model_predictor(state_rep)
 
     root_pred_fn = hk.to_module(root_predictor)(name='root_predictor')
     model_pred_fn = hk.to_module(model_predictor)(name='model_predictor')
+
     arch = MuZeroArch(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
