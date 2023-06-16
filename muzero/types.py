@@ -21,8 +21,8 @@ Observation = networks_lib.Observation
 Action = networks_lib.Action
 
 
-class TaskAwareState(NamedTuple):
-  state: chex.Array
+class TaskAwareRep(NamedTuple):
+  rep: chex.Array
   task: chex.Array
 
 

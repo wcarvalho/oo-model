@@ -13,7 +13,7 @@ from acme.types import NestedArray as Array
 State = Array
 Action = Array
 
-from muzero.types import TaskAwareState, ModelOutput
+from muzero.types import TaskAwareRep, ModelOutput
 
 def add_batch(nest, batch_size: Optional[int]):
   """Adds a batch dimension at axis 0 to the leaves of a nested structure."""
@@ -109,22 +109,22 @@ class TaskAwareRecurrentFn(hk.RNNCore):
     self._prep_state = prep_state
 
   def initial_state(self, batch_size: Optional[int],
-                    **unused_kwargs) -> TaskAwareState:
+                    **unused_kwargs) -> TaskAwareRep:
     if not self._couple_state_task:
       return self._core.initial_state(batch_size)
 
     if self._task_dim is None:
       raise RuntimeError("Don't expect to initialize state")
 
-    state = TaskAwareState(
-      state=self._core.initial_state(None),
+    state = TaskAwareRep(
+      rep=self._core.initial_state(None),
       task=jnp.zeros(self._task_dim, dtype=jnp.float32)
     )
     if batch_size:
       state = add_batch(state, batch_size)
     return state
 
-  def __call__(self, inputs: Array, prev_state: TaskAwareState):
+  def __call__(self, inputs: Array, prev_state: TaskAwareRep):
     prepped_input = self._prep_input(inputs)
     prepped_state = self._prep_state(prev_state)
 
@@ -132,10 +132,10 @@ class TaskAwareRecurrentFn(hk.RNNCore):
 
     task = self._get_task(inputs, prev_state)
     if self._couple_state_task:
-      state = TaskAwareState(state=state, task=task)
+      state = TaskAwareRep(rep=state, task=task)
 
     if self._couple_hidden_task:
-      hidden = TaskAwareState(state=hidden, task=task)
+      hidden = TaskAwareRep(rep=hidden, task=task)
 
     return hidden, state
 

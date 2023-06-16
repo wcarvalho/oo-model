@@ -36,7 +36,7 @@ from modules import vision_language
 from modules import simple_mlp_muzero
 from modules.mlp_muzero import PredictionMlp, Transition, ResMlp
 from muzero.arch import MuZeroArch
-from muzero.types import MuZeroNetworks, TaskAwareState, RootOutput, ModelOutput
+from muzero.types import MuZeroNetworks, TaskAwareRep, RootOutput, ModelOutput
 from muzero.config import MuZeroConfig
 from muzero.utils import Discretizer, TaskAwareRecurrentFn, scale_gradient, compute_q_values
 
@@ -99,12 +99,12 @@ def make_babyai_networks(
     state_fn = hk.LSTM(state_dim)
     def combine_hidden_obs(hidden: jnp.ndarray, emb: vision_language.TorsoOutput):
       """After get hidden from LSTM, combine with task from embedding."""
-      return TaskAwareState(state=hidden, task=emb.task)
+      return TaskAwareRep(rep=hidden, task=emb.task)
 
     ###########################
     # Setup transition function: ResNet
     ###########################
-    def resnet_model(action_onehot: jnp.ndarray, state: TaskAwareState):
+    def resnet_model(action_onehot: jnp.ndarray, state: TaskAwareRep):
       assert action_onehot.ndim in (1, 2), "should be [A] or [B, A]"
       def _resnet_model(action_onehot, state):
         """ResNet transition model that scales gradient."""
@@ -125,7 +125,7 @@ def make_babyai_networks(
     # transition gets task from state and stores in state
     transition_fn = TaskAwareRecurrentFn(
       get_task=lambda inputs, state: state.task,
-      prep_state=lambda state: state.state,  # get state-vector from TaskAwareState
+      prep_state=lambda state: state.state,  # get state-vector from TaskAwareRep
       couple_state_task=True,
       core=resnet_model,
     )
@@ -168,9 +168,9 @@ def make_babyai_networks(
       model_policy_fn = root_policy_fn
       model_vpi_base = root_vpi_base
 
-    def root_predictor(state: TaskAwareState):
+    def root_predictor(state: TaskAwareRep):
       assert state.task.ndim in (1, 2), "should be [D] or [B, D]"
-      def _root_predictor(state: TaskAwareState):
+      def _root_predictor(state: TaskAwareRep):
         state_ = state.state
         state_ = root_vpi_base(state_)
 
@@ -186,9 +186,9 @@ def make_babyai_networks(
         _root_predictor = jax.vmap(_root_predictor)
       return _root_predictor(state)
 
-    def model_predictor(state: TaskAwareState):
+    def model_predictor(state: TaskAwareRep):
       assert state.task.ndim in (1,2), "should be [D] or [B, D]"
-      def _model_predictor(state: TaskAwareState):
+      def _model_predictor(state: TaskAwareRep):
         state_ = state.state
         reward_logits = model_reward_fn(state_)
 
