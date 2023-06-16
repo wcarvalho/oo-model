@@ -42,9 +42,12 @@ class BaseLogger:
 
 class AttnLogger(BaseLogger):
 
-  def __init__(self, tile_size: int = 8):
+  def __init__(self,
+               tile_size: int = 8,
+               label: str = 'actor_images'):
     super().__init__()
     self.tile_size = tile_size
+    self.label = label
 
   def collect_data(
       self,
@@ -93,10 +96,10 @@ class AttnLogger(BaseLogger):
       max_attn = attn_analysis.slot_attn_max_likelihood(attn)
 
       wandb.log({
-          "actor_images/img_attn_01": [wandb.Image(img) for img in self.data['img_attn_01']],
-          "actor_images/img_attn_reg": [wandb.Image(img) for img in self.data['img_attn_reg']],
-          "actor_images/attn_entropy": wandb.Image(attn_entropy),
-          "actor_images/max_attn": wandb.Image(max_attn),
+          f"{self.label}/img_attn_01": [wandb.Image(img) for img in self.data['img_attn_01']],
+          f"{self.label}/img_attn_reg": [wandb.Image(img) for img in self.data['img_attn_reg']],
+          f"{self.label}/attn_entropy": wandb.Image(attn_entropy),
+          f"{self.label}/max_attn": wandb.Image(max_attn),
         })
 
 class VisualizeActor(actors.GenericActor):
@@ -120,7 +123,11 @@ class VisualizeActor(actors.GenericActor):
     if self.logger.has_data:
       if self.verbosity:
         logging.info(f'logging actor data. idx {self.idx}')
-      self.logger.log_data(self.idx)
+      try:
+        self.logger.log_data(self.idx)
+      except wandb.errors.Error as e:
+        self.log_frequency = np.inf
+        logging.warning(f"{self.logger.label}: turning off logging.")
 
     log_episode = self.idx % self.log_frequency == 0
     self.logger.reset()
