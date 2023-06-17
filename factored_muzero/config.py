@@ -36,6 +36,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   # state function
   savi_iterations: int = 1
   savi_temp: float = 1.0
+  savi_rnn: str = 'gru'
   num_slots: int = 4
   slot_size: int = 64
 
