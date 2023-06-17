@@ -63,6 +63,7 @@ class ValueEquivalentLoss:
                num_simulations: int,
                td_steps: int,
                policy_loss_fn: Callable[[Array, Array], Array],
+               get_state : Optional[Callable[[Array], Array]] = None,
                discount: float = 0.99,
                root_policy_coef: float = 1.0,
                root_value_coef: float = 1.0,
@@ -96,6 +97,10 @@ class ValueEquivalentLoss:
     self._mask_model = mask_model
     self._invalid_actions = invalid_actions
     self._behavior_clone = behavior_clone
+
+    if get_state is None:
+      get_state = lambda o: o.state
+    self.get_state = get_state
 
     assert v_target_source in ('mcts',
                                'return',
@@ -193,7 +198,7 @@ class ValueEquivalentLoss:
         target_outputs.value_logits)
     roots = mctx.RootFnOutput(prior_logits=target_outputs.policy_logits,
                               value=target_values,
-                              embedding=target_outputs.state)
+                              embedding=self.get_state(target_outputs))
 
     invalid_actions = self.get_invalid_actions(
       batch_size=target_values.shape[0])
@@ -333,7 +338,7 @@ class ValueEquivalentLoss:
         data=data,  # after any processing
         is_terminal=is_terminal_mask,
         in_episode=in_episode,
-        online_state=online_outputs.state,
+        online_state=self.get_state(online_outputs),
         online_outputs=online_outputs,
         # root policy
         policy_root_ce=root_policy_ce,
@@ -443,7 +448,7 @@ class ValueEquivalentLoss:
     model_keys = keys[1:]
     # T, |simulation_actions|, ...
     model_outputs = model_unroll(
-        model_keys, online_outputs.state, simulation_actions,
+        model_keys, self.get_state(online_outputs), simulation_actions,
     )
 
     #------------

@@ -19,13 +19,11 @@ class SaviInputs:
   task: jnp.ndarray
 
 
-class SaviState(NamedTuple):
-  slots: jnp.ndarray
-  attn: jnp.ndarray
-
 class TransformerOutput(NamedTuple):
-  attn_output: jnp.ndarray
-  attn_weights: jnp.ndarray
+  factors: jnp.ndarray
+  attn: Optional[jnp.ndarray] = None
+
+SaviState = TransformerOutput
 
 class MultiLinear(hk.Linear):
   def __init__(self, *args, heads, **kwargs):
@@ -78,7 +76,7 @@ class SlotAttention(hk.RNNCore):
 
     image = inputs.image
     has_batch = len(image.shape) == 3
-    slots = state.slots
+    slots = state.factors
 
     assert len(image.shape) in (2,3), "should either be [N, C] or [B, N, C]"
     nspatial = image.shape[-2]
@@ -140,7 +138,7 @@ class SlotAttention(hk.RNNCore):
         # slots = mlp(slots)
 
     state = SaviState(
-      slots=slots,
+      factors=slots,
       attn=attn_weights,
     )
     return state, state
@@ -164,7 +162,7 @@ class SlotAttention(hk.RNNCore):
       attn_shape = (batch_size,) + attn_shape
 
     state = SaviState(
-      slots=self.initial_slots(batch_size),
+      factors=self.initial_slots(batch_size),
       attn=jnp.zeros(attn_shape, dtype=jnp.float32),
     )
 
@@ -266,15 +264,13 @@ class Transformer(hk.Module):
                padding_mask: Optional[Array] = None,
                train: bool = False) -> Array:
     if self.num_layers == 0:
-      return TransformerOutput(
-        attn_output=queries,
-        attn_weights=None)
+      return TransformerOutput(factors=queries)
 
     x = queries
     all_attn_weights = []
     if isinstance(queries, TransformerOutput):
-      x = queries.attn_output
-      prior_attn_weights = queries.attn_weights
+      x = queries.factors
+      prior_attn_weights = queries.attn
 
     for lyr in range(self.num_layers):
       x, attn_weights = TransformerBlock(
@@ -286,18 +282,16 @@ class Transformer(hk.Module):
       all_attn_weights.append(attn_weights)
 
     attn_weights = jnp.stack(all_attn_weights)
-
     if isinstance(queries, TransformerOutput):
       out = TransformerOutput(
-        attn_output=x,
-        attn_weights=jnp.concatenate(
+        factors=x,
+        attn=jnp.concatenate(
           (prior_attn_weights, attn_weights))
       )
-
     else:
       out = TransformerOutput(
-        attn_output=x,
-        attn_weights=attn_weights)
+        factors=x,
+        attn=attn_weights)
 
     return out
 

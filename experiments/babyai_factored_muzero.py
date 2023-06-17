@@ -10,8 +10,11 @@ import rlax
 from muzero import utils as muzero_utils
 from muzero.builder import MuZeroBuilder
 from muzero.ve_losses import ValueEquivalentLoss
+from muzero.types import TaskAwareRep
 
 from factored_muzero import networks
+from factored_muzero import types
+from factored_muzero import attention
 from factored_muzero.config import FactoredMuZeroConfig
 
 from experiments.config_utils import update_config
@@ -31,6 +34,19 @@ def load_config(
     config.sequence_period = config.trace_length
 
   return config
+
+
+def get_state_remove_attention(outputs: types.RootOutput):
+  """Remove attention weights before returning state in outputs.
+  
+  MCTS does not accept attention weights for some weird shaping issue.
+  """
+  state: types.TaskAwareSaviState = outputs.state
+  savi_state: attention.SaviState = state.rep
+  return state._replace(
+    rep=attention.TransformerOutput(
+      factors=savi_state.factors))
+
 
 def setup(
     config: FactoredMuZeroConfig,
@@ -75,6 +91,7 @@ def setup(
     v_target_source=config.v_target_source,
     mask_model=config.mask_model,
     invalid_actions=invalid_actions,
+    get_state=get_state_remove_attention,
     **loss_kwargs,
     )
 

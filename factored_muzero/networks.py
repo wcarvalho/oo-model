@@ -14,7 +14,7 @@
 
 """Factored MuZero Networks."""
 
-from typing import Callable, Optional, Tuple
+from typing import Callable, Optional, Tuple, Union
 import functools
 
 from acme import specs
@@ -43,13 +43,60 @@ from factored_muzero.config import FactoredMuZeroConfig as MuZeroConfig
 from factored_muzero import attention
 from factored_muzero import encoder
 from factored_muzero import gates
-from factored_muzero.types import RootOutput, ModelOutput
+from factored_muzero.types import RootOutput, ModelOutput, TaskAwareSaviState
 
 # MuZeroNetworks = networks_lib.UnrollableNetwork
 NetworkOutput = networks_lib.NetworkOutput
 RecurrentState = networks_lib.RecurrentState
 Array = acme_types.NestedArray
 GateFn = Callable[[Array, Array], Array]
+
+
+class FactoredMuZeroArch(MuZeroArch):
+  """Factored MuZero Architecture.
+
+  Observation function: CNN.
+  State function: SaVi.
+  World Model: TaskAwareRecurrentFn[Transformer]
+
+  NOTE: RootOutput contains 
+  """
+  def initial_state(self, batch_size: Optional[int],
+                    **unused_kwargs) -> attention.SaviState:
+    return super().initial_state(batch_size, **unused_kwargs)
+
+  def __call__(
+      self,
+      inputs: attention.SaviInputs,
+      state: attention.SaviState
+  ) -> Tuple[RootOutput, attention.SaviState]:
+    """Update slots with observation information. No batch dim."""
+    return super().__call__(inputs, state)
+  
+  def unroll(
+      self,
+      inputs: attention.SaviInputs,
+      state: attention.SaviState
+  ) -> Tuple[RootOutput, attention.SaviState]:
+    """Unroll savi over inputs. Inputs is a sequence. State has 1 time-step."""
+    return super().unroll(inputs, state)
+
+  def apply_model(
+      self,
+      state: TaskAwareSaviState,
+      action: Array,
+  ) -> Tuple[ModelOutput, TaskAwareSaviState]:
+    """Apply transformer model over slots. Can have batch_dim."""
+    return super().apply_model(state, action)
+
+  def unroll_model(
+      self,
+      state: TaskAwareSaviState,
+      action_sequence: Array,
+  ) -> Tuple[ModelOutput, TaskAwareSaviState]:
+    """Unrolls transformer model over action_sequence. No batch dim."""
+    return super().unroll_model(state, action_sequence)
+
 
 def make_save_input(embedding: vision_language.TorsoOutput):
   return attention.SaviInputs(
@@ -162,9 +209,10 @@ def make_babyai_networks(
     elif config.gru_init == 'default':
       # from haiku
       rnn_w_i_init = None
+
+    assert config.savi_rnn in ('gru', 'lstm')
     if config.savi_rnn == 'gru':
-      rnn_class = functools.partial(hk.GRU,
-        w_i_init=rnn_w_i_init,)
+      rnn_class = functools.partial(hk.GRU, w_i_init=rnn_w_i_init)
     elif config.savi_rnn == 'lstm':
       rnn_class = hk.LSTM
 
@@ -176,12 +224,11 @@ def make_babyai_networks(
         num_spatial=num_spatial_vectors,
         rnn_class=rnn_class,
         w_init=w_init_attn,
-        rnn_w_i_init=rnn_w_i_init,
-        use_task=config.slots_use_task,
+        use_task=False,
     )
 
-    def combine_hidden_obs(hidden: Array,
-                           emb: vision_language.TorsoOutput):
+    def combine_hidden_obs(
+        hidden: attention.SaviState, emb: vision_language.TorsoOutput):
       """After get hidden from SlotAttention, combine with task from embedding."""
       return TaskAwareRep(rep=hidden, task=emb.task)
 
@@ -199,13 +246,18 @@ def make_babyai_networks(
     # Setup transition function: transformer
     ###########################
     def transformer_model(action_onehot: Array, 
-                          state: TaskAwareRep):
+                          state: TaskAwareSaviState):
       assert action_onehot.ndim in (1, 2), "should be [A] or [B, A]"
-      def _transformer_model(action_onehot, state):
+      def _transformer_model(
+          action_onehot: Array,
+          state: Union[attention.SaviState,
+                       attention.TransformerOutput]
+          ) -> Tuple[attention.TransformerOutput,
+                     attention.TransformerOutput]:
         """Just make long sequence of state slots + action."""
         # action: [A]
         # state (slots): [N, D]
-        slots = state.slots
+        slots = state.factors
         action_w_init = hk.initializers.TruncatedNormal()
         encoded_action = hk.Linear(slots.shape[-1],
                                   w_init=action_w_init,
@@ -229,14 +281,12 @@ def make_babyai_networks(
             name='transition')(queries)
 
         if config.action_as_factor:
-          outputs = outputs._replace(
-            attn_output=outputs.attn_output[:-1]  # remove action representation
-          )
+          # remove action representation
+          outputs = outputs._replace(factors=outputs.factors[:-1])
+
         if config.scale_grad:
           outputs = outputs._replace(
-            attn_output=scale_gradient(
-              outputs.attn_output, config.scale_grad)
-          )
+            factors=scale_gradient(outputs.factors, config.scale_grad))
 
         return outputs, outputs
       if action_onehot.ndim == 2:
@@ -285,8 +335,6 @@ def make_babyai_networks(
     # pre_blocks_base = max(1, config.prediction_blocks//2)
     pred_transformer = make_transformer(
       'pred_transformer', num_layers=config.prediction_blocks)
-    # transformer2 = make_transformer(
-    #   'transformer2', num_layers=pre_blocks_base)
 
     prediction_input_fn = make_slot_selection_fn(
       name='prediction_input_fn',
@@ -303,17 +351,6 @@ def make_babyai_networks(
     value_fn = make_pred_fn(
       name='value', sizes=config.vpi_mlps, num_preds=config.num_bins)
 
-    # model
-    reward_input_module = make_slot_selection_fn(
-      name='reward_input_module',
-      selection=config.pred_input_selection,
-      gate=get_gate_factory(config.pred_gate)(),
-      attn_head=attention.GeneralMultiHeadAttention(
-          num_heads=slot_pred_heads,
-          key_size=slot_pred_qkv_size,
-          model_size=slot_pred_qkv_size,
-          w_init=w_init_attn),
-    )
     reward_fn = make_pred_fn(
       name='reward', sizes=config.reward_mlps, num_preds=config.num_bins)
     task_projection = hk.Linear(slot_tran_qkv_size,
@@ -327,16 +364,17 @@ def make_babyai_networks(
 
       return jnp.concatenate((task, slots))  #[N+1, D]
 
-    def root_predictor(state_rep: TaskAwareRep):
-      def _root_predictor(state_rep: TaskAwareRep):
-        queries = state_rep.rep.slots
+    def root_predictor(state_rep: TaskAwareSaviState):
+      def _root_predictor(state_rep: TaskAwareSaviState):
+        queries = state_rep.rep.factors
         if config.pred_input_selection == 'attention':
           queries = combine_slots_task(
-              slots=state_rep.rep.slots, task=state_rep.task)
+              slots=state_rep.rep.factors,
+              task=state_rep.task)
         outputs: attention.TransformerOutput = pred_transformer(queries)  # [N, D]
 
         policy_input = prediction_input_fn(
-          slot_reps=outputs.attn_output[1:],
+          slot_reps=outputs.factors[1:],
           task_query=state_rep.task)
         policy_logits = policy_fn(policy_input)
         value_logits = value_fn(policy_input)
@@ -352,12 +390,12 @@ def make_babyai_networks(
         _root_predictor = jax.vmap(_root_predictor)
       return _root_predictor(state_rep)
 
-    def model_predictor(state_rep: TaskAwareRep):
-      def _model_predictor(state_rep: TaskAwareRep):
+    def model_predictor(state_rep: TaskAwareSaviState):
+      def _model_predictor(state_rep: TaskAwareSaviState):
         # output of transformer model
         model_outputs: attention.TransformerOutput = state_rep.rep
 
-        queries = model_outputs.attn_output
+        queries = model_outputs.factors
         if config.pred_input_selection == 'attention':
           queries = combine_slots_task(
               slots=queries,
@@ -365,7 +403,7 @@ def make_babyai_networks(
         outputs: attention.TransformerOutput = pred_transformer(queries)
 
         pred_inputs = prediction_input_fn(
-          slot_reps=outputs.attn_output[1:],
+          slot_reps=outputs.factors[1:],
           task_query=state_rep.task)
 
         reward_logits = reward_fn(pred_inputs)
@@ -387,7 +425,7 @@ def make_babyai_networks(
     root_pred_fn = hk.to_module(root_predictor)(name='root_predictor')
     model_pred_fn = hk.to_module(model_predictor)(name='model_predictor')
 
-    arch = MuZeroArch(
+    arch = FactoredMuZeroArch(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
       observation_fn=observation_fn,
