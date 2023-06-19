@@ -44,14 +44,14 @@ def load_settings(
 
 
 def load_agent(env,
-               config_kwargs: dict = None,
+               config,
                seed_path: str = None,
                use_latest = True,
                evaluation = True,
                agent_setup = babyai_factored_muzero.setup,
                **kwargs):
-  config, builder, network_factory = agent_setup(
-        config_kwargs=config_kwargs)
+  builder, network_factory = agent_setup(
+        config=config)
 
   # then get environment spec
   environment_spec = specs.make_environment_spec(env)
