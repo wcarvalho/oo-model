@@ -125,7 +125,7 @@ def make_babyai_networks(
     # transition gets task from state and stores in state
     transition_fn = TaskAwareRecurrentFn(
       get_task=lambda inputs, state: state.task,
-      prep_state=lambda state: state.state,  # get state-vector from TaskAwareRep
+      prep_state=lambda state: state.rep,  # get state-vector from TaskAwareRep
       couple_state_task=True,
       core=resnet_model,
     )
@@ -171,7 +171,7 @@ def make_babyai_networks(
     def root_predictor(state: TaskAwareRep):
       assert state.task.ndim in (1, 2), "should be [D] or [B, D]"
       def _root_predictor(state: TaskAwareRep):
-        state_ = state.state
+        state_ = state.rep
         state_ = root_vpi_base(state_)
 
         policy_logits = root_policy_fn(state_)
@@ -189,7 +189,7 @@ def make_babyai_networks(
     def model_predictor(state: TaskAwareRep):
       assert state.task.ndim in (1,2), "should be [D] or [B, D]"
       def _model_predictor(state: TaskAwareRep):
-        state_ = state.state
+        state_ = state.rep
         reward_logits = model_reward_fn(state_)
 
         state_ = model_vpi_base(state_)
