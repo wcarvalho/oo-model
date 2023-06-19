@@ -255,6 +255,47 @@ def slot_attn_max_likelihood(attn):
 
   return array_from_fig(fig)
 
+
+def plot_perlayer_attn(
+      attn,
+      title='',
+      figsize=None,
+      width=1,
+      reverse_rows: bool=True):
+
+  nlayers, nheads, nfactors, nfactors = attn.shape
+
+  # Create a subplot grid with nlayers rows and nheads columns
+  if not figsize:
+    figsize=(int(1.3*width*nheads), width*nlayers)
+  fig, axes = plt.subplots(nlayers, nheads, figsize=(10, 10))
+
+  # Create a reversed colormap with white and black colors
+  cmap = plt.cm.get_cmap('binary_r')
+
+  # Loop through each layer and attention head
+  for i in range(nlayers):
+    for j in range(nheads):
+      # Extract the values for the current layer and attention head
+      values = attn[i, j]
+
+      # Create a heatmap plot with values as the input
+      row = -i if reverse_rows else i
+      axes[row, j].imshow(values, cmap=cmap, aspect='auto', interpolation='nearest')
+
+      # Customize subplot labels and ticks if desired
+      axes[i, j].set_title(f"Layer {i+1}, Head {j+1}")
+      axes[i, j].set_xticks([])
+      axes[i, j].set_yticks([])
+
+  # Set the overall title for the figure
+  fig.suptitle(title)
+
+  # Adjust the spacing between subplots if needed
+  fig.tight_layout()
+
+  return array_from_fig(fig)
+
 ###################
 # data collection utils
 ###################
@@ -286,11 +327,13 @@ def collect_episode(env, actor,
                     data: dict=collections.defaultdict(list),
                     get_task_name= lambda env: "task",
                     collect_data = default_collect_data,
-                    data_post_process=asarry):
+                    data_post_process=asarry,
+                    budget=np.inf):
     timestep = env.reset()
     actor.observe_first(timestep)
 
     task_name = get_task_name(env)
+    idx = 0
     while not timestep.last():
         # Generate an action from the agent's policy.
 
@@ -302,5 +345,7 @@ def collect_episode(env, actor,
                      action=action)
         # Step the environment with the agent's selected action.
         timestep = env.step(action)
+        idx += 1
+        if idx >= budget: break
     data = data_post_process(data)
     return task_name, data

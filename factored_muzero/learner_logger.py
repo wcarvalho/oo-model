@@ -33,27 +33,28 @@ class LearnerLogger(learner_logger.LearnerLogger):
 
   def create_log_metrics(self, metrics):
     # NOTE: RNN hidden is available, not RNN state...
-    return super().create_log_metrics(metrics)
+    to_log = super().create_log_metrics(metrics)
 
     metrics = metrics.get('visualize_metrics', {})
     # get data from batch-idx = 0
     metrics = jax.tree_map(lambda x: x[0], metrics)
     root_data = metrics.get("visualize_root_data", {})
-    import ipdb; ipdb.set_trace()
+
     if not root_data: return to_log
 
     ######################
     # plot image attention
     ######################
-    online_state = root_data['online_state']
-    import ipdb; ipdb.set_trace()
-    attn = jax.tree_map(lambda x: x[:, 0], online_state.attn)  # [T, num_slots, spatial_positions]
-    ntime, slots, spatial_positions = attn.shape[0]
-    images = root_data['images']  # [T, H, W, C]
+    online_outputs = root_data['online_outputs']
 
+    # [T, num_slots, spatial_positions]
+    slot_attn = online_outputs.state.rep.attn
+    ntime, slots, spatial_positions = slot_attn.shape
+
+    images = root_data['data'].observation.observation.image
     assert images.shape[1] == images.shape[2]
-    width = np.sqrt(spatial_positions)
-    spatial_attn = attn.reshape(-1, slots, width, width)
+    width = int(np.sqrt(spatial_positions))
+    spatial_attn = slot_attn.reshape(-1, slots, width, width)
 
     img_attn_01 = []
     img_attn_reg = []
@@ -78,9 +79,28 @@ class LearnerLogger(learner_logger.LearnerLogger):
     to_log['0.img_attn_unnormalized'] = [wandb.Image(img) for img in img_attn_reg]
 
     ######################
+    # plot attention in prediction layers
+    ######################
+    # [T, num_layers, num_heads, num_factors, num_factors]
+    # num_factors = num_slots + 1 (for task?)
+    pred_attn = online_outputs.pred_attn_outputs.attn
+
+    pred_attn_images = []
+    for t in range(ntime):
+      img = attn_analysis.plot_perlayer_attn(
+        attn=pred_attn[t],
+        title=f"Timestep {t+1}",
+      )
+      pred_attn_images.append(img)
+
+    to_log['0.pred_attn_01'] = [
+        wandb.Image(img) for img in pred_attn_images]
+
+    ######################
     # plot slot entropy
     ######################
-    attn_entropy = attn_analysis.slot_attn_entropy(attn, normalize=True)
-    to_log['0.attn_entropy'] = attn_entropy
+    attn_entropy = attn_analysis.slot_attn_entropy(
+      slot_attn, normalize=True)
+    to_log['1.attn_entropy'] = attn_entropy
 
     return to_log
