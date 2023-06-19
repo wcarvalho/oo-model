@@ -23,6 +23,7 @@ import functools
 import time
 from typing import Dict, Iterator, List, NamedTuple, Optional, Tuple, Callable, TypeVar
 
+import collections
 from absl import logging
 import acme
 from acme import types as acme_types
@@ -78,6 +79,18 @@ def flatten_dict(dictionary, parent_key='', separator='.'):
         else:
             flattened_dict[new_key] = value
     return flattened_dict
+
+def param_sizes(params):
+  param_sizes = collections.defaultdict(int)
+  params = tree.map_structure(jnp.size, params)
+  for name, sizes in params.items():
+    name = name.split("/")[0]
+    param_sizes[name] += sum(sizes.values())
+
+  return dict(param_sizes)
+
+
+
 
 def episode_mean(x, mask):
   if len(mask.shape) < len(x.shape):
@@ -380,6 +393,7 @@ class MuZeroLearner(acme.Learner):
       # Log how many parameters the network has.
       sizes = tree.map_structure(jnp.size, initial_params)
       logging.info('Total number of params: %.3g', sum(tree.flatten(sizes.values())))
+      pprint(param_sizes(initial_params))
     else:
       raise NotImplementedError
 
