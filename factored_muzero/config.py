@@ -31,6 +31,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
 
   # postion embedding
   embedding_type: str = 'linear'
+  pos_mlp_layers: Tuple[int] = (64,)
   update_type: str = 'project_add'
 
   # state function

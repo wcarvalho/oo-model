@@ -28,7 +28,8 @@ class Mlp(hk.Module):
 
   def __call__(self, inputs):
     output_size = self._output_size or inputs.shape[-1]
-
+    if not self._mlp_layers:
+      return inputs
     x = inputs
     if self._layernorm == 'pre':
       x = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(x)

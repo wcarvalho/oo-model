@@ -159,17 +159,18 @@ def make_babyai_networks(
     # Setup observation encoders (image + language)
     ###########################
     w_init_attn = hk.initializers.VarianceScaling(config.w_init_attn)
+    # w_init_obs = hk.initializers.VarianceScaling(config.w_init_attn)
     vision_torso = encoder.PositionEncodingTorso(
       img_embed=vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim,
                                          flatten=False),
       pos_embed=encoder.PositionEmbedding(
         embedding_type=config.embedding_type,
         update_type=config.update_type,
-        w_init=w_init_attn,
+        w_init=None,
         output_transform=encoder.Mlp(
           # default settings from paper
-          mlp_layers=[64],
-          w_init=w_init_attn,
+          mlp_layers=config.pos_mlp_layers,
+          w_init=None,
           layernorm=config.pos_layernorm,
         )
       )
@@ -185,7 +186,7 @@ def make_babyai_networks(
           sentence_dim=config.sentence_dim,
       ),
       task_dim=config.task_dim,
-      w_init=w_init_attn,
+      w_init=None,
       output_fn=vision_language.struct_output,
     )
     ###########################
