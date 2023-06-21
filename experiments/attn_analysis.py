@@ -204,7 +204,7 @@ def slot_attn_entropy(attn, normalize: bool = True):
   T, N, M = attn.shape
 
   # Step 1: Calculate entropy for each type at each time step
-  entropy = -np.sum(attn * np.log2(attn), axis=-1)
+  entropy = -np.sum(attn * np.log2(attn + 1e-5), axis=-1)
 
   # Step 2: Normalize the entropy values
   if normalize:
@@ -260,7 +260,8 @@ def plot_perlayer_attn(
       attn,
       title='',
       figsize=None,
-      width=1,
+      width=4,
+      factor_labels=None,
       reverse_rows: bool=True):
 
   nlayers, nheads, nfactors, nfactors = attn.shape
@@ -268,25 +269,35 @@ def plot_perlayer_attn(
   # Create a subplot grid with nlayers rows and nheads columns
   if not figsize:
     figsize=(int(1.3*width*nheads), width*nlayers)
-  fig, axes = plt.subplots(nlayers, nheads, figsize=(10, 10))
+  fig, axes = plt.subplots(nlayers, nheads, figsize=figsize)
 
   # Create a reversed colormap with white and black colors
   cmap = plt.cm.get_cmap('binary_r')
+
+  if nlayers == 1 and nheads == 1:
+     axes = [[axes]]
+  elif nlayers == 1:
+     axes = axes[None]
+  elif nheads == 1:
+     axes = axes[:, None]
 
   # Loop through each layer and attention head
   for i in range(nlayers):
     for j in range(nheads):
       # Extract the values for the current layer and attention head
-      values = attn[i, j]
+      values = attn[i, j][::-1]  # reverse factors
 
       # Create a heatmap plot with values as the input
       row = -i if reverse_rows else i
       axes[row, j].imshow(values, cmap=cmap, aspect='auto', interpolation='nearest')
+      axes[row, j].set_title(f"Layer {i+1}, Head {j+1}")
 
-      # Customize subplot labels and ticks if desired
-      axes[i, j].set_title(f"Layer {i+1}, Head {j+1}")
-      axes[i, j].set_xticks([])
-      axes[i, j].set_yticks([])
+      # Add symmetric labels on x-axis and y-axis
+      factor_labels = factor_labels or [f"Factor {f+1}" for f in range(nfactors)]
+      axes[row, j].set_xticks(np.arange(nfactors))
+      axes[row, j].set_yticks(np.arange(nfactors))
+      axes[row, j].set_xticklabels(factor_labels)
+      axes[row, j].set_yticklabels(factor_labels[::-1])
 
   # Set the overall title for the figure
   fig.suptitle(title)

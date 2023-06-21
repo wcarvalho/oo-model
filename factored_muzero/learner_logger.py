@@ -90,6 +90,7 @@ class LearnerLogger(learner_logger.LearnerLogger):
       img = attn_analysis.plot_perlayer_attn(
         attn=pred_attn[t],
         title=f"Timestep {t+1}",
+        factor_labels=['Task'] + [f"Factor {f+1}" for f in range(slots)],
       )
       pred_attn_images.append(img)
 
@@ -101,6 +102,6 @@ class LearnerLogger(learner_logger.LearnerLogger):
     ######################
     attn_entropy = attn_analysis.slot_attn_entropy(
       slot_attn, normalize=True)
-    to_log['1.attn_entropy'] = attn_entropy
+    to_log['1.slot_attn_entropy'] = wandb.Image(attn_entropy)
 
     return to_log
