@@ -318,15 +318,15 @@ class ValueEquivalentLoss:
     root_value_ce = jax.vmap(rlax.categorical_cross_entropy)(
         value_probs_target, online_outputs.value_logits[:dim_return])
     # []
-    root_value_loss = masked_mean(root_value_ce, in_episode[:dim_return])
-    root_value_loss = self._root_value_coef*root_value_loss
+    raw_root_value_loss = masked_mean(root_value_ce, in_episode[:dim_return])
+    root_value_loss = self._root_value_coef*raw_root_value_loss
 
 
     # [T]
     root_policy_ce = self._policy_loss_fn(policy_probs_target, online_outputs.policy_logits)
     # []
-    root_policy_loss = masked_mean(root_policy_ce, in_episode)
-    root_policy_loss = self._root_policy_coef*root_policy_loss
+    raw_root_policy_loss = masked_mean(root_policy_ce, in_episode)
+    root_policy_loss = self._root_policy_coef*raw_root_policy_loss
 
     #------------
     # root metrics
@@ -357,12 +357,13 @@ class ValueEquivalentLoss:
         mcts_values=mcts_values[:dim_return],  # needs to caches
     )
 
-    loss_metrics.update({
-      '0.1.policy_root_loss': root_policy_loss, # T
-      '0.3.value_root_loss': root_value_loss,  # T
-    })
 
     if not learn_model:
+      loss_metrics.update({
+        "0.0.total_loss": total_loss,
+        '0.1.policy_root_loss': raw_root_policy_loss,
+        '0.3.value_root_loss': raw_root_value_loss,
+      })
       total_loss = root_value_loss + root_policy_loss
       return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
 
@@ -521,23 +522,30 @@ class ValueEquivalentLoss:
     )
 
     # all are []
+    raw_model_policy_loss = masked_mean(model_policy_loss, policy_mask[:nsteps])
     model_policy_loss = self._model_policy_coef * \
-        masked_mean(model_policy_loss, policy_mask[:nsteps])
+        raw_model_policy_loss
+    raw_model_value_loss = masked_mean(model_value_loss, value_mask[:nsteps])
     model_value_loss = self._model_value_coef * \
-        masked_mean(model_value_loss, value_mask[:nsteps])
+        raw_model_value_loss
+    raw_model_reward_loss = masked_mean(model_reward_loss, reward_mask[:nsteps])
     reward_loss = self._model_reward_coef * \
-        masked_mean(model_reward_loss, reward_mask[:nsteps])
-
-    loss_metrics.update({
-        '0.1.policy_model_loss': model_policy_loss,
-        '0.2.model_reward_loss': reward_loss, # T
-        '0.3.value_model_loss': model_value_loss, # T
-    })
+        raw_model_reward_loss
 
     total_loss = (
         reward_loss +
         root_value_loss + model_value_loss + 
         root_policy_loss + model_policy_loss)
+
+    loss_metrics.update({
+        "0.0.total_loss": total_loss,
+        '0.1.policy_root_loss': raw_root_policy_loss,
+        '0.1.policy_model_loss': raw_model_policy_loss,
+        '0.2.model_reward_loss': raw_model_reward_loss,  # T
+        '0.3.value_root_loss': raw_root_value_loss,
+        '0.3.value_model_loss': raw_model_value_loss,  # T
+    })
+
 
     return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
 
