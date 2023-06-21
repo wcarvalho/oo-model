@@ -41,6 +41,7 @@ import jax.numpy as jnp
 import optax
 import reverb
 import tree
+import numpy as np
 
 from acme.agents.jax.r2d2 import networks as r2d2_networks
 from acme.agents.jax.dqn import learning_lib
@@ -80,14 +81,26 @@ def flatten_dict(dictionary, parent_key='', separator='.'):
             flattened_dict[new_key] = value
     return flattened_dict
 
-def param_sizes(params):
-  param_sizes = collections.defaultdict(int)
-  params = tree.map_structure(jnp.size, params)
-  for name, sizes in params.items():
-    name = name.split("/")[0]
-    param_sizes[name] += sum(sizes.values())
+def group_named_values(dictionary: dict, name_fn = None):
+  if name_fn is None:
+    def name_fn(key): return key.split("/")[0]
 
-  return dict(param_sizes)
+  new_dict = collections.defaultdict(list)
+  for key, named_values in dictionary.items():
+    name = name_fn(key)
+    new_dict[name].append(sum(named_values.values()))
+
+  return new_dict
+
+
+def param_sizes(params):
+
+  sizes = group_named_values(
+    dictionary=tree.map_structure(jnp.size, params))
+
+  format = lambda number: f"{number:,}"
+  return {k: format(sum(v)) for k,v in sizes.items()}
+
 
 
 
@@ -259,7 +272,7 @@ class MuZeroLearner(acme.Learner):
         max_priority = max_priority_weight * jnp.max(abs_td_error, axis=1)
         mean_priority = (1 - max_priority_weight) * jnp.mean(abs_td_error, axis=1)
         priorities = (max_priority + mean_priority)
-
+      
       extra = learning_lib.LossExtra(metrics=metrics,
                                      reverb_priorities=priorities)
 
@@ -307,7 +320,6 @@ class MuZeroLearner(acme.Learner):
           random_key=key)
 
       metrics['loss_metrics'].update({
-        "0.0.total_loss": loss_value,
         '0.grad_norm': optax.global_norm(gradients),
         '0.update_norm': optax.global_norm(updates),
         '0.param_norm': optax.global_norm(state.params),
@@ -392,7 +404,9 @@ class MuZeroLearner(acme.Learner):
   
       # Log how many parameters the network has.
       sizes = tree.map_structure(jnp.size, initial_params)
-      logging.info('Total number of params: %.3g', sum(tree.flatten(sizes.values())))
+      total_params =  sum(tree.flatten(sizes.values()))
+      logging.info('Total number of params: %.3g', total_params)
+      print(f"{total_params:,}")
       pprint(param_sizes(initial_params))
     else:
       raise NotImplementedError
@@ -475,9 +489,23 @@ class MuZeroLearner(acme.Learner):
     loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
 
     if self._config.show_gradients:
-      if self._state.steps[0] % self._config.show_gradients == 0:
-        for k, v in loss_metrics['mean_grad'].items():
-          loss_metrics['mean_grad'][k] = float(next(iter(v.values())))
+      hit_show_gradients = self._state.steps[0] % self._config.show_gradients == 0
+      grad_norm = loss_metrics['0.grad_norm']
+      if hit_show_gradients or grad_norm.mean() > 40:
+
+        mean_grad = group_named_values(
+            dictionary=loss_metrics['mean_grad'])
+
+        new_mean_grad = {}
+        for k, v in mean_grad.items():
+          new_mean_grad[f'{k}_mean'] = float(np.mean(v))
+          new_mean_grad[f'{k}_var'] = float(np.var(v))
+          abs_v = np.abs(v)
+          new_mean_grad[f'{k}_abs_max'] = float(np.max(abs_v))
+          new_mean_grad[f'{k}_abs_min'] = float(np.min(abs_v))
+
+        loss_metrics['mean_grad'] = new_mean_grad
+
       else:
         if 'mean_grad' in loss_metrics:
           loss_metrics.pop('mean_grad')
