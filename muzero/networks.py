@@ -52,6 +52,25 @@ def concat_embeddings(embeddings):
     embeddings.task), axis=-1)
 
 
+def make_observation_fn(config, env_spec):
+  num_actions = env_spec.actions.num_values
+
+  def observation_fn(inputs):
+    vision_torso = vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim)
+
+    return vision_language.Torso(
+        num_actions=num_actions,
+        vision_torso=vision_torso,
+        task_encoder=language.LanguageEncoder(
+            vocab_size=config.vocab_size,
+            word_dim=config.word_dim,
+            sentence_dim=config.sentence_dim,
+        ),
+        image_dim=config.state_dim,
+        task_dim=config.task_dim,
+        output_fn=vision_language.struct_output)(inputs)
+  return observation_fn
+
 def make_babyai_networks(
   env_spec: specs.EnvironmentSpec,
   config: MuZeroConfig,
@@ -62,41 +81,20 @@ def make_babyai_networks(
   num_actions = env_spec.actions.num_values
 
   def make_core_module() -> MuZeroNetworks:
-    """Create MuZero.
-
-    It works as follows
-    1. observation_fn encodes (a) image (b) task description.
-      output: image embedding, task embedding, prev reward, prev action are output
-
-
-    Returns:
-        MuZeroNetworks: _description_
-    """
     state_dim = config.state_dim
 
     ###########################
     # Setup observation encoders (image + language)
     ###########################
     assert config.vision_torso in ('babyai')
-    vision_torso = vision.BabyAIVisionTorso(conv_dim=config.conv_out_dim)
 
-    observation_fn = vision_language.Torso(
-      num_actions=num_actions,
-      vision_torso=vision_torso,
-      task_encoder=language.LanguageEncoder(
-          vocab_size=config.vocab_size,
-          word_dim=config.word_dim,
-          sentence_dim=config.sentence_dim,
-      ),
-      image_dim=state_dim,
-      task_dim=config.task_dim,
-      output_fn=vision_language.struct_output,
-    )
+    observation_fn = make_observation_fn(config, env_spec)
+    observation_fn = hk.to_module(observation_fn)("observation_fn")
 
     ###########################
     # Setup state function: LSTM 
     ###########################
-    state_fn = hk.LSTM(state_dim)
+    state_fn = hk.LSTM(state_dim, name='state_lstm')
     def combine_hidden_obs(hidden: jnp.ndarray, emb: vision_language.TorsoOutput):
       """After get hidden from LSTM, combine with task from embedding."""
       return TaskAwareRep(rep=hidden, task=emb.task)
@@ -127,7 +125,7 @@ def make_babyai_networks(
       get_task=lambda inputs, state: state.task,
       prep_state=lambda state: state.rep,  # get state-vector from TaskAwareRep
       couple_state_task=True,
-      core=resnet_model,
+      core=hk.to_module(resnet_model)("model_resnet"),
     )
 
     ###########################
@@ -137,22 +135,22 @@ def make_babyai_networks(
       output_init = hk.initializers.VarianceScaling(scale=config.output_init)
     else:
       output_init = None
-    root_vpi_base = ResMlp(config.prediction_blocks, ln=config.ln, name='root_base')
+    root_vpi_base = ResMlp(config.prediction_blocks, ln=config.ln, name='pred_root_base')
     root_value_fn = PredictionMlp(config.vpi_mlps,
                                   config.num_bins,
                                   ln=config.ln,
                                   output_init=output_init,
-                                  name='root_value')
+                                  name='pred_root_value')
     root_policy_fn = PredictionMlp(config.vpi_mlps,
                                    num_actions,
                                    ln=config.ln,
                                    output_init=output_init,
-                                   name='root_policy')
+                                   name='pred_root_policy')
     model_reward_fn = PredictionMlp(config.reward_mlps,
                                     config.num_bins,
                                     ln=config.ln,
                                     output_init=output_init,
-                                    name='model_reward')
+                                    name='pred_model_reward')
 
     if config.seperate_model_nets:
       model_vpi_base = ResMlp(config.prediction_blocks, name='root_model')
@@ -160,9 +158,9 @@ def make_babyai_networks(
                                      config.num_bins,
                                      ln=config.ln,
                                      output_init=output_init,
-                                     name='model_value')
+                                     name='pred_model_value')
       model_policy_fn = PredictionMlp(config.vpi_mlps,
-                                       num_actions, ln=config.ln, output_init=output_init, name='model_policy')
+                                       num_actions, ln=config.ln, output_init=output_init, name='pred_model_policy')
     else:
       model_value_fn = root_value_fn
       model_policy_fn = root_policy_fn
