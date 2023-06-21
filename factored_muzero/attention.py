@@ -16,14 +16,17 @@ GateFn = Callable[[Array, Array], Array]
 @chex.dataclass(frozen=True)
 class SaviInputs:
   image: jnp.ndarray
-  task: jnp.ndarray
+  other_obs_info: jnp.ndarray
 
 
 class TransformerOutput(NamedTuple):
   factors: jnp.ndarray
   attn: Optional[jnp.ndarray] = None
 
-SaviState = TransformerOutput
+class SaviState(NamedTuple):
+  factors: jnp.ndarray
+  factor_states: jnp.ndarray
+  attn: Optional[jnp.ndarray] = None
 
 class MultiLinear(hk.Linear):
   def __init__(self, *args, heads, **kwargs):
@@ -44,11 +47,12 @@ class SlotAttention(hk.RNNCore):
                num_spatial: int,
                num_iterations: int = 1,
                mlp_size: Optional[int] = None,
-               epsilon: float = 1e-8,
+               epsilon: float = 1e-5,
                num_heads: int = 1,
                num_slots: int = 4,
-               use_task: bool = False,
                temperature: float = 1.0,
+               project_values: bool = False,
+               value_combination: str = 'avg',
                init: str = 'noise',
                w_init: Optional[hk.initializers.Initializer] = None,
                rnn_class: hk.RNNCore = hk.GRU,
@@ -56,7 +60,6 @@ class SlotAttention(hk.RNNCore):
     super().__init__(name=name)
     self.num_iterations = num_iterations
     self.qkv_size = qkv_size
-    self.use_task = use_task
     self.mlp_size = mlp_size
     self.epsilon = epsilon
     self.num_heads = num_heads
@@ -65,8 +68,18 @@ class SlotAttention(hk.RNNCore):
     self.temperature = temperature
     self.init = init
     self.w_init = w_init
-    self.rnn_class = rnn_class
+    self.project_values = project_values
+    self.value_combination = value_combination
+    self.head_dim = self.qkv_size // self.num_heads
+    self.rnn = rnn_class(self.head_dim)
+
     assert init in ('zeros', 'noise', 'embed')
+    self.inverted_attention = InvertedDotProductAttention(
+        norm_type="mean",
+        multi_head=num_heads > 1,
+        value_combination=value_combination,
+        temperature=temperature)
+    
 
   def __call__(
       self,
@@ -82,7 +95,7 @@ class SlotAttention(hk.RNNCore):
     nspatial = image.shape[-2]
     assert nspatial == self.num_spatial, f"{nspatial} != {self.num_spatial}"
 
-    qkv_size = self.qkv_size or slots.shape[-1]
+    qkv_size = self.qkv_size
     head_dim = qkv_size // self.num_heads
     dense = functools.partial(MultiLinear,
                               output_size=qkv_size,
@@ -93,12 +106,9 @@ class SlotAttention(hk.RNNCore):
     # Shared modules.
     dense_q = dense(name="general_dense_q_0")
     layernorm_q = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)
-    inverted_attention = InvertedDotProductAttention(
-        norm_type="mean",
-        multi_head=self.num_heads > 1,
-        temperature=self.temperature)
+    
 
-    rnn = self.rnn_class(head_dim)
+    rnn = self.rnn
 
 
     if self.mlp_size is not None:
@@ -109,8 +119,17 @@ class SlotAttention(hk.RNNCore):
     image = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(image)
     # k.shape = (..., n_inputs, slot_size).
     k = dense(name="general_dense_k_0")(image)
-    # v.shape = (..., n_inputs, slot_size).
-    v = dense(name="general_dense_v_0")(image)
+    if self.project_values:
+      # v.shape = (..., n_inputs, slot_size).
+      v = dense(name="general_dense_v_0")(image)
+    else:
+      assert self.num_heads == 1, 'need to change if have more than 1 head'
+      v = jnp.expand_dims(image, axis=-2)
+
+    # concat over slot dim
+    concat = lambda x, y: jnp.concatenate((x, y), axis=-1)
+    # repeat over slots dim
+    concat = jax.vmap(concat, (-2, None), -2)
 
     # Multiple rounds of attention.
     for _ in range(self.num_iterations):
@@ -118,19 +137,18 @@ class SlotAttention(hk.RNNCore):
       # Inverted dot-product attention.
       slots_n = layernorm_q(slots)
       q = dense_q(slots_n)  # q.shape = (..., n_inputs, slot_size).
-      updates, attn_weights = inverted_attention(query=q, key=k, value=v)
 
-      if self.use_task:
-        concat = lambda x, y: jnp.concatenate((x, y), axis=-1)
-        # repeat over slots dim
-        concat = jax.vmap(concat, (-2, None), -2)
-        updates = concat(updates, inputs.task)
+      updates, attn_weights = self.inverted_attention(query=q, key=k, value=v)
+
+      # add other obs info (e.g. prev_action, prev_reward)
+      updates = concat(updates, hk.Linear(head_dim//4)(inputs.other_obs_info))
+
 
       # Recurrent update.
       if has_batch:
-        slots, _ = hk.BatchApply(rnn)(updates, slots)
+        slots, factor_states = hk.BatchApply(rnn)(updates, state.factor_states)
       else:
-        slots, _ = rnn(updates, slots)
+        slots, factor_states = rnn(updates, state.factor_states)
 
       # Feedforward block with pre-normalization.
       if self.mlp_size is not None:
@@ -139,6 +157,7 @@ class SlotAttention(hk.RNNCore):
 
     state = SaviState(
       factors=slots,
+      factor_states=factor_states,
       attn=attn_weights,
     )
     return state, state
@@ -161,8 +180,21 @@ class SlotAttention(hk.RNNCore):
     if batch_size is not None:
       attn_shape = (batch_size,) + attn_shape
 
+    factors = self.initial_slots(batch_size)
+    factor_states = self.rnn.initial_state(batch_size)
+
+    if isinstance(factor_states, hk.LSTMState):
+      factor_states = hk.LSTMState(
+        hidden=factors,
+        cell=factors*0.)
+    elif isinstance(factor_states, jnp.ndarray):
+      factor_states = factors
+    else:
+      raise RuntimeError(type(factor_states))
+
     state = SaviState(
-      factors=self.initial_slots(batch_size),
+      factors=factors,
+      factor_states=factor_states,
       attn=jnp.zeros(attn_shape, dtype=jnp.float32),
     )
 
@@ -176,10 +208,11 @@ class InvertedDotProductAttention(hk.Module):
   def __init__(self,
                norm_type: Optional[str] = "mean",  # mean, layernorm, or None
                multi_head: bool = False,
-               epsilon: float = 1e-8,
+               epsilon: float = 1e-5,
                temperature: float = 1.0,
                dtype = jnp.float32,
                name: Optional[str] = None,
+               **kwargs,
                ):
     super().__init__(name=name)
     self.norm_type = norm_type
@@ -188,6 +221,15 @@ class InvertedDotProductAttention(hk.Module):
     self.temperature = temperature
     self.dtype = dtype
   # precision: Optional[jax.lax.Precision] = None
+
+    self.attn = GeneralizedDotProductAttention(
+        inverted_attn=True,
+        renormalize_keys=True if self.norm_type == "mean" else False,
+        attn_weights=True,
+        epsilon=self.epsilon,
+        temperature=self.temperature,
+        dtype=self.dtype,
+        **kwargs)
 
   def __call__(self, query: Array, key: Array, value: Array,
                train: bool = False) -> Array:
@@ -202,16 +244,8 @@ class InvertedDotProductAttention(hk.Module):
     """
     del train  # Unused.
 
-    attn = GeneralizedDotProductAttention(
-        inverted_attn=True,
-        renormalize_keys=True if self.norm_type == "mean" else False,
-        attn_weights=True,
-        epsilon=self.epsilon,
-        temperature=self.temperature,
-        dtype=self.dtype)
-
     # Apply attention mechanism.
-    output, attn_weights = attn(query=query, key=key, value=value)
+    output, attn_weights = self.attn(query=query, key=key, value=value)
 
     if self.multi_head:
       # Multi-head aggregation. Equivalent to concat + dense layer.
@@ -222,8 +256,11 @@ class InvertedDotProductAttention(hk.Module):
       #     features=output.shape[-1], axis=(-2, -1))(output)
     else:
       # Remove head dimension.
-      output = jnp.squeeze(output, axis=-2)  # [N, H, D]
-      attn_weights = jnp.squeeze(attn_weights, axis=-3)  # [H, N, D]
+      # [N, H, D] --> [N, D]
+      output = jnp.squeeze(output, axis=-2)
+
+      # [H, N, D] --> [N, D]
+      attn_weights = jnp.squeeze(attn_weights, axis=-3)
 
     if self.norm_type == "layernorm":
       output = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(output)
@@ -340,9 +377,12 @@ class TransformerBlock(hk.Module):
         w_init=self.w_init,
         attention_fn=GeneralizedDotProductAttention(attn_weights=True))
 
-    mlp = encoder.Mlp(
-      mlp_layers=[self.mlp_size],
-      w_init=self.w_init)  # type: ignore
+    if self.mlp_size and self.mlp_size > 0:
+      mlp = encoder.Mlp(
+        mlp_layers=[self.mlp_size],
+        w_init=self.w_init)  # type: ignore
+    else:
+      mlp = lambda x: x
     if self.pre_norm:
       # THIS IS WHAT'S USED IN REINFORCEMENT LEARNING
       # Self-attention on queries.
@@ -360,9 +400,11 @@ class TransformerBlock(hk.Module):
       y = x
 
       # MLP
-      z = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(y)
-      z = mlp(z)
-      z = self.gate_factory()(z, y)
+      z = y
+      if self.mlp_size:
+        z = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(y)
+        z = mlp(z)
+        z = self.gate_factory()(z, y)
     else:
       # Self-attention on queries.
       x = queries
@@ -379,10 +421,12 @@ class TransformerBlock(hk.Module):
       # else:
       y = x
 
-      # MLP.
-      z = mlp(y)
-      z = self.gate_factory()(z, y)
-      z = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(z)
+      # MLP
+      z = y
+      if self.mlp_size:
+        z = mlp(y)
+        z = self.gate_factory()(z, y)
+        z = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(z)
     return z, attn_weights
 
 
@@ -392,12 +436,15 @@ class GeneralMultiHeadAttention(hk.MultiHeadAttention):
 
   def __init__(self, *args,
                attn_weights: bool = True, 
-               attention_fn: hk.Module = None, **kwargs):
+               attention_fn: hk.Module = None,
+               project_out: bool = True,
+               **kwargs):
     super().__init__(*args, **kwargs)
     if attention_fn is None:
       attention_fn = GeneralizedDotProductAttention(attn_weights=attn_weights)
     self.attn_weights = attn_weights
     self.attention_fn = attention_fn
+    self.project_out = project_out
 
   def __call__(
       self,
@@ -437,12 +484,16 @@ class GeneralMultiHeadAttention(hk.MultiHeadAttention):
     attn, attn_weights = self.attention_fn(query_heads, key_heads, value_heads, mask=mask)
     attn = jnp.reshape(attn, (*leading_dims, sequence_length, -1))  # [T', H*V]
 
-    # Apply another projection to get the final embeddings.
-    final_projection = hk.Linear(self.model_size, w_init=self.w_init)
-    if self.attn_weights:
-      return final_projection(attn), attn_weights  # [T', D']
+    output = attn
+    if self.project_out:
+      # Apply another projection to get the final embeddings.
+      final_projection = hk.Linear(self.model_size, w_init=self.w_init)
+      output = final_projection(attn)
 
-    return final_projection(attn)
+    if self.attn_weights:
+      return output, attn_weights  # [T', D']
+
+    return output
 
 
 class GeneralizedDotProductAttention(hk.Module):
@@ -450,11 +501,12 @@ class GeneralizedDotProductAttention(hk.Module):
   This module supports logging of attention weights in a variable collection.
   """
   def __init__(self,
-               epsilon: float = 1e-8,
+               epsilon: float = 1e-5,
                inverted_attn: bool = False,
                renormalize_keys: bool = False,
                attn_weights: bool = False,
                temperature: bool = 1.0,
+               value_combination: str = 'avg',
                dtype = jnp.float32,
                name: Optional[str] = None,
                ):
@@ -465,6 +517,7 @@ class GeneralizedDotProductAttention(hk.Module):
     self.renormalize_keys = renormalize_keys
     self.attn_weights = attn_weights
     self.temperature = temperature
+    self.value_combination = value_combination
 
   def __call__(self, query: Array, key: Array, value: Array,
                train: bool = False,
@@ -535,9 +588,29 @@ class GeneralizedDotProductAttention(hk.Module):
       normalizer = jnp.sum(attn, axis=-1, keepdims=True) + self.epsilon
       attn = attn / normalizer
 
-    # Aggregate values using a weighted sum with weights provided by `attn`.
-    # output is Q, H, D (i.e. one output per query, e.g. slot query in savi)
-    outputs = jnp.einsum("...hqk,...khd->...qhd", attn, value)
+    if self.value_combination == 'avg':
+      # Aggregate values using a weighted sum with weights provided by `attn`.
+      # output is Q, H, D (i.e. one output per query, e.g. slot query in savi)
+      outputs = jnp.einsum("...hqk,...khd->...qhd", attn, value)
+
+    elif self.value_combination == 'product':
+      # value: 
+      # [..., Keys, Heads, Dim] --> [..., Heads, Keys, Dim]
+      value = jnp.swapaxes(value, -3, -2)
+
+      # attn: 
+      # [..., Heads, Queries, Keys] --> [..., Heads, Queries, Keys, 1]
+      attn_expanded = jnp.expand_dims(attn, -1)
+
+      # conforms to ordering of einsum
+      multiply = jax.vmap(jnp.multiply, in_axes=(-3, None), out_axes=(-4))
+
+      # output: [..., Queries, Heads, Keys, Dim]
+      outputs = multiply(attn_expanded, value)
+
+      # output: [..., Queries, Heads, Keys*Dim]
+      outputs = outputs.reshape(*outputs.shape[:-2], -1)
+
     if self.attn_weights:
       return outputs, attn
 
