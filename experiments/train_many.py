@@ -24,6 +24,8 @@ FLAGS = flags.FLAGS
 
 DEFAULT_LABEL = ''
 
+def directory_not_empty(directory_path):
+    return len(os.listdir(directory_path)) > 0
 
 def make_program_command(
     agent: str,
@@ -124,7 +126,7 @@ def create_and_run_program(
 
 
   print("="*50)
-  if os.path.exists(log_dir) and skip:
+  if skip and os.path.exists(log_dir) and directory_not_empty(log_dir):
     print(f"SKIPPING\n{log_dir}")
     print("="*50)
     return
