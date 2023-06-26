@@ -13,11 +13,13 @@ class ResMlpBlock(hk.Module):
         channels: int,
         use_projection: bool,
         ln: bool = True,
+        gate = lambda x, y: x+y,
         name: str = "res_conv_block",
     ):
         """Init residual block."""
         super().__init__(name=name)
         self._use_projection = use_projection
+        self._gate = gate
         if use_projection:
             self._proj_conv = hk.Linear(channels, with_bias=False)
         self._conv_0 = hk.Linear(channels, with_bias=False)
@@ -49,7 +51,7 @@ class ResMlpBlock(hk.Module):
                 self._conv_1,
             ]
         )(out)
-        return shortcut + out
+        return self._gate(shortcut, out)
 
 
 class Transition(hk.Module):
