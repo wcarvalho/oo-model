@@ -148,9 +148,11 @@ def plot_all_attn(image,
         attn = slot_attn[idx]
         if not im_only and slot_titles:
             axs[idx+1].set_title(slot_titles[idx])
+
+        resize_ratio = image.shape[0] // attn.shape[0]
         ax_out = plot_heatmap(im=image,
              h=attn,
-             resize=8,
+             resize=resize_ratio,
              cmap='gist_gray',
              ax=axs[idx+1],
              show=False)
@@ -163,12 +165,12 @@ def plot_all_attn(image,
         ax.set_yticks([])
 
 # function for heatmap
-def plot_heatmap(im, h, resize=8, cmap='jet', ax=None, show=False):
+def plot_heatmap(im, h, resize=8, cmap='jet', ax=None, show=False, alpha=0.7):
     if ax is None:
         fig, ax = plt.subplots()
     h = np.kron(h, np.ones((resize, resize)))
     ax_out = ax.imshow(im)
-    ax_out = ax.imshow(h, cmap=cmap, alpha=0.5, interpolation='bilinear')
+    ax_out = ax.imshow(h, cmap=cmap, alpha=alpha, interpolation='bilinear')
     if show:
         plt.show()
     return ax_out
@@ -257,53 +259,63 @@ def slot_attn_max_likelihood(attn):
 
 
 def plot_perlayer_attn(
-      attn,
-      title='',
-      figsize=None,
-      width=4,
-      factor_labels=None,
-      reverse_rows: bool=True):
+    attn,
+    title='',
+    figsize=None,
+    width=4,
+    reverse_rows: bool=True):
 
-  nlayers, nheads, nfactors, nfactors = attn.shape
+  nlayers, nheads, n_y_factors, n_x_factors = attn.shape
 
   # Create a subplot grid with nlayers rows and nheads columns
   if not figsize:
-    figsize=(int(1.3*width*nheads), width*nlayers)
+      figsize = (int(1.3 * width * nheads), width * nlayers)
   fig, axes = plt.subplots(nlayers, nheads, figsize=figsize)
 
   # Create a reversed colormap with white and black colors
   cmap = plt.cm.get_cmap('binary_r')
 
   if nlayers == 1 and nheads == 1:
-     axes = [[axes]]
+      axes = np.array([[axes]])
   elif nlayers == 1:
-     axes = axes[None]
+      axes = axes[None]
   elif nheads == 1:
-     axes = axes[:, None]
+      axes = axes[:, None]
+
+  # Determine the global minimum and maximum values for colorbar normalization
+  global_min = np.min(attn)
+  global_max = np.max(attn)
 
   # Loop through each layer and attention head
   for i in range(nlayers):
-    for j in range(nheads):
-      # Extract the values for the current layer and attention head
-      values = attn[i, j][::-1]  # reverse factors
+      for j in range(nheads):
+          # Extract the values for the current layer and attention head
+          values = attn[i, j][::-1]  # reverse factors
 
-      # Create a heatmap plot with values as the input
-      row = -i if reverse_rows else i
-      axes[row, j].imshow(values, cmap=cmap, aspect='auto', interpolation='nearest')
-      axes[row, j].set_title(f"Layer {i+1}, Head {j+1}")
+          # Create a heatmap plot with values as the input
+          row = -i if reverse_rows else i
+          im = axes[row, j].imshow(
+             values,
+             cmap=cmap,
+             aspect='auto', interpolation='nearest',
+             vmin=global_min, vmax=global_max)
+          axes[row, j].set_title(f"Layer {i + 1}, Head {j + 1}")
 
-      # Add symmetric labels on x-axis and y-axis
-      factor_labels = factor_labels or [f"Factor {f+1}" for f in range(nfactors)]
-      axes[row, j].set_xticks(np.arange(nfactors))
-      axes[row, j].set_yticks(np.arange(nfactors))
-      axes[row, j].set_xticklabels(factor_labels)
-      axes[row, j].set_yticklabels(factor_labels[::-1])
+          # Add symmetric labels on x-axis and y-axis
+          factor_labels = lambda i: [f"Factor {f + 1}" for f in range(i)]
+          axes[row, j].set_xticks(np.arange(n_x_factors))
+          axes[row, j].set_yticks(np.arange(n_y_factors))
+          axes[row, j].set_xticklabels(factor_labels(n_x_factors))
+          axes[row, j].set_yticklabels(factor_labels(n_y_factors)[::-1])
 
   # Set the overall title for the figure
   fig.suptitle(title)
 
-  # Adjust the spacing between subplots if needed
-  fig.tight_layout()
+  # Add colorbar
+  fig.colorbar(im, ax=axes)
+
+  # # Adjust the spacing between subplots if needed
+  # fig.tight_layout()
 
   return array_from_fig(fig)
 

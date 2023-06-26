@@ -90,7 +90,6 @@ class LearnerLogger(learner_logger.LearnerLogger):
       img = attn_analysis.plot_perlayer_attn(
         attn=pred_attn[t],
         title=f"Timestep {t+1}",
-        factor_labels=['Task'] + [f"Factor {f+1}" for f in range(slots)],
       )
       pred_attn_images.append(img)
 

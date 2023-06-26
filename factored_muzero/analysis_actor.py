@@ -11,6 +11,7 @@ import dm_env
 import wandb
 import matplotlib.pyplot as plt
 
+from muzero.actor import LearnableStateActor
 from experiments import attn_analysis
 
 class BaseLogger:
@@ -64,8 +65,8 @@ class AttnLogger(BaseLogger):
     state = jax_utils.to_numpy(state.recurrent_state)
     attn = state.attn
 
-    slots = attn.shape[0]
-    width = image.shape[1] // self.tile_size
+    slots, npositions = attn.shape
+    width = int(np.sqrt(npositions))
     img_attn = attn.reshape(slots, width, width)
 
     self.data['attn'].append(attn)
@@ -102,7 +103,7 @@ class AttnLogger(BaseLogger):
           f"{self.label}/max_attn": wandb.Image(max_attn),
         })
 
-class VisualizeActor(actors.GenericActor):
+class VisualizeActor(LearnableStateActor):
 
   def __init__(self,
                *args,
