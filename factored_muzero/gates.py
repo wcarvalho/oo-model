@@ -3,7 +3,6 @@ import haiku as hk
 
 
 def get_gate_factory(name: str, b_init=None, w_init=None):
-  assert name in ('sum', 'gru', 'sigtanh')
   # following options from GTRxL: https://arxiv.org/pdf/1910.06764.pdf
 
   def sum_gate_factory():
