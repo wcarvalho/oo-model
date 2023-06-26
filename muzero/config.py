@@ -118,5 +118,5 @@ class MuZeroConfig(r2d2.R2D2Config):
   model_value_coef: float = 2.5
   model_reward_coef: float = 1.0
 
-  show_gradients: int = 0
+  show_gradients: int = 2000
   check_nan: bool = False

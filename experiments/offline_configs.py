@@ -36,3 +36,8 @@ class MuZeroConfig(R2D2Config, muzero_config.MuZeroConfig):
 @dataclasses.dataclass
 class FactoredMuZeroConfig(MuZeroConfig, factored_muzero_config.FactoredMuZeroConfig):
   discount: float = 0.99
+  # vision_torso: str = 'babyai'
+  transition_blocks: int = 4
+  prediction_blocks: int = 1
+  num_sgd_steps_per_step: int = 1
+  mask_model: bool = True
