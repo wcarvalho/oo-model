@@ -549,6 +549,81 @@ class ValueEquivalentLoss:
 
     return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
 
+  def evaluate_model(self,
+               data: acme_types.NestedArray,
+               online_outputs: muzero_types.RootOutput,
+               target_outputs: muzero_types.RootOutput,
+               rng_key: networks_lib.PRNGKey,
+               ):
+    #---------------
+    # policy
+    #---------------
+    num_actions = target_outputs.policy_logits.shape[-1]
+    policy_target = jax.nn.one_hot(data.action, num_classes=num_actions)
+
+    #---------------
+    # value
+    #---------------
+    def compute_episode_return(rewards, gamma):
+        zeros = jnp.zeros_like(rewards[:-1])
+        episode_return = jnp.concatenate((zeros, rewards[-1][None]))
+
+        for t in range(len(rewards)-2, -1, -1):
+            episode_return.at[t].set(rewards[t] + gamma * episode_return[t+1])
+
+        return episode_return
+    value_target = compute_episode_return(data.reward, gamma=self._discount)
+
+    #---------------
+    # model outputs
+    #---------------
+    _, model_key = jax.random.split(rng_key)
+    state = self.get_state(online_outputs)
+    state_0 = jax.tree_map(lambda x: x[0], state)
+
+    model_outputs, _ = self._networks.unroll_model(
+        self._params, model_key, state_0, data.action)
+    # ignore last step
+    model_outputs = jax.tree_map(lambda x:x[:-1], model_outputs)
+
+    reward_predictions = self._discretizer.logits_to_scalar(
+        model_outputs.reward_logits)
+    value_predictions = self._discretizer.logits_to_scalar(
+        model_outputs.value_logits)
+
+    #---------------
+    # model outputs
+    #---------------
+    reward_error = rlax.l2_loss(
+      reward_predictions,
+      data.reward[:-1])
+    value_error = rlax.l2_loss(
+      value_predictions,
+      value_target[:len(value_predictions)])
+    policy_error = self._policy_loss_fn(
+        policy_target[1:],
+        model_outputs.policy_logits)
+
+    in_episode = jnp.concatenate(
+      (jnp.ones((2)), data.discount[:-2]), axis=0)[1:]
+
+    ntimesteps = len(in_episode)
+    timesteps = jnp.arange(ntimesteps)
+    recency_weights = jnp.power(0.95, timesteps)
+
+
+    return dict(
+      model_l2_reward=masked_mean(reward_error, in_episode),
+      model_l2_value=masked_mean(value_error, in_episode),
+      model_ce_policy=masked_mean(policy_error, in_episode),
+      model_weighted_l2_reward=masked_mean(
+        reward_error*recency_weights, in_episode),
+      model_weighted_l2_value=masked_mean(
+        value_error*recency_weights, in_episode),
+      model_weighted_ce_policy=masked_mean(
+        policy_error*recency_weights, in_episode),
+    )
+
 
 
 def model_step(params: networks_lib.Params,

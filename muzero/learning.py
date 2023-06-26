@@ -177,11 +177,12 @@ class MuZeroLearner(acme.Learner):
       if use_core_state:
         # Replay core state.
         online_state = utils.maybe_recover_lstm_type(
-            sample.data.extras.get('core_state'))
+          sample.data.extras.get('core_state'))
       else:
         key_grad, initial_state_rng = jax.random.split(key_grad)
-        online_state = networks.init_recurrent_state(initial_state_rng,
-                                                     batch_size)
+        online_state = networks.init_recurrent_state(
+          params_unroll, initial_state_rng,
+          batch_size//self._num_sgd_steps_per_step)
       target_state = online_state
 
       # Convert sample data to sequence-major format [T, B, ...].
@@ -278,6 +279,73 @@ class MuZeroLearner(acme.Learner):
 
       return mean_loss, extra
 
+    def evaluate_model(
+        params: muzero_types.MuZeroParams,
+        target_params: muzero_types.MuZeroParams,
+        key_grad: networks_lib.PRNGKey,
+        sample: reverb.ReplaySample):
+      if self._model_unroll_share_params:
+        params_unroll = params
+        target_params_unroll = target_params
+      else:
+        params_unroll = params.unroll
+        target_params_unroll = target_params.unroll
+
+      #####################
+      # Initialize + Burn-in state
+      #####################
+      # Get core state & warm it up on observations for a burn-in period.
+      if use_core_state:
+        # Replay core state.
+        online_state = utils.maybe_recover_lstm_type(
+          sample.data.extras.get('core_state'))
+      else:
+        key_grad, initial_state_rng = jax.random.split(key_grad)
+        online_state = networks.init_recurrent_state(
+          params_unroll, initial_state_rng,
+          batch_size//self._num_sgd_steps_per_step)
+      target_state = online_state
+
+      # Convert sample data to sequence-major format [T, B, ...].
+      data = utils.batch_to_sequence(sample.data)
+      # Maybe burn the core state in.
+      if burn_in_length:
+        burn_obs = jax.tree_map(lambda x: x[:burn_in_length], data.observation)
+        key_grad, key1, key2 = jax.random.split(key_grad, 3)
+        _, online_state = networks.unroll(
+          params_unroll, key1, burn_obs, online_state)
+        _, target_state = networks.unroll(
+          target_params_unroll, key2, burn_obs, target_state)
+
+      #####################
+      # Compute state + quantities for rest of trajectory
+      #####################
+      # Only get data to learn on from after the end of the burn in period.
+      data = jax.tree_map(lambda seq: seq[burn_in_length:], data)
+
+      # Unroll on sequences to get online and target Q-Values.
+      key_grad, key1, key2 = jax.random.split(key_grad, 3)
+      online_outputs, online_state = networks.unroll(
+        params_unroll, key1, data.observation, online_state)
+      target_outputs, target_state = networks.unroll(
+        target_params_unroll, key2, data.observation, target_state)
+
+      ve_loss_fn = LossFn(
+        networks=networks,
+        params=params,
+        target_params=target_params,
+      )
+      evaluate_model = ve_loss_fn.evaluate_model
+      # vmap over batch dimension
+      evaluate_model = jax.vmap(evaluate_model,
+                                in_axes=(1, 1, 1, None), out_axes=0)
+
+      return evaluate_model(
+        data,
+        online_outputs,
+        target_outputs,
+        key_grad)
+
     def sgd_step(
         state: TrainingState,
         samples: reverb.ReplaySample
@@ -355,11 +423,18 @@ class MuZeroLearner(acme.Learner):
     if self._num_sgd_steps_per_step > 1:
       sgd_step = utils.process_multiple_batches(
         sgd_step,
-        num_sgd_steps_per_step)
+        num_sgd_steps_per_step,
+        # get aux from 1st batch
+        postprocess_aux=lambda aux: jax.tree_map(lambda x: x[0], aux))
 
-    self._loss = jax.pmap(loss, axis_name=_PMAP_AXIS_NAME)
-    self._sgd_step = jax.pmap(sgd_step, axis_name=_PMAP_AXIS_NAME)
+    self._loss = jax.pmap(loss,
+                          axis_name=_PMAP_AXIS_NAME)
+    self._sgd_step = jax.pmap(sgd_step,
+                              axis_name=_PMAP_AXIS_NAME)
     self._async_priority_updater = async_utils.AsyncExecutor(update_priorities)
+
+    self._evaluate_model = jax.pmap(evaluate_model,
+                                    axis_name=_PMAP_AXIS_NAME)
 
     ########################
     # Initialise and internalise training state (parameters/optimiser state).
@@ -419,6 +494,18 @@ class MuZeroLearner(acme.Learner):
         random_key=random_key)
     # Replicate parameters.
     self._state = utils.replicate_in_all_devices(state)
+
+  def evaluate_model(self,
+                   sample: reverb.ReplaySample,
+                   loss_key: networks_lib.PRNGKey):
+
+    # key, key_grad = jax.random.split(state.random_key)
+    results = self._evaluate_model(
+      params=self._state.params, 
+      target_params=self._state.target_params,
+      key_grad=utils.replicate_in_all_devices(loss_key),
+      sample=sample)
+    return jax.tree_map(lambda x:x.mean(), results)
 
   def compute_loss(self,
                    sample: reverb.ReplaySample,
@@ -498,7 +585,7 @@ class MuZeroLearner(acme.Learner):
 
         new_mean_grad = {}
         for k, v in mean_grad.items():
-          new_mean_grad[f'{k}_mean'] = float(np.mean(v))
+          new_mean_grad[f'{k}_norm'] = float(np.linalg.norm(v, ord=1))
           new_mean_grad[f'{k}_var'] = float(np.var(v))
           abs_v = np.abs(v)
           new_mean_grad[f'{k}_abs_max'] = float(np.max(abs_v))
