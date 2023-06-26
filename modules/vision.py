@@ -1,5 +1,8 @@
 """Vision Modules."""
 
+import functools
+
+from typing import Optional, Sequence, Callable, Tuple, Dict
 import haiku as hk
 import jax
 import jax.numpy as jnp
@@ -163,3 +166,97 @@ class BabyAIVisionTorso(hk.Module):
       flat = jnp.reshape(outputs, [-1])  # [D]
 
     return self.out_net(flat)
+
+
+class SaviVisionTorso(hk.Module):
+  """Flexible CNN model with conv. and normalization layers."""
+
+  def __init__(
+      self,
+      features: Sequence[int],
+      kernel_size: Sequence[Tuple[int, int]],
+      strides: Sequence[Tuple[int, int]],
+      layer_transpose: Sequence[bool],
+      activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = jax.nn.relu,
+      w_init = None,
+      norm_type: Optional[str] = None,
+      axis_name: Optional[str] = None,  # Over which axis to aggregate batch stats.
+      output_size: Optional[int] = None,
+      name: str = None):
+    super().__init__(name)
+    self.features = features
+    self.kernel_size = kernel_size
+    self.strides = strides
+    self.layer_transpose = layer_transpose
+    self.activation_fn = activation_fn
+    self.norm_type = norm_type
+    self.axis_name = axis_name
+    self.output_size = output_size
+    self.w_init = w_init
+
+  def __call__(
+          self, inputs: jnp.ndarray, train: bool = False) -> jnp.ndarray:
+    num_layers = len(self.features)
+
+    assert num_layers >= 1, "Need to have at least one layer."
+    assert len(self.kernel_size) == num_layers, (
+        "len(kernel_size) and len(features) must match.")
+    assert len(self.strides) == num_layers, (
+        "len(strides) and len(features) must match.")
+    assert len(self.layer_transpose) == num_layers, (
+        "len(layer_transpose) and len(features) must match.")
+
+    if self.norm_type:
+      assert self.norm_type in {"batch", "group", "instance", "layer"}, (
+          f"{self.norm_type} is not a valid normalization module.")
+
+    # Whether transpose conv or regular conv.
+    conv_module = {False: hk.Conv2D, True: hk.Conv2DTranspose}
+
+    if self.norm_type == "batch":
+      raise NotImplementedError("need to convert flax to haiku")
+      # norm_module = functools.partial(
+      #     nn.BatchNorm, momentum=0.9, use_running_average=not train,
+      #     axis_name=self.axis_name)
+    elif self.norm_type == "group":
+      norm_module = functools.partial(hk.GroupNorm, groups=32)
+      raise NotImplementedError
+    elif self.norm_type == "layer":
+      norm_module = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)
+      raise NotImplementedError
+
+    x = inputs
+    for i in range(num_layers):
+      x = conv_module[self.layer_transpose[i]](
+          name=f"conv_{i}",
+          output_channels=self.features[i],
+          kernel_shape=self.kernel_size[i],
+          stride=self.strides[i],
+          w_init=self.w_init,
+          with_bias=False if self.norm_type else True)(x)
+
+      # Normalization layer.
+      if self.norm_type:
+        if self.norm_type == "instance":
+          x = hk.GroupNorm(
+              groups=self.features[i],
+              name=f"{self.norm_type}_norm_{i}")(x)
+        else:
+          norm_module(name=f"{self.norm_type}_norm_{i}")(x)
+
+      # Activation layer.
+      x = self.activation_fn(x)
+
+    # Final dense layer.
+    if self.output_size:
+      x = hk.Linear(self.output_size, name="output_layer", use_bias=True)(x)
+    return x
+
+SmallSaviVisionTorso = functools.partial(
+  SaviVisionTorso,
+  features=[32, 32, 32, 32],
+  kernel_size=[(5, 5), (5, 5), (5, 5), (5, 5)],
+  strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
+  layer_transpose=[False, False, False, False],
+
+)
