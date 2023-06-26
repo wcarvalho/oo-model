@@ -945,7 +945,7 @@ class PlaceSlicedTask(SliceTask):
         placed = self.container.contains.type == self.object_to_slice.type
         done = reward = object_sliced and placed
     else:
-        object_sliced = False
+        object_sliced = placed = False
         done = reward = False
     if self.verbosity:
       print(f"sliced={object_sliced}, placed={placed}")
