@@ -267,12 +267,12 @@ def make_network(
   f = hk.multi_transform(make_unrollable_network_functions)
   apply, unroll, initial_state_fn, apply_model, unroll_model, q_values_fn = f.apply
 
-  def init_recurrent_state(key: jax_types.PRNGKey,
-                           batch_size: Optional[int]) -> RecurrentState:
-    # TODO(b/244311990): Consider supporting parameterized and learnable initial
-    # state functions.
-    no_params = None
-    return initial_state_fn(no_params, key, batch_size)
+  # def init_recurrent_state(key: jax_types.PRNGKey,
+  #                          batch_size: Optional[int]) -> RecurrentState:
+  #   # TODO(b/244311990): Consider supporting parameterized and learnable initial
+  #   # state functions.
+  #   no_params = None
+  #   return initial_state_fn(no_params, key, batch_size)
 
   return MuZeroNetworks(
       unroll_init=f.init,
@@ -280,5 +280,5 @@ def make_network(
       unroll=unroll,
       apply_model=apply_model,
       unroll_model=unroll_model,
-      init_recurrent_state=init_recurrent_state,
+      init_recurrent_state=initial_state_fn,
       compute_q_values=q_values_fn)

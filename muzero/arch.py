@@ -64,7 +64,8 @@ class MuZeroArch(hk.RNNCore):
     self._combine_hidden_obs = combine_hidden_obs
     self._invalid_actions = invalid_actions
 
-  def initial_state(self, batch_size: Optional[int],
+  def initial_state(self,
+                    batch_size: Optional[int] = None,
                     **unused_kwargs) -> State:
     return self._state_fn.initial_state(batch_size)
 

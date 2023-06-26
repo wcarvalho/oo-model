@@ -4,11 +4,13 @@ import functools
 from typing import Generic
 
 from acme import types
+from acme.agents.jax import actors
 from acme.agents.jax import actor_core as actor_core_lib
 from acme.agents.jax.r2d2 import config as r2d2_config
 from acme.jax import networks as networks_lib
 import chex
 import distrax
+import dm_env
 import jax
 import numpy as np
 import jax.numpy as jnp
@@ -78,7 +80,6 @@ def value_select_action(
       recurrent_state=recurrent_state,
       prev_recurrent_state=state.recurrent_state)
 
-
 def get_actor_core(
     networks: types.MuZeroNetworks,
     config: MuZeroConfig,
@@ -100,10 +101,12 @@ def get_actor_core(
     raise NotImplementedError
 
   def init(
-      rng: networks_lib.PRNGKey
+      rng: networks_lib.PRNGKey,
+      params: types.MuZeroParams,
   ) -> MuZeroActorState[actor_core_lib.RecurrentState]:
     rng, state_rng = jax.random.split(rng, 2)
-    initial_core_state = networks.init_recurrent_state(state_rng, None)
+    initial_core_state = networks.init_recurrent_state(
+      params, state_rng)
     if config.action_source == 'value':
       if evaluation:
         epsilon = config.evaluation_epsilon
@@ -127,3 +130,16 @@ def get_actor_core(
   return actor_core_lib.ActorCore(init=init,
                                   select_action=select_action,
                                   get_extras=get_extras)
+
+
+class LearnableStateActor(actors.GenericActor):
+  """Only difference is to have initial state use params."""
+
+  def observe_first(self, timestep: dm_env.TimeStep):
+    self._random_key, key = jax.random.split(self._random_key)
+    # NOTE: key difference is line below.
+    self._state = self._init(key, self._params)
+    if self._adder:
+      self._adder.add_first(timestep)
+    if self._variable_client and self._per_episode_update:
+      self._variable_client.update_and_wait()
