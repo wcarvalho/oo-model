@@ -64,7 +64,7 @@ def setup_agents(
     builder_kwargs = dict(
         visualization_logger=learner_logger.LearnerLogger(
             label='MuZeroLearnerLogger',
-            log_frequency=5 if debug else 2500,
+            log_frequency=5 if debug else 4000,
             discount=config.discount,
             **update_logger_kwargs,
         ),
@@ -82,16 +82,17 @@ def setup_agents(
     from factored_muzero import learner_logger
 
     config = babyai_factored_muzero.load_config(
+        config_class=config_class,
         config_kwargs=config_kwargs)
 
     builder_kwargs = dict(
-        actorCls=functools.partial(
-            VisualizeActor,
-            logger=AttnLogger(),
-            log_frequency=50 if debug else 2500),
+        # actorCls=functools.partial(
+        #     VisualizeActor,
+        #     logger=AttnLogger(),
+        #     log_frequency=50 if debug else 4000),
         visualization_logger=learner_logger.LearnerLogger(
             label='FactoredMuZeroLearnerLogger',
-            log_frequency=5 if debug else 2500,
+            log_frequency=5 if debug else 4000,
             discount=config.discount,
             **update_logger_kwargs,
         ),
@@ -164,7 +165,7 @@ def setup_experiment_inputs(
   if debug:
     config.show_gradients = 1
     config.samples_per_insert = 1.0
-    config.min_replay_size = 50_000
+
   # -----------------------
   # setup observer factory for environment
   # -----------------------
@@ -279,6 +280,35 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             # 'model_value_coef': tune.grid_search([10.0, 2.5]),
             # 'mask_model': tune.grid_search([True]),
             # 'clip_probs': tune.grid_search([True, False]),
+        }
+    ]
+  elif search == 'factored':
+    shared = {
+        "seed": tune.grid_search([4]),
+        "group": tune.grid_search(['factored1']),
+        "agent": tune.grid_search(['factored']),
+        "num_learner_steps": tune.grid_search([int(1e5)]),
+        "tasks_file": tune.grid_search(['place_split_hard']),
+        "max_grad_norm": tune.grid_search([.2]),
+    }
+    space = [
+        {
+            **shared,  # vanilla
+        },
+        {
+            **shared,
+            "context_as_slot": tune.grid_search([True]),
+            "mask_context": tune.grid_search(["softmax", 'sum', 'none']),
+        },
+        {
+            **shared,
+            "state_model_loss": tune.grid_search(['dot_contrast']),
+            "state_model_coef": tune.grid_search([1e-2]),
+            "extra_contrast": tune.grid_search([1, 5, 10]),
+        },
+        {
+            **shared,
+            "savi_temp": tune.grid_search([.1, .5]),
         }
     ]
   else:

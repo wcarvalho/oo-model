@@ -102,7 +102,6 @@ def setup_experiment_inputs(
   logging.info(f'Config')
 
   pprint(config.__dict__)
-
   # -----------------------
   # setup environment
   # -----------------------
@@ -243,6 +242,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     space = [
         {
             "seed": tune.grid_search([3]),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
             "agent": tune.grid_search([agent]),
             "tasks_file": tune.grid_search([
                 'place_split_easy', 'place_split_hard']),
@@ -251,7 +251,8 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'benchmark':
     space = [
         {
-            "seed": tune.grid_search([4]),
+            "seed": tune.grid_search([8]),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
             "group": tune.grid_search(['benchmark4']),
             "agent": tune.grid_search(['muzero', 'factored']),
             "tasks_file": tune.grid_search([
@@ -261,10 +262,10 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'muzero':
     space = [
         {
-            "seed": tune.grid_search([2]),
+            "seed": tune.grid_search([8]),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
             "group": tune.grid_search(['bc_muzero6_shuffle']),
             "agent": tune.grid_search(['muzero']),
-            "num_learner_steps": tune.grid_search([int(1e5)]),
             # "v_target_source": tune.grid_search(['reanalyze']),
             "tasks_file": tune.grid_search(['place_split_easy']),
             "warmup_steps": tune.grid_search([1_000, 10_000]),
@@ -279,38 +280,93 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'muzero2':
     space = [
         {
-            "seed": tune.grid_search([2]),
-            "group": tune.grid_search(['muzero16']),
-            "agent": tune.grid_search(['muzero']),
+            "seed": tune.grid_search([8]),
             "num_learner_steps": tune.grid_search([int(1e5)]),
+            "group": tune.grid_search(['bc_muzero9']),
+            "agent": tune.grid_search(['muzero']),
             # "v_target_source": tune.grid_search(['reanalyze']),
             "tasks_file": tune.grid_search(['place_split_easy']),
-
-            "warmup_steps": tune.grid_search([0]),
-            "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
-            "learning_rate": tune.grid_search([1e-3]),
+            "room_size": tune.grid_search([5]),
+            "warmup_steps": tune.grid_search([10_000, 0]),
+            "lr_transition_steps": tune.grid_search([100_000]),
+            # "learning_rate": tune.grid_search([1e-4, 1e-3, 1e-2]),
             # "scalar_step_size": tune.grid_search([.2, .1, .05]),
-            # # "num_bins": tune.grid_search([51, 101, 201]),
-            # # "target_update_period": tune.grid_search([100, 2500]),
-            # # "learning_rate": tune.grid_search([1e-3, 1e-4]),
+            "num_bins": tune.grid_search([81, 201]),
+            # "target_update_period": tune.grid_search([100, 2500]),
+            # "learning_rate": tune.grid_search([1e-3, 1e-4]),
             # "action_source": tune.grid_search(['value', 'policy']),
-            # # "output_init": tune.grid_search([None, 0.0]),
-            # "gumbel_scale": tune.grid_search([.01, 1.0]),
+            # "output_init": tune.grid_search([None, 0.0]),
+            "model_policy_coef": tune.grid_search([10.0, 1.0]),
+            "action_source": tune.grid_search(['policy']),
+
         }
     ]
-  elif search == 'factored':
+  elif search == 'factored1':
     space = [
         {
-            "seed": tune.grid_search([1]),
-            # "group": tune.grid_search(['benchmark2']),
+            "seed": tune.grid_search([8]),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
+            "group": tune.grid_search(['bc_factored3_optimizer']),
             "agent": tune.grid_search(['factored']),
-            "tasks_file": tune.grid_search(['pickup']),
+            "tasks_file": tune.grid_search(['place_split_easy']),
+            "room_size": tune.grid_search([5]),
+            # "warmup_steps": tune.grid_search([10_000]),
+            "max_grad_norm": tune.grid_search([5.0, .5]),
+            "adam_eps": tune.grid_search([1e-8, 1e-3]),
+        }
+    ]
+  elif search == 'factored2':
+    space = [
+        {
+            "seed": tune.grid_search([2]),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
+            "group": tune.grid_search(['bc_factored9']),
+            "agent": tune.grid_search(['factored']),
+            "tasks_file": tune.grid_search(['place_split_easy']),
+            "room_size": tune.grid_search([5]),
+            "warmup_steps": tune.grid_search([10_000]),
+            "lr_transition_steps": tune.grid_search([100_000]),
+            "action_source": tune.grid_search(['policy']),
+            "savi_temp": tune.grid_search([1.0, .5]),
+            "update_type": tune.grid_search(['concat', 'project_add']),
+            "savi_rnn": tune.grid_search(['gru', 'lstm']),
+            # "transition_blocks": tune.grid_search([2, 4]),
+            "prediction_blocks": tune.grid_search([2]),
+            "pred_input_selection": tune.grid_search(['task_query']),
+            "action_source": tune.grid_search(['policy']),
+            # "query": tune.grid_search(['task', 'task_rep']),
+        }
+    ]
+  elif search == 'factored3':
+    space = [
+        {
+            "seed": tune.grid_search([2]),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
+            "group": tune.grid_search(['bc_factored10']),
+            "agent": tune.grid_search(['factored']),
+            "tasks_file": tune.grid_search(['place_split_easy']),
+            "room_size": tune.grid_search([5]),
+            "warmup_steps": tune.grid_search([10_000]),
+            "lr_transition_steps": tune.grid_search([100_000]),
+            "action_source": tune.grid_search(['policy']),
+            # "savi_temp": tune.grid_search([1.0, .5]),
+            "update_type": tune.grid_search([
+              'concat',
+              # 'project_add'
+              ]),
+            "savi_rnn": tune.grid_search(['gru', 'lstm']),
+            # "transition_blocks": tune.grid_search([2, 4]),
+            "prediction_blocks": tune.grid_search([2]),
+            "pred_input_selection": tune.grid_search(['attention', 'attention_gate']),
+            # "pred_input_selection": tune.grid_search(['task_query']),
+            "query": tune.grid_search(['task', 'task_rep']),
         }
     ]
   elif search == 'attn_1':
     space = [
         {
-            "seed": tune.grid_search([1]),
+            "seed": tune.grid_search([8]),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
             # "group": tune.grid_search(['benchmark2']),
             "agent": tune.grid_search(['factored']),
             "show_gradients": tune.grid_search(['factored']),
@@ -380,6 +436,7 @@ def main(_):
         filename='experiments/babyai_offline_trainer.py',
         run_distributed=run_distributed,
         num_actors=1,
+        size=FLAGS.size,
         ),
     )
 

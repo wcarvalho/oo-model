@@ -22,7 +22,7 @@ folder?=../results/factored_muzero
 wandb_dir?=../results/factored_muzero/wandb
 
 wandb_entity?=wcarvalho92
-tasks_file?=place_split_easy
+task?=place_split_easy
 size?=large
 
 export PYTHONPATH:=$(PYTHONPATH):.
@@ -38,7 +38,8 @@ jupyter_lab:
 
 babyai_dataset:
 	python -m ipdb -c continue experiments/babyai_collect_data.py \
-	--tasks_file=$(tasks_file) \
+	--tasks_file=$(task) \
+	--size=$(size) \
 	--debug=$(debug)
 
 babyai_datasets:
@@ -62,17 +63,22 @@ supervised_babyai_debug:
 		--wandb_dir=$(wandb_dir) \
 		--search=$(search) \
 		--agent=$(agent) \
+		--tasks_file=$(task) \
 		--size=$(size) \
 
-supervised_babyai_run:
+offline_babyai_sync:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
-	python experiments/babyai_supervised_trainer.py \
-		--train_single=False \
-		--debug=$(debug) \
-		--folder="$(folder)/$(babyai_supervised_project)" \
+	python -m ipdb -c continue experiments/babyai_offline_trainer.py \
+		--train_single=True \
+		--make_path=True \
+		--auto_name_wandb=True \
+		--make_dataset=True \
+		--run_distributed=False \
+		--debug=$(debug_sync) \
+		--folder="$(folder)/$(babyai_offline_project)_sync" \
 		--agent=$(agent) \
-		--use_wandb=$(wandb) \
-		--wandb_project="$(babyai_supervised_project)" \
+		--use_wandb=$(wandb_sync) \
+		--wandb_project="$(babyai_offline_project)_sync" \
 		--wandb_entity=$(wandb_entity) \
 		--wandb_group=$(group) \
 		--wandb_notes=$(notes) \
@@ -80,9 +86,12 @@ supervised_babyai_run:
 		--skip=$(skip) \
 		--search=$(search) \
 		--agent=$(agent) \
+		--tasks_file=$(task) \
 		--size=$(size) \
+		--num_actors=$(actors) \
 		--num_gpus=$(gpus) \
 		--num_cpus=$(cpus)
+
 
 online_babyai_sync:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
@@ -106,29 +115,47 @@ online_babyai_sync:
 		--num_gpus=$(gpus) \
 		--num_cpus=2
 
-offline_babyai_sync:
+
+
+supervised_babyai_run:
 	CUDA_VISIBLE_DEVICES=$(cuda) \
-	python -m ipdb -c continue experiments/babyai_offline_trainer.py \
-		--train_single=True \
-		--make_path=True \
-		--auto_name_wandb=True \
-		--make_dataset=True \
-		--run_distributed=False \
-		--debug=$(debug_sync) \
-		--folder="$(folder)/$(babyai_offline_project)_sync" \
-		--agent=$(agent) \
-		--use_wandb=$(wandb_sync) \
-		--wandb_project="$(babyai_offline_project)_sync" \
+	python experiments/babyai_supervised_trainer.py \
+		--train_single=False \
+		--debug=$(debug) \
+		--folder="$(folder)/$(babyai_supervised_project)" \
+		--use_wandb=$(wandb) \
+		--wandb_project="$(babyai_supervised_project)" \
 		--wandb_entity=$(wandb_entity) \
 		--wandb_group=$(group) \
 		--wandb_notes=$(notes) \
 		--wandb_dir=$(wandb_dir) \
 		--skip=$(skip) \
 		--search=$(search) \
-		--agent=$(agent) \
-		--num_actors=$(actors) \
+		--tasks_file=$(task) \
+		--size=$(size) \
 		--num_gpus=$(gpus) \
 		--num_cpus=$(cpus)
+
+
+offline_babyai_async:
+	CUDA_VISIBLE_DEVICES=$(cuda) \
+	python experiments/babyai_offline_trainer.py \
+		--run_distributed=True \
+		--folder="$(folder)/$(babyai_offline_project)_async" \
+		--tasks_file=$(task) \
+		--size=$(size) \
+		--use_wandb=$(wandb) \
+		--wandb_project="$(babyai_offline_project)_async" \
+		--wandb_entity=$(wandb_entity) \
+		--wandb_group=$(group) \
+		--wandb_notes=$(notes) \
+		--wandb_dir=$(wandb_dir) \
+		--skip=$(skip) \
+		--debug=$(debug) \
+		--search=$(search) \
+		--num_actors=$(actors) \
+		--num_gpus=$(gpus) \
+		--num_cpus=2
 
 
 online_babyai_async:
@@ -149,22 +176,3 @@ online_babyai_async:
 		--num_actors=$(actors) \
 		--num_gpus=$(gpus) \
 		--num_cpus=$(cpus)
-
-offline_babyai_async:
-	CUDA_VISIBLE_DEVICES=$(cuda) \
-	python experiments/babyai_offline_trainer.py \
-		--run_distributed=True \
-		--folder="$(folder)/$(babyai_offline_project)_async" \
-		--agent=$(agent) \
-		--use_wandb=$(wandb) \
-		--wandb_project="$(babyai_offline_project)_async" \
-		--wandb_entity=$(wandb_entity) \
-		--wandb_group=$(group) \
-		--wandb_notes=$(notes) \
-		--wandb_dir=$(wandb_dir) \
-		--skip=$(skip) \
-		--debug=$(debug) \
-		--search=$(search) \
-		--num_actors=$(actors) \
-		--num_gpus=$(gpus) \
-		--num_cpus=2

@@ -110,7 +110,8 @@ def run_experiment(
     dataset_percent: int = 100,
     min_validation: float = 1e10,
     tolerance: int = 10,
-    train_batches: int = int(1e4),
+    val_error_tolerance: float = 1e-3,
+    train_batches: int = int(1e3),
     eval_batches: int = int(1e2),
   ):
   """Setup."""
@@ -162,8 +163,9 @@ def run_experiment(
       invalid_actions=invalid_actions,
     ),
     update_logger_kwargs=dict(
-        action_names=['left', 'right', 'forward', 'pickup_1',
-                  'pickup_c', 'place', 'toggle', 'slice'],
+        action_names=[
+          'left', 'right', 'forward', 'pickup_1',
+          'pickup_c', 'place', 'toggle', 'slice'],
         invalid_actions=np.asarray(invalid_actions),
     )
   )
@@ -189,11 +191,12 @@ def run_experiment(
 
   def make_iterator(data_directory: str,
                     split: str,
+                    batch_size: int,
                     buffer_size: int = 10_000):
     dataset_factory = dataset_utils.make_demonstration_dataset_factory(
       data_directory=data_directory,
       obs_constructor=Observation,
-      batch_size=config.batch_size,
+      batch_size=batch_size,
       trace_length=config.trace_length)
     return dataset_factory(0,
                            split=split,
@@ -203,14 +206,20 @@ def run_experiment(
   if dataset_percent < 100:
     train_split = 'train[:{dataset_percent}%]'
   train_iterator = make_iterator(
+    batch_size=config.batch_size,
     data_directory=make_data_directory(
       eval=False, nepisodes=nepisode_dataset),
     split=train_split)
+
   validation_iterator = make_iterator(
+    # effective batch_size per sgd step
+    batch_size=config.batch_size//config.num_sgd_steps_per_step,
     data_directory=make_data_directory(
       eval=False, nepisodes=int(1e5)),
     split='train')
   eval_iterator = make_iterator(
+    # effective batch_size per sgd step
+    batch_size=config.batch_size//config.num_sgd_steps_per_step,
     data_directory=make_data_directory(
       eval=True, nepisodes=int(1e5)),
     split='test')
@@ -248,25 +257,34 @@ def run_experiment(
     train_batches = eval_batches = 1
     num_learner_steps = 10
   ndevices = len(jax.local_devices())
+
   assert ndevices == 1, 'not tested for anything else'
   while True:
     losses = collections.defaultdict(list)
     update_visualizations = True
     for _ in range(eval_batches):
       learner_key, key = jax.random.split(key)
+      sample = next(validation_iterator)
       valid_loss, valid_metrics = learner.compute_loss(
-        sample=next(validation_iterator),
+        sample=sample,
         loss_key=learner_key,
-        update_visualizations=update_visualizations,
+        update_visualizations=False,
         vis_label='vis:1.validation')
+      valid_model_eval_stats = learner.evaluate_model(
+        sample=sample, loss_key=learner_key)
+      valid_metrics.update(valid_model_eval_stats)
       losses['valid_loss'].append(valid_loss)
 
       learner_key, key = jax.random.split(key)
+      sample = next(eval_iterator)
       eval_loss, eval_metrics = learner.compute_loss(
-        sample=next(eval_iterator),
+        sample=sample,
         loss_key=learner_key,
         update_visualizations=update_visualizations,
         vis_label='vis:2.eval')
+      eval_model_eval_stats = learner.evaluate_model(
+        sample=sample, loss_key=learner_key)
+      eval_metrics.update(eval_model_eval_stats)
       losses['eval_loss'].append(eval_loss)
 
       if update_visualizations:
@@ -283,7 +301,7 @@ def run_experiment(
 
     valid_loss = np.array(losses['valid_loss']).mean()
 
-    if valid_loss < min_validation:
+    if valid_loss < min_validation + val_error_tolerance:
       min_validation = valid_loss
       valid_increases = 0
     else:
@@ -343,60 +361,75 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "seed": tune.grid_search([2]),
             "group": tune.grid_search(['benchmark2']),
             "agent": tune.grid_search(['muzero', 'factored']),
-            "tasks_file": tune.grid_search([
-                'place_split_easy', 'place_split_medium', 'place_split_hard'
-            ]),
+            "room_size": tune.grid_search([7]),
+            "tasks_file": tune.grid_search(['long']),
         }
     ]
   elif search == 'muzero':
     space = [
         {
             "seed": tune.grid_search([2]),
-            "group": tune.grid_search(['bc_muzero5']),
+            "group": tune.grid_search(['bc_muzero_large_2']),
             "agent": tune.grid_search(['muzero']),
             "num_learner_steps": tune.grid_search([int(1e5)]),
-            # "v_target_source": tune.grid_search(['reanalyze']),
-            "tasks_file": tune.grid_search(['place_split_easy']),
-            # "warmup_steps": tune.grid_search([1_000, 10_000, 100_000]),
-            # "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
-            # "target_update_period": tune.grid_search([100, 2500]),
-            "learning_rate": tune.grid_search([1e-3, 1e-4, 1e-5, 1e-6]),
-            # "action_source": tune.grid_search(['policy']),
-            # "output_init": tune.grid_search([None, 0.0]),
-            # "mask_model": tune.grid_search([True, False]),
+            "room_size": tune.grid_search([7]),
+            "tasks_file": tune.grid_search([
+              'place_split_easy',
+              'place_split_medium',
+              'place_split_hard',
+              ]),
         }
     ]
-  elif search == 'muzero2':
-    space = [
-        {
-            "seed": tune.grid_search([2]),
-            "group": tune.grid_search(['muzero16']),
-            "agent": tune.grid_search(['muzero']),
-            "num_learner_steps": tune.grid_search([int(1e5)]),
-            # "v_target_source": tune.grid_search(['reanalyze']),
-            "tasks_file": tune.grid_search(['place_split_easy']),
-
-            "warmup_steps": tune.grid_search([0]),
-            "lr_transition_steps": tune.grid_search([1_000, 10_000, 100_000]),
-            "learning_rate": tune.grid_search([1e-3]),
-            # "scalar_step_size": tune.grid_search([.2, .1, .05]),
-            # # "num_bins": tune.grid_search([51, 101, 201]),
-            # # "target_update_period": tune.grid_search([100, 2500]),
-            # # "learning_rate": tune.grid_search([1e-3, 1e-4]),
-            # "action_source": tune.grid_search(['value', 'policy']),
-            # # "output_init": tune.grid_search([None, 0.0]),
-            # "gumbel_scale": tune.grid_search([.01, 1.0]),
-        }
-    ]
-  elif search == 'factored':
-    space = [
-        {
-            "seed": tune.grid_search([1]),
-            # "group": tune.grid_search(['benchmark2']),
+  elif search == 'factored1':
+    shared = {
+            "seed": tune.grid_search([4]),
+            "group": tune.grid_search(['bc_factored_large_23']),
             "agent": tune.grid_search(['factored']),
-            "tasks_file": tune.grid_search(['pickup']),
+            "num_learner_steps": tune.grid_search([int(1e5)]),
+            "tasks_file": tune.grid_search(['place_split_easy']),
+            "max_grad_norm": tune.grid_search([80.0]),
+        }
+    space = [
+        {
+            **shared,  # vanilla
+        },
+        {
+            **shared,
+            "context_as_slot": tune.grid_search([True]),
+            "mask_context": tune.grid_search(["softmax", 'sum', 'none']),
+        },
+        {
+            **shared,
+            "state_model_loss": tune.grid_search(['dot_contrast']),
+            "state_model_coef": tune.grid_search([1e-2]),
+            "extra_contrast": tune.grid_search([1, 5, 10]),
+            "context_as_slot": tune.grid_search([True, False]),
+        },
+        # {
+        #     **shared,
+        #     "state_model_loss": tune.grid_search(['laplacian-state']),
+        #     "state_model_coef": tune.grid_search([1e-2, 1e-3, 1e-4]),
+        # },
+        {
+            **shared,
+            "savi_temp": tune.grid_search([.1, .5]),
         }
     ]
+  elif search == 'factored2':
+    shared = {
+        "seed": tune.grid_search([4]),
+        "group": tune.grid_search(['bc_factored_large_25_replicate']),
+        "agent": tune.grid_search(['factored']),
+        "num_learner_steps": tune.grid_search([int(1e5)]),
+        "tasks_file": tune.grid_search(['place_split_easy']),
+        "max_grad_norm": tune.grid_search([80.0]),
+        # "state_model_coef": tune.grid_search([1e-2]),
+    }
+    space = [
+        {
+            **shared,
+            "lr_end_value": tune.grid_search([None]),
+        },    ]
   elif search == 'attn_1':
     space = [
         {
