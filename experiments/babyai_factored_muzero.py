@@ -9,12 +9,12 @@ import rlax
 
 from muzero import utils as muzero_utils
 from muzero.builder import MuZeroBuilder
-from muzero.ve_losses import ValueEquivalentLoss
 from muzero.types import TaskAwareRep
 
 from factored_muzero import networks
 from factored_muzero import types
 from factored_muzero import attention
+from factored_muzero.ve_losses import ValueEquivalentLoss
 from factored_muzero.config import FactoredMuZeroConfig
 
 from experiments.config_utils import update_config
@@ -73,7 +73,14 @@ def setup(
       max_depth=config.max_sim_depth,
       gumbel_scale=config.gumbel_scale)
 
-  policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
+  if config.policy_loss == "cross_entropy":
+    policy_loss_fn = jax.vmap(rlax.categorical_cross_entropy)
+  elif config.policy_loss == 'reverse_kl':
+      import distrax
+      def reverse_kl(prior_probs, online_logits):
+        pmf = distrax.Categorical(logits=online_logits)
+        return pmf.kl_divergence(distrax.Categorical(probs=prior_probs))
+      policy_loss_fn = jax.vmap(reverse_kl)
 
   ve_loss_fn = functools.partial(ValueEquivalentLoss,
     muzero_policy=muzero_policy,
@@ -89,7 +96,13 @@ def setup(
     model_value_coef=config.model_value_coef,
     model_reward_coef=config.model_reward_coef,
     v_target_source=config.v_target_source,
+    state_loss=config.state_model_loss,
+    state_model_coef=config.state_model_coef,
+    extra_contrast=config.extra_contrast,
+    contrast_gamma=config.contrast_gamma,
+    contrast_temp=config.contrast_temp,
     mask_model=config.mask_model,
+    attention_penalty=config.attention_penalty,
     invalid_actions=invalid_actions,
     get_state=get_state_remove_attention,
     **loss_kwargs,

@@ -40,6 +40,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   vision_torso: str = 'babyai_patches'
 
   # state function
+  context_as_slot: bool = False
   project_slot_values: bool = True
   slot_value_combination: str = 'avg'
   savi_iterations: int = 4
@@ -52,6 +53,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   relation_iterations: str = 'once'
   savi_init: str = 'gauss'
   savi_gumbel_temp: float = 1.0
+  mask_context: str = 'softmax'
 
   # transition function
   model_gate: str = 'sum'
@@ -63,12 +65,13 @@ class FactoredMuZeroConfig(MuZeroConfig):
 
   # prediction functions
   pred_gate: Optional[str] = 'gru'
-  pred_task_combine: str = 'cross'
+  pred_task_combine: str = 'gather'
   prediction_blocks: int = 1 # number of transformer blocks
   pred_out_mlp: bool = False
   slot_pred_heads: Optional[int] = None
   slot_pred_mlp_size: Optional[int] = None
-  slot_pred_qkv_size: Optional[int] = 64
+  slot_pred_qkv_size: Optional[int] = None
+
   # w_attn_head: bool = True
   pred_input_selection: str = 'attention_gate'  # IMPORTANT
   action_as_factor: bool = True
@@ -77,3 +80,13 @@ class FactoredMuZeroConfig(MuZeroConfig):
   vpi_mlps: Tuple[int] = (128, 32)
   query: str = 'task_rep'
 
+
+  # loss
+  state_model_loss: str = 'dot_contrast'
+  contrast_gamma: float = 1.0  # only for cswm and laplacian
+  contrast_temp: float = 0.01  # only for dot_contrast
+  state_model_coef: float = 0.00
+  weight_decay_fn: str = "default"
+  weight_decay: float = 1e-4  # very few params
+  attention_penalty: float = 0.0
+  extra_contrast: int = 5

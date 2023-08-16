@@ -37,14 +37,17 @@ class MuZeroConfig(r2d2.R2D2Config):
   sequence_period: Optional[int] = None
   # learning_rate: float = e-3
   use_stored_lstm_state: bool = True
-  warmup_steps: int = 0
+  warmup_steps: int = 1_000
   learning_rate_decay: float = .1
-  lr_transition_steps: int = 0
+  lr_transition_steps: int = 100_000
   weight_decay: float = 1e-4
   # max_grad_norm: float = 80.0
   # adam_eps: float = 1e-3
   ema_update: float = 0.0
+  staircase_decay: bool = True
   metrics: str = 'dense'
+  weight_decay_fn: str = "default"
+  lr_end_value: Optional[float] = 1e-8
   # bootstrap_n: int = 5
   # clip_rewards: bool = False
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
@@ -72,7 +75,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   td_steps: int = 5
   v_target_source: str = 'reanalyze' # this interpolates between mcts output vs. observed return
   reanalyze_ratio: float = 0.5 # percent of time to use mcts vs. observed return
-  # policy_loss: str = 'cross_entropy'
+  policy_loss: str = 'cross_entropy'
   mask_model: bool = True
 
   # MCTS general hps

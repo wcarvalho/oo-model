@@ -18,7 +18,7 @@ class MuZeroConfig(R2D2Config, muzero_config.MuZeroConfig):
   # target_update_period: int = 100
   batch_size: int = 64
   learning_rate: float = 1e-4
-  warmup_steps: int = 10_000
+  warmup_steps: int = 1_000
   lr_transition_steps: int = 100_000
   show_gradients: int = 2500
   behavior_clone: bool = True
@@ -41,3 +41,5 @@ class FactoredMuZeroConfig(MuZeroConfig, factored_muzero_config.FactoredMuZeroCo
   prediction_blocks: int = 1
   num_sgd_steps_per_step: int = 1
   mask_model: bool = True
+  weight_decay_fn: str = "default"
+  weight_decay: float = 1e-4  # very few params
