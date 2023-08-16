@@ -177,7 +177,8 @@ class KitchenObject(WorldObj):
         idx = np.random.randint(len(self.states))
     else:
         idx = self.default_state_id
-    self.state = self.idx2state[idx]
+    self.state = copy.deepcopy(self.idx2state[idx])
+
     if self.verbosity > 1:
         print(f'{self.name} resetting to: {idx}/{len(self.states)} = {self.state}')
 

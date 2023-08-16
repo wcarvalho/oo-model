@@ -374,7 +374,7 @@ class KitchenLevel(RoomGridLevel):
     # We catch RecursionError to deal with rare cases where
     # rejection sampling gets stuck in an infinite loop
     tries = -1
-    max_tries = 5
+    max_tries = 1000
     while True:
         if tries > max_tries:
             raise RuntimeError("can't sample task???")
@@ -435,6 +435,9 @@ class KitchenLevel(RoomGridLevel):
     # when call reset during initialization, don't load
     self.kitchen.reset()
     self.task = self.reset_task()
+    # print("="*10)
+    # print(self.task)
+    # pprint(self.get_room(0, 0).objs)
     if self.task is not None:
         self.surface = self.task.surface(self)
         self.mission = self.surface

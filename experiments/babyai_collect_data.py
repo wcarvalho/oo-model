@@ -32,14 +32,20 @@ FLAGS = flags.FLAGS
 # flags.DEFINE_bool('debug', False, 'whether to debug script')
 flags.DEFINE_string('tasks_file', 'pickup_sanity', 'tasks_file')
 flags.DEFINE_string('size', 'large', 'small=1e4, medium=1e5, large=1e6, xl=1e7')
-flags.DEFINE_integer('room_size', 5, 'room size')
+flags.DEFINE_integer('room_size', 7, 'room size')
 flags.DEFINE_bool('partial_obs', False, 'partial observability')
 
 
-def collect_episode(gym_env, dm_env, idx=None):
+def collect_episode(gym_env, dm_env, idx=None, time_limit: int = 100):
   """Collect 1 episode by using bot."""
   steps = 0
-  dm_env.reset()
+  try:
+    timestep = dm_env.reset()
+  except Exception as e:
+    print("Error 4: returning before episode collected...")
+    import ipdb; ipdb.set_trace()
+    raise(e)
+
   bot = KitchenBot(gym_env)
   actions_taken = []
   action_taken = None
@@ -51,14 +57,13 @@ def collect_episode(gym_env, dm_env, idx=None):
     try:
       action = bot.replan(action_taken)
     except Exception as e:
-      print('-'*30, idx)
-      print(f"Episode failed after {steps} steps.")
-      print(e)
-      return
+      print(f"Error 1: Episode {idx} failed after {steps} steps. Bot Failed.")
+      raise(e)
+
     if action == gym_env.actions.done:
       break
     # observe consequences
-    dm_env.step(action)
+    timestep = dm_env.step(action)
     actions_taken.append(gym_env.idx2action[int(action)])
     action_taken = action
     steps += 1
@@ -77,12 +82,16 @@ def collect_episode(gym_env, dm_env, idx=None):
       except:
         pass
     
-    if steps > 100:
+    if steps > time_limit:
+      print('-'*30, idx)
+      print(f"Error 2: no solution found after T={time_limit} steps")
+
       return # failed
-  
-  if not timestep.reward > 0.0:
+
+  if timestep.reward and not timestep.reward > 0.0:
     print('-'*30, idx)
-    print(f"Episode terminated with no reward after {steps} steps.")
+    print(f"Error 3: Episode terminated with no reward after {steps} steps.")
+    return
 
 def get_episodes(size, debug: bool = False):
   if debug: return 100
@@ -133,6 +142,9 @@ class EnvLoggerWrapper(base.EnvironmentWrapper):
   def reset(self) -> dm_env.TimeStep:
     timestep = self._environment.reset()
     new_timestep = self._augment_timestep(timestep)
+    new_timestep = new_timestep._replace(
+      discount=1.0,
+      reward=0.0)
     return new_timestep
 
   def step(self, action: types.NestedArray) -> dm_env.TimeStep:
@@ -175,24 +187,30 @@ def make_dataset(env_kwargs: dict, nepisodes: int, debug: bool = False):
         **env_kwargs,
         wrapper_list=[EnvLoggerWrapper],
         evaluation=evaluation,
-        return_gym_env=True)
+        return_gym_env=True,
+        verbosity=0,
+        )
 
     data_directory = directory_name(
       **env_kwargs, evaluation=evaluation, nepisodes=nepisodes, debug=debug)
     paths.process_path(data_directory)  # create directory
 
-    with envlogger.EnvLogger(
-      dm_env,
-      step_fn=step_fn,
-      backend=tfds_backend_writer.TFDSBackendWriter(
-        data_directory=data_directory,
-        split_name='test' if evaluation else 'train',
-        max_episodes_per_file=nepisodes,
-        metadata=dict(env_kwargs=env_kwargs),
-        ds_config=dataset_config)) as dm_env:
+    # with envlogger.EnvLogger(
+    #   dm_env,
+    #   step_fn=step_fn,
+    #   backend=tfds_backend_writer.TFDSBackendWriter(
+    #     data_directory=data_directory,
+    #     split_name='test' if evaluation else 'train',
+    #     max_episodes_per_file=nepisodes,
+    #     metadata=dict(env_kwargs=env_kwargs),
+    #     ds_config=dataset_config)) as dm_env:
 
-      for episode_idx in tqdm(range(nepisodes)):
+    for episode_idx in tqdm(range(nepisodes)):
+      try:
         collect_episode(gym_env, dm_env, idx=episode_idx)
+      except Exception as e:
+        # print(f"Skipped {episode_idx}")
+        pass
 
 def main(unused_argv):
 
