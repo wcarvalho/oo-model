@@ -48,6 +48,11 @@ def gumbel_logits(rng, logits: jnp.ndarray, temp: float=1.):
   return (logits + gumbel_noise) / temp
 
 
+def straight_through(x: Array, transform: Callable[[Array], Array]):
+    no_gradient = jax.lax.stop_gradient(transform(x))
+    # Subtracting out and then adding back
+    return no_gradient + x - jax.lax.stop_gradient(x)
+
 def straight_through_estimator(soft_samples: jnp.ndarray):
     hard_samples = jnp.argmax(soft_samples, axis=-1)
     hard_samples_one_hot = jax.nn.one_hot(hard_samples, soft_samples.shape[-1])
@@ -491,7 +496,6 @@ class TransformerBlock(hk.Module):
     if mlp_factory is None:
       mlp_factory = lambda: encoder.Mlp(
         mlp_layers=[self.mlp_size],
-        layernorm='pre' if pre_norm else 'none',
         w_init=self.w_init)
     self.mlp_factory = mlp_factory
 
@@ -705,8 +709,10 @@ class GeneralizedDotProductAttention(hk.Module):
       attention_axis = -1  # Key axis.
 
     # Softmax normalization (by default over key axis).
-    attn = jax.nn.softmax(attn/self.temperature,
-                          axis=attention_axis).astype(self.dtype)
+    if self.temperature != 1.0:
+      attn = straight_through(attn,
+                              transform=lambda x: x/self.temperature)
+    attn = jax.nn.softmax(attn, axis=attention_axis).astype(self.dtype)
     attn = jnp.clip(attn, 0, 1)  # for numerical stability
 
     if self.renormalize_keys:
