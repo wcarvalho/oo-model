@@ -229,7 +229,7 @@ class MuZeroLearner(acme.Learner):
         conditional_learn_model=conditional_learn_model,
       )
       # vmap over batch dimension
-      ve_loss_fn = jax.vmap(ve_loss_fn, in_axes=(1, 1, 1, 1, 1, 0, 0, None, None, None), out_axes=0)
+      ve_loss_fn = jax.vmap(ve_loss_fn, in_axes=(1, 1, 1, 1, 1, 0, 0, None, None, None, None), out_axes=0)
 
       # [T, B]
       B = data.discount.shape[1]
@@ -238,16 +238,18 @@ class MuZeroLearner(acme.Learner):
         (jnp.ones((1, B)), data.discount[:-1]), axis=0) == 0.0
 
       # [B], B
-      batch_loss, loss_metrics, visualize_metrics, value_target, value_pred = ve_loss_fn(data,
-                                       in_episode,
-                                       is_terminal_mask,
-                                       online_outputs,
-                                       target_outputs,
-                                       online_state,
-                                       target_state,
-                                       key_grad,
-                                       learn_model,
-                                       reanalyze)
+      batch_loss, loss_metrics, visualize_metrics, value_target, value_pred = ve_loss_fn(
+        data,
+        in_episode,
+        is_terminal_mask,
+        online_outputs,
+        target_outputs,
+        online_state,
+        target_state,
+        online_outputs,
+        key_grad,
+        learn_model,
+        reanalyze)
       metrics=dict(
         loss_metrics=loss_metrics,
         visualize_metrics=visualize_metrics,
@@ -443,22 +445,31 @@ class MuZeroLearner(acme.Learner):
 
     if self._model_unroll_share_params:
       initial_params = networks.unroll_init(key_init1)
-      weight_decay_mask = hk.data_structures.map(
-          lambda module_name, name, value: True if name == "w" else False,
-          initial_params,
-      )
+      default_decay = lambda module_name, name, value: True if name == "w" else False
+      def decay_except_savi(module_name, name, value):
+        del value
+        if "slot_attention" in module_name: return False
+        elif "observation_fn" in module_name: return False
+        elif name == "w": return True
+        return False
+      if config.weight_decay_fn == "default":
+        decay_fn = default_decay
+      elif config.weight_decay_fn == "except_savi":
+        decay_fn = decay_except_savi
+      weight_decay_mask = hk.data_structures.map(decay_fn, initial_params)
+
       if config.warmup_steps > 0 or config.lr_transition_steps > 0:
         warmup_steps = config.warmup_steps
         if config.warmup_steps == 0:
           warmup_steps = 1
         learning_rate = optax.warmup_exponential_decay_schedule(
             init_value=0.0,
-            end_value=1e-8,
             peak_value=config.learning_rate,
             warmup_steps=warmup_steps,
+            end_value=config.lr_end_value,
             transition_steps=config.lr_transition_steps,
             decay_rate=config.learning_rate_decay,
-            staircase=True,
+            staircase=config.staircase_decay,
         )
       else:
         learning_rate = config.learning_rate

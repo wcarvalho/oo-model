@@ -32,11 +32,12 @@ import jax.numpy as jnp
 from jax import jit
 import rlax
 import mctx
+import numpy as np
 
 from muzero import types as muzero_types
 from muzero.utils import Discretizer
 from muzero.learner_logger import LearnerLogger
-
+from muzero import ve_losses
 Array = acme_types.NestedArray
 State = acme_types.NestedArray
 
@@ -51,244 +52,50 @@ def masked_mean(x, mask):
   z = jnp.multiply(x, mask)
   return (z.sum(0))/(mask.sum(0)+1e-5)
 
-class ValueEquivalentLoss:
+unit = lambda a: (a / (1e-5+jnp.linalg.norm(a, axis=-1, keepdims=True)))
+dot = lambda a,b: jnp.sum(a[:, None] * b[None], axis=-1)  # [A, B]
+
+
+def graph_penalty(x, y):
+    # Step 1: Compute the dot-products between x and y
+    z = dot(x, y)
+
+    # Step 2: Square each entry of the z matrix
+    z_squared = jnp.square(z)
+
+    # Step 3: Sum the off-diagonal entries while subtracting the diagonal entries
+    upper_diag_indices = jnp.triu_indices(z.shape[0], k=1)
+
+    dot_same = jnp.sum(jnp.diag(z_squared))
+    dot_diff = jnp.sum(z_squared[upper_diag_indices])
+
+    return dot_diff - dot_same
+
+class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
 
   def __init__(self,
-               networks: muzero_types.MuZeroNetworks,
-               params: muzero_types.MuZeroParams,
-               target_params: muzero_types.MuZeroParams,
-               discretizer: Discretizer,
-               muzero_policy: Union[mctx.muzero_policy, mctx.gumbel_muzero_policy],
-               simulation_steps: int,
-               num_simulations: int,
-               td_steps: int,
-               policy_loss_fn: Callable[[Array, Array], Array],
-               get_state : Optional[Callable[[Array], Array]] = None,
-               discount: float = 0.99,
-               root_policy_coef: float = 1.0,
-               root_value_coef: float = 1.0,
-               model_policy_coef: float = 1.0,
-               model_value_coef: float = 1.0,
-               model_reward_coef: float = 1.0,
-               conditional_learn_model: bool = False,
-               mask_model: bool = False,
-               v_target_source: str = 'return',
-               invalid_actions: Optional[chex.Array] = None,
-               behavior_clone: bool = False,
+               state_loss: str = 'dot_contrast',
+               get_factors = None,
+               extra_contrast: int = 5,
+               contrast_gamma: float = 1.0,
+               contrast_temp: float = 1.0,
+               cswm_spread: float =.5,
+               state_model_coef: float = 1.0,
+               attention_penalty: float = 0.0,
                **kwargs,
                ):
-    self._networks = networks
-    self._params = params
-    self._target_params = target_params
-    self._simulation_steps = simulation_steps
-    self._discretizer = discretizer
-    self._num_simulations = num_simulations
-    self._discount = discount
-    self._td_steps = td_steps
-    self._muzero_policy = muzero_policy
-    self._root_policy_coef = root_policy_coef
-    self._root_value_coef = root_value_coef
-    self._model_policy_coef = model_policy_coef
-    self._model_value_coef = model_value_coef
-    self._model_reward_coef = model_reward_coef
-    self._policy_loss_fn = policy_loss_fn
-    self._v_target_source = v_target_source
-    self._conditional_learn_model = conditional_learn_model
-    self._mask_model = mask_model
-    self._invalid_actions = invalid_actions
-    self._behavior_clone = behavior_clone
-
-    if get_state is None:
-      get_state = lambda o: o.state
-    self.get_state = get_state
-
-    assert v_target_source in ('mcts',
-                               'return',
-                               'q_learning',
-                               'eff_zero',  # efficient-zero strategy
-                               'reanalyze'), v_target_source  # original re-analyze strategy
-
-  def __call__(self,
-               data: acme_types.NestedArray,
-               in_episode: Array,
-               is_terminal_mask: Array,
-               online_outputs: muzero_types.RootOutput,
-               target_outputs: muzero_types.RootOutput,
-               online_state: State,
-               target_state: State,
-               all_online_outputs: muzero_types.RootOutput,
-               rng_key: networks_lib.PRNGKey,
-               learn_model: bool = True,
-               reanalyze: bool = True,
-               logger: Optional[LearnerLogger] = None,
-               **kwargs,
-               ):
-
-    # applying this ensures no gradients are computed
-    def stop_grad_pytree(pytree):
-      return jax.tree_map(lambda x: jax.lax.stop_gradient(x), pytree)
-
-    # [T], [T/T-1], [T]
-    policy_probs_target, value_probs_target, reward_probs_target, returns, mcts_values = self.compute_target(
-      data=stop_grad_pytree(data),
-      in_episode=stop_grad_pytree(in_episode),
-      is_terminal_mask=stop_grad_pytree(is_terminal_mask),
-      online_outputs=stop_grad_pytree(online_outputs),
-      target_outputs=stop_grad_pytree(target_outputs),
-      rng_key=rng_key,
-      reanalyze=reanalyze,
-    )
-
-
-    learn_fn = functools.partial(
-      self.learn,
-      data=data,
-      in_episode=in_episode,
-      is_terminal_mask=is_terminal_mask,
-      online_outputs=online_outputs,
-      target_outputs=target_outputs,
-      all_online_outputs=all_online_outputs,
-      online_state=online_state,
-      target_state=target_state,
-      rng_key=rng_key,
-      policy_probs_target=policy_probs_target,
-      value_probs_target=value_probs_target,
-      reward_probs_target=reward_probs_target,
-      returns=returns,
-      mcts_values=mcts_values,
-      logger=logger,
-      **kwargs,
-    )
-
-    if self._conditional_learn_model:
-      return jax.lax.cond(
-          learn_model,
-        lambda: learn_fn(learn_model=True),
-        lambda: learn_fn(learn_model=False))
-    else:
-      return learn_fn(learn_model=learn_model)
-
-  def get_invalid_actions(self, batch_size):
-    invalid_actions = self._invalid_actions
-    if invalid_actions is None:
-      return None
-    if invalid_actions.ndim < 2:
-      invalid_actions = jax.numpy.tile(
-          invalid_actions, (batch_size, 1))
-    return invalid_actions
-
-  def compute_target(self,
-                     data: Array,
-                     is_terminal_mask: Array,
-                     in_episode: Array,
-                     online_outputs: muzero_types.RootOutput,
-                     target_outputs: muzero_types.RootOutput,
-                     rng_key: networks_lib.PRNGKey,
-                     reanalyze: bool = True,
-                     ):
-    # target_metrics = {}
-    #---------------
-    # reward
-    #---------------
-    reward_target = data.reward
-    reward_probs_target = self._discretizer.scalar_to_probs(reward_target)
-    reward_probs_target = jax.lax.stop_gradient(reward_probs_target)
-    #---------------
-    # policy
-    #---------------
-    # for policy, need initial policy + value estimates for each time-step
-    # these will be used by MCTS
-    target_values = self._discretizer.logits_to_scalar(
-        target_outputs.value_logits)
-    roots = mctx.RootFnOutput(prior_logits=target_outputs.policy_logits,
-                              value=target_values,
-                              embedding=self.get_state(target_outputs))
-
-    invalid_actions = self.get_invalid_actions(
-      batch_size=target_values.shape[0])
-
-    # 1 step of policy improvement
-    rng_key, improve_key = jax.random.split(rng_key)
-    mcts_outputs = self._muzero_policy(
-        params=self._target_params,
-        rng_key=improve_key,
-        root=roots,
-        invalid_actions=invalid_actions,
-        recurrent_fn=functools.partial(
-            model_step,
-            discount=jnp.full(target_values.shape, self._discount),
-            networks=self._networks,
-            discretizer=self._discretizer,
-            ),
-        num_simulations=self._num_simulations)
-
-    # policy_target = action_probs(mcts_outputs.search_tree.summary().visit_counts)
-    num_actions = target_outputs.policy_logits.shape[-1]
-    if self._behavior_clone:
-      policy_target = jax.nn.one_hot(data.action, num_classes=num_actions)
-    else:
-      policy_target = mcts_outputs.action_weights
-
-    uniform_policy = jnp.ones_like(policy_target) / num_actions
-    if invalid_actions is not None:
-      valid_actions = 1 - invalid_actions
-      uniform_policy = valid_actions/valid_actions.sum(-1, keepdims=True)
-
-    random_policy_mask = jnp.broadcast_to(
-        is_terminal_mask[:, None], policy_target.shape
-    )
-    policy_probs_target = jax.lax.select(
-        random_policy_mask, uniform_policy, policy_target
-    )
-    policy_probs_target = jax.lax.stop_gradient(policy_probs_target)
-
-    #---------------
-    # Values
-    #---------------
-    discounts = (data.discount[:-1] *
-                 self._discount).astype(target_values.dtype)
-    mcts_values = mcts_outputs.search_tree.summary().value
-    if self._v_target_source == 'mcts':
-      returns = mcts_values
-    elif self._v_target_source == 'return':
-      returns = rlax.n_step_bootstrapped_returns(
-          data.reward[:-1], discounts, target_values[1:], self._td_steps)
-
-    elif self._v_target_source == "q_learning":
-      # these will already have been scaled...
-      raise NotImplementedError
-      # target_q_t = target_outputs.q_value[1:]
-      # online_q_t = online_outputs.q_value[1:]
-      # max_action = jnp.argmax(online_q_t, -1)
-
-      # # final q-learning loss (same as rlax.transformed_n_step_q_learning)
-      # v_t = rlax.batched_index(target_q_t, max_action)
-      # returns = rlax.transformed_n_step_returns(
-      #     self._discretizer._tx_pair, data.reward[:-1], discounts, v_t, self._td_steps)
-    elif self._v_target_source == 'eff_zero':
-      def return_fn(v): return rlax.n_step_bootstrapped_returns(
-          data.reward[:-1], discounts, v[1:], self._td_steps)
-      returns = jax.lax.cond(
-          reanalyze > 0,
-          lambda: return_fn(mcts_values),
-          lambda: return_fn(target_values))
-    elif self._v_target_source == 'reanalyze':
-      def return_fn(v): return rlax.n_step_bootstrapped_returns(
-          data.reward[:-1], discounts, v[1:], self._td_steps)
-      dim_return = data.reward.shape[0] - 1
-      returns = jax.lax.cond(
-          reanalyze > 0,
-          lambda: mcts_values[:dim_return],
-          lambda: return_fn(target_values))
-
-    # Value targets for the absorbing state and the states after are 0.
-    dim_return = returns.shape[0]
-    value_target = jax.lax.select(
-        is_terminal_mask[:dim_return], jnp.zeros_like(returns), returns)
-    value_probs_target = self._discretizer.scalar_to_probs(value_target)
-    value_probs_target = jax.lax.stop_gradient(value_probs_target)
-
-    return policy_probs_target, value_probs_target, reward_probs_target, returns, mcts_values
+    super().__init__(**kwargs)
+    self.state_loss = state_loss
+    self.extra_contrast = extra_contrast
+    self.contrast_gamma = contrast_gamma
+    self.contrast_temp = contrast_temp
+    self.cswm_spread = cswm_spread
+    self._state_model_coef = state_model_coef
+    self._attention_penalty = attention_penalty
+    if get_factors is None:
+      get_factors = lambda state: state.rep.factors
+    self.get_factors = get_factors
+    
 
   def learn(self,
             data: acme_types.NestedArray,
@@ -296,9 +103,9 @@ class ValueEquivalentLoss:
             is_terminal_mask: Array,
             online_outputs: muzero_types.RootOutput,
             target_outputs: muzero_types.RootOutput,
-            all_online_outputs: muzero_types.RootOutput,
             online_state: State,
             target_state: State,
+            all_online_outputs: muzero_types.RootOutput,
             rng_key: networks_lib.PRNGKey,
             policy_probs_target: Array,
             value_probs_target: Array,
@@ -311,7 +118,6 @@ class ValueEquivalentLoss:
     del target_outputs
     del online_state
     del target_state
-    del all_online_outputs
     nsteps = data.reward.shape[0]  # [T]
     loss_metrics = {}
     visualize_metrics = {}
@@ -409,20 +215,22 @@ class ValueEquivalentLoss:
     value_model_target = vmap_roll(value_model_target[1:])    # [T, k, bins]
     reward_model_target = vmap_roll(reward_model_target)      # [T, k, bins]
 
+
     #------------
     # get masks for losses
     #------------
     # if dim_return is LESS than number of predictions, then have extra target, so mask it
     extra_v = self._simulation_steps + int(dim_return < npreds)
-    policy_mask = jnp.concatenate((in_episode[1:], jnp.zeros(self._simulation_steps)))
+    mask_includes_terminal = jnp.concatenate((in_episode[1:], jnp.zeros(self._simulation_steps)))
     if self._mask_model:
-      value_mask = jnp.concatenate((in_episode[1:dim_return], jnp.zeros(extra_v)))
+      mask_no_terminal = jnp.concatenate((in_episode[1:dim_return], jnp.zeros(extra_v)))
       reward_mask = jnp.concatenate((in_episode[:-1], jnp.zeros(self._simulation_steps)))
     else:
-      reward_mask = value_mask = jnp.ones_like(policy_mask)
+      reward_mask = mask_no_terminal = jnp.ones_like(mask_includes_terminal)
     reward_model_mask = rolling_window(reward_mask, self._simulation_steps)
-    value_model_mask = rolling_window(value_mask, self._simulation_steps)
-    policy_model_mask = rolling_window(policy_mask, self._simulation_steps)
+    mask_no_terminal_roll = rolling_window(mask_no_terminal, self._simulation_steps)
+    mask_includes_terminal_roll = rolling_window(mask_includes_terminal, self._simulation_steps)
+
 
     #------------
     # get simulation actions
@@ -454,42 +262,202 @@ class ValueEquivalentLoss:
     keys = jax.random.split(rng_key, num=len(policy_model_target)+1)
     model_keys = keys[1:]
     # T, |simulation_actions|, ...
+    online_state = self.get_state(online_outputs)
     model_outputs = model_unroll(
-        model_keys, self.get_state(online_outputs), simulation_actions,
+        model_keys, online_state, simulation_actions,
     )
+
+    #------------
+    # compute contrastive pieces
+    #------------
+    # [T, N, D]
+    factors = self.get_factors(online_state)
+    ntime, nfactor, dim = factors.shape
+
+    # [T', sim_steps, factors, dim]
+    vmap_roll_factor = jax.vmap(vmap_roll, 1, 2)
+    def get_next_factors():
+      # end should be masked out
+      next_factors = jnp.concatenate((factors[1:], factors[-self._simulation_steps:]))
+      return vmap_roll_factor(next_factors)
+    def get_model_factors():
+      # end should be masked out
+      model_factors = model_outputs.new_state.factors
+      model_factors = jnp.concatenate((model_factors[:-1],
+                                      factors[-self._simulation_steps:]))
+      return vmap_roll_factor(model_factors)
+
+    def get_single_negatives():
+      num_extra = (ntime_sim)*nfactor
+      negative_idx = np.random.randint(all_factors.shape[0], size=num_extra)
+      negatives = all_factors[negative_idx]
+
+      # [T', N, D]
+      negatives = negatives.reshape(ntime_sim, nfactor, dim)
+
+      # [T', sim_steps, factors, dim]
+      return vmap_roll_factor(negatives)
+
+    # [B*T*N, D]
+    all_factors = self.get_factors(self.get_state(all_online_outputs)).reshape(-1, dim)
+
+    ntime_sim = ntime+self._simulation_steps - 1
+    if self.state_loss == 'dot_contrast':
+      # anchor = model_state_1
+      # positive = state_1
+      # negative = other factors + K random factors
+
+      state_positive = get_next_factors()
+
+      num_extra = (ntime_sim)*nfactor*self.extra_contrast
+      negative_idx = np.random.randint(all_factors.shape[0], size=num_extra)
+      negatives = all_factors[negative_idx]
+
+      # [T', N, Extra, D]
+      negatives = negatives.reshape(ntime_sim, nfactor, self.extra_contrast, dim)
+
+      # [T', sim_steps, factors, extras, dim]
+      state_negative = jax.vmap(vmap_roll_factor, 2, 3)(negatives)
+
+    elif self.state_loss == 'cswm':
+      # anchor = model_state_1
+      # positive = state_1
+      # negative = 1 random negative
+      state_positive = get_next_factors()
+      state_negative = get_single_negatives()
+
+    elif 'laplacian-state' == self.state_loss:
+      state_positive = get_next_factors()
+      state_negative = get_single_negatives()
+
+    elif 'laplacian-model' == self.state_loss:
+      raise NotImplementedError
+      # anchor = state_0
+      # positive = model_state_1
+      # negative = 1 random negative
+      state_positive = get_model_factors()
+      state_negative = get_single_negatives()
+      raise NotImplementedError
+
+    else:
+      raise NotImplementedError
 
     #------------
     # compute loss
     #------------
     def compute_losses(
-        model_outputs_,
-        reward_target_, value_target_, policy_target_,
-        reward_mask_, value_mask_, policy_mask_):
-      _batch_categorical_cross_entropy = jax.vmap(rlax.categorical_cross_entropy)
-      reward_ce = _batch_categorical_cross_entropy(
-          reward_target_, model_outputs_.reward_logits)
-      reward_loss = masked_mean(reward_ce, reward_mask_)
+            model_outputs_,
+            targets,
+            masks):
 
-      value_ce = _batch_categorical_cross_entropy(
-          value_target_, model_outputs_.value_logits)
-      value_loss = masked_mean(value_ce, value_mask_)
+      categorical_cross_entropy = jax.vmap(rlax.categorical_cross_entropy)
+
+      reward_ce = categorical_cross_entropy(
+          targets['reward'], model_outputs_.reward_logits)
+
+      value_ce = categorical_cross_entropy(
+          targets['value'], model_outputs_.value_logits)
 
       policy_ce = self._policy_loss_fn(
-          policy_target_, model_outputs_.policy_logits)
-      policy_loss = masked_mean(policy_ce, policy_mask_)
+          targets['policy'], model_outputs_.policy_logits)
 
-      return reward_ce, value_ce, policy_ce, reward_loss, value_loss, policy_loss
+      if self.state_loss == 'dot_contrast':
+        # [T, N, D]
+        prediction = unit(model_outputs_.new_state.factors)
+        state_positive = unit(targets['state_positive'])
 
-    _ = [
-      reward_model_ce,
-      value_model_ce,
-      policy_model_ce,
-      model_reward_loss,
-      model_value_loss,
-      model_policy_loss] = jax.vmap(compute_losses)(
+        # [T, N, E, D]
+        state_negative = unit(targets['state_negative'])
+
+        def contrast(y_hat, y, neg):
+          y_logits = dot(y_hat, y)  # [N, N]
+          neg_logits = (y_hat[:, None]*neg).sum(-1)  # [N, E]
+
+          #[N, N+E]
+          logits = jnp.concatenate((y_logits, neg_logits), axis=-1)
+          logits = logits/self.contrast_temp
+          
+          # Compute the softmax probabilities
+          log_probs = jax.nn.log_softmax(logits)
+
+          num_classes = y_hat.shape[0]   # N
+          nlogits = log_probs.shape[-1]  # N+E
+          labels = jax.nn.one_hot(jnp.arange(num_classes), num_classes=nlogits)
+          return rlax.categorical_cross_entropy(labels, logits)
+
+        state_ce = jax.vmap(contrast)(prediction, state_positive, state_negative)
+        state_ce = state_ce.mean(-1)  # factors
+
+
+      elif self.state_loss == 'cswm':
+        # [T, N, D]
+        prediction = model_outputs_.new_state.factors
+        state_positive = targets['state_positive']
+        state_negative = targets['state_negative']
+
+        # [T]
+        cons = self.cswm_spread/(self.cswm_spread*self.cswm_spread)
+        positive_loss = cons*rlax.l2_loss(prediction, state_positive).mean((1, 2))
+        negative_loss = cons*rlax.l2_loss(prediction, state_negative).mean((1, 2))
+
+        state_ce = positive_loss + jax.nn.relu(self.contrast_gamma - negative_loss)
+
+      else:
+        state_ce = jnp.zeros_like(policy_ce)
+
+      ce = {
+          'reward': reward_ce,
+          'value': value_ce,
+          'policy': policy_ce,
+          'state': state_ce,
+      }
+      loss = {
+          'reward': masked_mean(reward_ce, masks['reward']),
+          'value': masked_mean(value_ce, masks['value']),
+          'policy': masked_mean(policy_ce, masks['policy']),
+          'state': masked_mean(state_ce, masks['state']),
+      }
+      return ce, loss
+
+    model_targets = {
+      'reward': reward_model_target,
+      'value': value_model_target,
+      'policy': policy_model_target,
+      'state_positive': state_positive,
+      'state_negative': state_negative,
+    }
+    model_masks = {
+      'reward': reward_model_mask,
+      'value': mask_no_terminal_roll,
+      'policy': mask_includes_terminal_roll,
+      'state': mask_no_terminal_roll,
+    }
+    # vmap over time, sim-steps
+    model_ces, model_losses = jax.vmap(compute_losses)(
         model_outputs,
-        reward_model_target, value_model_target, policy_model_target,
-        reward_model_mask, value_model_mask, policy_model_mask)
+        model_targets,
+        model_masks)
+
+    reward_model_ce = model_ces['reward']
+    model_reward_loss = model_losses['reward']
+    value_model_ce = model_ces['value']
+    model_value_loss = model_losses['value']
+    policy_model_ce = model_ces['policy']
+    model_policy_loss = model_losses['policy']
+
+    # state_model_ce = model_ces['state']
+    state_loss = model_losses['state']
+
+    if 'laplacian-state' == self.state_loss:
+      anchor = factors[:-1]  # [T, N, D]
+      positive = factors[1:] 
+
+      # [T, N]
+      graph_loss = rlax.l2_loss(anchor, positive).mean(-1).mean(-1)
+      penalty = jax.vmap(graph_penalty)(anchor, anchor)
+      state_loss = graph_loss + self.contrast_gamma*penalty
+
+      state_loss = state_loss.mean(-1)
 
     #------------
     # model metrics
@@ -505,12 +473,12 @@ class ValueEquivalentLoss:
       reward_model_prediction=self._discretizer.logits_to_scalar(model_outputs.reward_logits[0]),
       # model policy
       policy_model_ce=policy_model_ce[0],
-      policy_model_mask=policy_model_mask[0],
+      policy_model_mask=mask_includes_terminal_roll[0],
       policy_model_target=policy_model_target[0],
       policy_model_prediction=jax.nn.softmax(model_outputs.policy_logits[0]),
       # model value
       value_model_ce=value_model_ce[0],
-      value_model_mask=value_model_mask[0],
+      value_model_mask=mask_no_terminal_roll[0],
       value_model_target=jnp.concatenate((returns[1:], jnp.zeros(nz)))[:self._simulation_steps],
       value_model_prediction=self._discretizer.logits_to_scalar(model_outputs.value_logits[0]),
     )
@@ -521,37 +489,71 @@ class ValueEquivalentLoss:
       reward_model_mask=reward_mask[:nsteps],
       # model policy
       policy_model_ce=model_policy_loss,
-      policy_model_mask=policy_mask[:nsteps],
+      policy_model_mask=mask_includes_terminal[:nsteps],
       # model value
       value_model_ce=model_value_loss,
-      value_model_mask=value_mask[:nsteps],
+      value_model_mask=mask_no_terminal[:nsteps],
     )
 
     # all are []
-    raw_model_policy_loss = masked_mean(model_policy_loss, policy_mask[:nsteps])
-    model_policy_loss = self._model_policy_coef * \
+    raw_model_policy_loss = masked_mean(model_policy_loss,
+      mask_includes_terminal[:nsteps])
+
+    raw_model_value_loss = masked_mean(model_value_loss,
+      mask_no_terminal[:nsteps])
+
+    raw_model_reward_loss = masked_mean(model_reward_loss,
+      reward_mask[:nsteps])
+
+    raw_state_loss = masked_mean(state_loss,
+      mask_no_terminal[:nsteps])
+
+    raw_total_loss = (
+        raw_model_reward_loss +
+        root_value_loss +
+        raw_model_value_loss + 
+        root_policy_loss +
         raw_model_policy_loss
-    raw_model_value_loss = masked_mean(model_value_loss, value_mask[:nsteps])
-    model_value_loss = self._model_value_coef * \
-        raw_model_value_loss
-    raw_model_reward_loss = masked_mean(model_reward_loss, reward_mask[:nsteps])
-    reward_loss = self._model_reward_coef * \
-        raw_model_reward_loss
+        )
 
     total_loss = (
-        reward_loss +
-        root_value_loss + model_value_loss + 
-        root_policy_loss + model_policy_loss)
-
+        self._model_reward_coef * raw_model_reward_loss +
+        self._root_value_coef * raw_root_value_loss +
+        self._model_value_coef * raw_model_value_loss +
+        self._root_policy_coef *raw_root_policy_loss +
+        self._model_policy_coef * raw_model_policy_loss
+    )
     loss_metrics.update({
         "0.0.total_loss": total_loss,
+        "0.0.raw_total_loss": raw_total_loss,
         '0.1.policy_root_loss': raw_root_policy_loss,
         '0.1.policy_model_loss': raw_model_policy_loss,
-        '0.2.model_reward_loss': raw_model_reward_loss,  # T
+        '0.2.model_reward_loss': raw_model_reward_loss,
         '0.3.value_root_loss': raw_root_value_loss,
-        '0.3.value_model_loss': raw_model_value_loss,  # T
+        '0.3.value_model_loss': raw_model_value_loss,
     })
 
+    if self._state_model_coef > 0.0:
+      raw_total_loss = raw_total_loss + raw_state_loss
+      total_loss = total_loss + self._state_model_coef * raw_state_loss
+      loss_metrics['0.4.state_model_loss'] = raw_state_loss
+
+
+    if self._attention_penalty > 0.0:
+      # [T, n=num_slots, p=spatial_positions]
+      slot_attn = online_outputs.state.rep.attn
+      # [T, p]
+      total_per_spatial_attn = slot_attn.sum(-2)
+
+      # [T]
+      l1_attn = total_per_spatial_attn.sum(-1)
+
+      # []
+      l1_attn_loss = masked_mean(l1_attn, in_episode)
+
+      raw_total_loss = raw_total_loss + l1_attn_loss
+      total_loss = total_loss + self._attention_penalty*l1_attn_loss
+      loss_metrics['0.5.attn_l1'] = l1_attn_loss
 
     return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
 
