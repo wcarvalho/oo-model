@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""MuZero Builder."""
+"""MuZero Builder.
+
+Changes from R2D2:
+- make_learner: custom MuZero learner.
+- make_policy: custom MuZero actor.
+"""
 from typing import Generic, Iterator, List, Optional
 
 import acme
