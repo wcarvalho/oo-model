@@ -36,7 +36,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   update_type: str = 'project_add'
 
   # observation function
-  w_init_obs: float = 1.0
+  w_init_obs: Optional[float] = None
   vision_torso: str = 'babyai_patches'
 
   # state function
@@ -57,7 +57,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
 
   # transition function
   model_gate: str = 'sum'
-  slot_tran_heads: int = 1
+  slot_tran_heads: int = 4
   tran_mlp_blocks: int = 2
   slot_tran_mlp_size: Optional[int] = None
   transition_blocks: int = 4  # number of transformer blocks
@@ -66,8 +66,8 @@ class FactoredMuZeroConfig(MuZeroConfig):
   # prediction functions
   pred_gate: Optional[str] = 'gru'
   pred_task_combine: str = 'gather'
-  prediction_blocks: int = 1 # number of transformer blocks
-  pred_out_mlp: bool = False
+  prediction_blocks: int = 2 # number of transformer blocks
+  pred_out_mlp: bool = True
   slot_pred_heads: Optional[int] = None
   slot_pred_mlp_size: Optional[int] = None
   slot_pred_qkv_size: Optional[int] = None
