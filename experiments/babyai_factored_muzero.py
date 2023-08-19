@@ -8,12 +8,12 @@ from pprint import pprint
 import rlax
 
 from muzero import utils as muzero_utils
-from muzero.builder import MuZeroBuilder
 from muzero.types import TaskAwareRep
 
 from factored_muzero import networks
 from factored_muzero import types
 from factored_muzero import attention
+from factored_muzero.builder import FactoredMuZeroBuilder
 from factored_muzero.ve_losses import ValueEquivalentLoss
 from factored_muzero.config import FactoredMuZeroConfig
 
@@ -54,6 +54,7 @@ def setup(
     loss_kwargs: dict = None,
     builder_kwargs: dict = None,
     invalid_actions = None,
+    agent_name: str = 'factored',
     **kwargs):
   network_kwargs = network_kwargs or dict()
   loss_kwargs = loss_kwargs or dict()
@@ -108,15 +109,19 @@ def setup(
     **loss_kwargs,
     )
 
-  builder = MuZeroBuilder(
+  network_factory = functools.partial(
+      networks.make_babyai_networks,
+      config=config,
+      invalid_actions=invalid_actions,
+      agent_name=agent_name,
+      **network_kwargs)
+  
+
+  builder = FactoredMuZeroBuilder(
       config=config,
       loss_fn=ve_loss_fn,
+      network_factory=network_factory,
       **builder_kwargs)
 
-  network_factory = functools.partial(
-          networks.make_babyai_networks,
-          config=config,
-          invalid_actions=invalid_actions,
-          **network_kwargs)
   
   return builder, network_factory
