@@ -76,7 +76,7 @@ def setup_agents(
         config_kwargs=config_kwargs,
         **setup_kwargs)
 
-  elif agent == 'factored':
+  elif agent in ('factored', 'branched'):
     from experiments import babyai_factored_muzero
     from factored_muzero.analysis_actor import VisualizeActor, AttnLogger
     from factored_muzero import learner_logger
@@ -102,9 +102,11 @@ def setup_agents(
     room_size = env_kwargs['room_size']
     builder, network_factory = babyai_factored_muzero.setup(
         config=config,
+        agent_name=agent,
         network_kwargs=dict(num_spatial_vectors=room_size**2),
         builder_kwargs=builder_kwargs,
         **setup_kwargs)
+
   else:
     raise NotImplementedError
 
@@ -255,12 +257,12 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     space = [
         {
             "seed": tune.grid_search([1]),
-            "group": tune.grid_search(['benchmark4']),
-            "agent": tune.grid_search(['muzero', 'factored']),
+            "group": tune.grid_search(['benchmark5']),
+            "room_size": tune.grid_search([7]),
+            "agent": tune.grid_search(['muzero', 'factored', 'branched']),
             "tasks_file": tune.grid_search([
-                'place_split_easy',
                 'place_split_medium',
-                'place_split_hard'
+                'long',
             ]),
         }
     ]

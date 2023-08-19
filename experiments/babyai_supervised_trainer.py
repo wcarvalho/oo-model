@@ -141,7 +141,7 @@ def run_experiment(
     config_class = offline_configs.MuZeroConfig
     loss_kwargs = dict(behavior_clone=True)
 
-  elif agent == 'factored':
+  elif agent in ('factored', 'branched'):
     config_class = offline_configs.FactoredMuZeroConfig
     loss_kwargs = dict(behavior_clone=True)
 
@@ -149,7 +149,8 @@ def run_experiment(
                  'pickup_contents', 'place', 'toggle', 'slice']
   tasks = babyai_env_utils.open_kitchen_tasks_file(
     tasks_file=env_kwargs['tasks_file'], path=path)
-  valid_actions = [(a in tasks['valid_actions']) for a in env_actions]
+  task_valid_actions = tasks.get('valid_actions', env_actions)
+  valid_actions = [(a in task_valid_actions) for a in env_actions]
   invalid_actions = 1-jnp.array(valid_actions, dtype=jnp.float32)
 
   config, builder, network_factory = setup_agents(
@@ -358,9 +359,9 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'benchmark':
     space = [
         {
-            "seed": tune.grid_search([2]),
-            "group": tune.grid_search(['benchmark2']),
-            "agent": tune.grid_search(['muzero', 'factored']),
+            "seed": tune.grid_search([3]),
+            "group": tune.grid_search(['benchmark3']),
+            "agent": tune.grid_search(['muzero', 'factored', 'branched']),
             "room_size": tune.grid_search([7]),
             "tasks_file": tune.grid_search(['long']),
         }
@@ -415,32 +416,60 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "savi_temp": tune.grid_search([.1, .5]),
         }
     ]
+  elif search == 'branched1':
+    shared = {
+        "seed": tune.grid_search([4]),
+        "group": tune.grid_search(['bc_branched_large_1']),
+        "agent": tune.grid_search(['branched']),
+        "num_learner_steps": tune.grid_search([int(1e5)]),
+        "tasks_file": tune.grid_search(['place_split_easy']),
+    }
+    space = [
+        {
+            **shared,
+            "slots_use_task": tune.grid_search([True, False]),
+            "batch_size": tune.grid_search([32, 64]),
+            "slot_size": tune.grid_search([64, 128]),
+        },
+    ]
   elif search == 'factored2':
     shared = {
         "seed": tune.grid_search([4]),
-        "group": tune.grid_search(['bc_factored_large_25_replicate']),
-        "agent": tune.grid_search(['factored']),
+        "group": tune.grid_search(['bc_factored_large_26_branched']),
+        "agent": tune.grid_search(['branched']),
         "num_learner_steps": tune.grid_search([int(1e5)]),
         "tasks_file": tune.grid_search(['place_split_easy']),
-        "max_grad_norm": tune.grid_search([80.0]),
         # "state_model_coef": tune.grid_search([1e-2]),
     }
     space = [
         {
             **shared,
             "lr_end_value": tune.grid_search([None]),
-        },    ]
-  elif search == 'attn_1':
-    space = [
+        },
         {
-            "seed": tune.grid_search([1]),
-            # "group": tune.grid_search(['benchmark2']),
-            "agent": tune.grid_search(['factored']),
-            "show_gradients": tune.grid_search(['factored']),
-            "tasks_file": tune.grid_search([
-                'pickup'
-            ]),
-        }
+            **shared,
+            "share_pred_base": tune.grid_search([False]),
+        },
+        {
+            **shared,
+            "pred_out_mlp": tune.grid_search([True]),
+        },
+        {
+            **shared,
+            "w_init_obs": tune.grid_search([None]),
+        },
+        # {
+        #     **shared,
+        #     "task_dim": tune.grid_search([0, 128]),
+        # },
+        {
+            **shared,
+            "lr_end_value": tune.grid_search([1e-8]),
+            "share_pred_base": tune.grid_search([False]),
+            "pred_out_mlp": tune.grid_search([True]),
+            "w_init_obs": tune.grid_search([None]),
+            "task_dim": tune.grid_search([0, 128]),
+        },
     ]
   else:
     raise NotImplementedError(search)

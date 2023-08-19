@@ -72,7 +72,7 @@ def setup_experiment_inputs(
     config_class = offline_configs.MuZeroConfig
     loss_kwargs = dict(behavior_clone=True)
 
-  elif agent == 'factored':
+  elif agent in ('factored', 'branched'):
     config_class = offline_configs.FactoredMuZeroConfig
     loss_kwargs = dict(behavior_clone=True)
 

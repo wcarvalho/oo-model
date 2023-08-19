@@ -51,6 +51,11 @@ RecurrentState = networks_lib.RecurrentState
 Array = acme_types.NestedArray
 GateFn = Callable[[Array, Array], Array]
 
+def swap_if_none(a, b):
+  if a is None: return b
+  return a
+
+
 class FactoredMuZeroArch(MuZeroArch):
   """Factored MuZero Architecture.
 
@@ -314,7 +319,7 @@ def make_observation_fn(config, w_init_obs, env_spec):
               word_dim=config.word_dim,
               sentence_dim=config.sentence_dim,
           ),
-          task_dim=0.0,
+          task_dim=config.task_dim,
           w_init=None,
           output_fn=vision_language.struct_output,
       )(inputs)
@@ -354,13 +359,6 @@ def make_savi_state_fn(config, num_spatial_vectors, w_init):
       w_init=w_init,
       name='state_slot_attention'
   )
-  if config.context_as_slot:
-    savi_state_fn = DualSlotMemory(
-      context_memory=hk.GRU(
-        config.slot_size,
-        name='slot_attention_context'),
-      mask_context=config.mask_context,
-      factors_memory=savi_state_fn)
   return savi_state_fn
 
 
@@ -370,9 +368,13 @@ def make_transformer_model(
     num_heads,
     qkv_size,
     mlp_size,
-    get_gate_factory,
     w_init_attn
     ):
+    get_gate_factory = functools.partial(
+          gates.get_gate_factory,
+          b_init=hk.initializers.Constant(config.b_init_attn),
+          w_init=w_init_attn)
+
     def transformer_model(action_onehot: Array,
                           state: TaskAwareSaviState):
       assert action_onehot.ndim in (1, 2), "should be [A] or [B, A]"
@@ -452,13 +454,359 @@ def make_transformer_model(
         core=hk.to_module(transformer_model)(name='model_transformer'),
     )
 
+def make_single_head_prediction_function(
+    config, env_spec):
+  num_actions = env_spec.actions.num_values
 
+  slot_tran_mlp_size = swap_if_none(
+      config.slot_tran_mlp_size, config.slot_size)
+  w_init_attn = hk.initializers.VarianceScaling(config.w_init_attn)
+  get_gate_factory = functools.partial(
+    gates.get_gate_factory,
+    b_init=hk.initializers.Constant(config.b_init_attn),
+    w_init=w_init_attn)
+
+  # set default prediction sizes based on transition function
+  slot_pred_heads = config.slot_pred_heads or config.slot_tran_heads
+  slot_pred_mlp_size = swap_if_none(
+      config.slot_pred_mlp_size, slot_tran_mlp_size)
+  slot_pred_qkv_size = config.slot_pred_qkv_size or config.slot_size
+
+  pred_gate = config.pred_gate or config.model_gate
+
+  def make_transformer(name: str, num_layers: int):
+    return attention.Transformer(
+        num_heads=slot_pred_heads,
+        qkv_size=slot_pred_qkv_size,
+        mlp_size=slot_pred_mlp_size,
+        num_layers=num_layers,
+        w_init=w_init_attn,
+        pre_norm=config.pre_norm,
+        out_mlp=config.pred_out_mlp,
+        gate_factory=get_gate_factory(pred_gate),
+        name=name)
+
+  w_init_out = w_init_attn if config.share_w_init_out else None
+
+  def make_pred_fn(name: str, sizes: Tuple[int], num_preds: int):
+    assert config.pred_head in ('muzero', 'haiku_mlp')
+    if config.pred_head == 'muzero':
+      return PredictionMlp(
+          sizes, num_preds,
+          w_init=w_init_out,
+          output_init=w_init_out,
+          ln=config.ln,
+          name=name)
+    elif config.pred_head == 'haiku_mlp':
+      return hk.nets.MLP(tuple(sizes) + (num_preds,),
+                          w_init=w_init_out,
+                          name=name)
+
+  assert config.seperate_model_nets == False, 'need to redo function for this'
+  # root
+  vpi_base = ResMlp(config.prediction_blocks,
+                    ln=config.ln, name='pred_root_base')
+  # pre_blocks_base = max(1, config.prediction_blocks//2)
+  pred_transformer = make_transformer(
+      'pred_root_base',
+      num_layers=config.prediction_blocks)
+
+  prediction_input_fn = make_slot_selection_fn(
+      selection=config.pred_input_selection,
+      gate_factory=get_gate_factory(pred_gate),
+      attn_factory=lambda: attention.GeneralMultiHeadAttention(
+          num_heads=slot_pred_heads,
+          key_size=slot_pred_qkv_size,
+          # model_size=slot_pred_qkv_size,
+          w_init=w_init_attn,
+          project_out=False,
+          name='pred_selection_attention',
+      ))
+  prediction_input_fn = hk.to_module(
+      prediction_input_fn)('pred_selection_fn')
+
+  policy_fn = make_pred_fn(
+      name='pred_root_policy', sizes=config.vpi_mlps, num_preds=num_actions)
+  value_fn = make_pred_fn(
+      name='pred_root_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
+
+  reward_fn = make_pred_fn(
+      name='pred_model_reward', sizes=config.reward_mlps, num_preds=config.num_bins)
+
+  task_projection = hk.Linear(
+      config.slot_size,
+      w_init=w_init_attn,
+      with_bias=False,
+      name='pred_task_projection')
+
+  def task_cross_attend_factors(factors, task):
+      task = task_projection(task)  # [D]
+      task = jnp.expand_dims(task, 0)  # [1, D]
+      queries = jnp.concatenate((task, factors))  # [N+1, D]
+
+      outputs: attention.TransformerOutput = pred_transformer(
+          queries=queries)  # [N, D]
+
+      if config.query == 'task':
+        task_query = task
+      elif config.query == 'task_rep':
+        task_query = outputs.factors[0]
+      else:
+        raise NotImplementedError
+
+      pred_input, outputs = prediction_input_fn(
+          slot_reps=outputs.factors[1:],
+          task_query=task_query,
+          attn_outputs=outputs)
+      return outputs, pred_input
+
+  def task_gathers_factors(factors, task):
+      keys = factors
+      queries = task_projection(task)[None]
+      outputs: attention.TransformerOutput = pred_transformer(
+          queries=queries, inputs=keys)  # [N, D]
+      return outputs, outputs.factors[0]
+
+  def combine_task_factors(factors, task):
+    if config.pred_task_combine == 'gather':
+      fn = task_gathers_factors
+    elif config.pred_task_combine == 'cross':
+      fn = task_cross_attend_factors
+    else:
+      raise NotImplementedError
+    return fn(factors, task)
+
+  def root_predictor(state_rep: TaskAwareSaviState):
+    def _root_predictor(state_rep: TaskAwareSaviState):
+      outputs, pred_input = combine_task_factors(
+          factors=state_rep.rep.factors,
+          task=state_rep.task)
+
+      if config.share_pred_base:
+        pred_input = vpi_base(pred_input)
+      policy_logits = policy_fn(pred_input)
+      value_logits = value_fn(pred_input)
+
+      return RootOutput(
+          pred_attn_outputs=outputs,
+          state=state_rep,
+          value_logits=value_logits,
+          policy_logits=policy_logits,
+      )
+    assert state_rep.task.ndim in (1, 2), "should be [D] or [B, D]"
+    if state_rep.task.ndim == 2:
+      _root_predictor = jax.vmap(_root_predictor)
+    return _root_predictor(state_rep)
+
+  def model_predictor(state_rep: TaskAwareSaviState):
+    def _model_predictor(state_rep: TaskAwareSaviState):
+      # output of transformer model
+      model_state: attention.TransformerOutput = state_rep.rep
+      outputs, pred_input = combine_task_factors(
+          factors=model_state.factors,
+          task=state_rep.task)
+
+      reward_logits = reward_fn(pred_input)
+
+      if config.share_pred_base:
+        pred_input = vpi_base(pred_input)
+      policy_logits = policy_fn(pred_input)
+      value_logits = value_fn(pred_input)
+
+      return ModelOutput(
+          pred_attn_outputs=outputs,
+          new_state=model_state,
+          value_logits=value_logits,
+          policy_logits=policy_logits,
+          reward_logits=reward_logits,
+      )
+    assert state_rep.task.ndim in (1, 2), "should be [D] or [B, D]"
+    if state_rep.task.ndim == 2:
+      _model_predictor = jax.vmap(_model_predictor)
+    return _model_predictor(state_rep)
+
+  return root_predictor, model_predictor
+
+def make_multi_head_prediction_function(
+        config, env_spec):
+  num_actions = env_spec.actions.num_values
+
+  slot_tran_mlp_size = swap_if_none(
+      config.slot_tran_mlp_size, config.slot_size)
+  w_init_attn = hk.initializers.VarianceScaling(config.w_init_attn)
+  get_gate_factory = functools.partial(
+      gates.get_gate_factory,
+      b_init=hk.initializers.Constant(config.b_init_attn),
+      w_init=w_init_attn)
+
+  # set default prediction sizes based on transition function
+  slot_pred_heads = config.slot_pred_heads or config.slot_tran_heads
+  slot_pred_mlp_size = swap_if_none(
+      config.slot_pred_mlp_size, slot_tran_mlp_size)
+  slot_pred_qkv_size = config.slot_pred_qkv_size or config.slot_size
+
+  pred_gate = config.pred_gate or config.model_gate
+
+  def make_transformer(name: str, num_layers: int):
+    return attention.Transformer(
+        num_heads=slot_pred_heads,
+        qkv_size=slot_pred_qkv_size,
+        mlp_size=slot_pred_mlp_size,
+        num_layers=num_layers,
+        w_init=w_init_attn,
+        pre_norm=config.pre_norm,
+        out_mlp=config.pred_out_mlp,
+        gate_factory=get_gate_factory(pred_gate),
+        name=name)
+
+  w_init_out = w_init_attn if config.share_w_init_out else None
+
+  def make_pred_fn(name: str, sizes: Tuple[int], num_preds: int):
+    assert config.pred_head in ('muzero', 'haiku_mlp')
+    if config.pred_head == 'muzero':
+      return PredictionMlp(
+          sizes, num_preds,
+          w_init=w_init_out,
+          output_init=w_init_out,
+          ln=config.ln,
+          name=name)
+    elif config.pred_head == 'haiku_mlp':
+      return hk.nets.MLP(tuple(sizes) + (num_preds,),
+                          w_init=w_init_out,
+                          name=name)
+
+  assert config.seperate_model_nets == False, 'need to redo function for this'
+  # root
+  vpi_base = ResMlp(config.prediction_blocks,
+                    ln=config.ln, name='pred_root_base')
+  # pre_blocks_base = max(1, config.prediction_blocks//2)
+  pred_transformer = make_transformer(
+      'pred_root_base',
+      num_layers=config.prediction_blocks)
+
+  prediction_input_fn = make_slot_selection_fn(
+      selection=config.pred_input_selection,
+      gate_factory=get_gate_factory(pred_gate),
+      attn_factory=lambda: attention.GeneralMultiHeadAttention(
+          num_heads=slot_pred_heads,
+          key_size=slot_pred_qkv_size,
+          # model_size=slot_pred_qkv_size,
+          w_init=w_init_attn,
+          project_out=False,
+          name='pred_selection_attention',
+      ))
+  prediction_input_fn = hk.to_module(
+      prediction_input_fn)('pred_selection_fn')
+
+  policy_fn = make_pred_fn(
+      name='pred_root_policy', sizes=config.vpi_mlps, num_preds=num_actions)
+  value_fn = make_pred_fn(
+      name='pred_root_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
+
+  reward_fn = make_pred_fn(
+      name='pred_model_reward', sizes=config.reward_mlps, num_preds=config.num_bins)
+
+  weight_fn = make_pred_fn(
+      name='pred_weights', sizes=config.reward_mlps, num_preds=1)
+
+  task_projection = hk.Linear(
+      config.slot_size,
+      w_init=w_init_attn,
+      with_bias=False,
+      name='pred_task_projection')
+
+  def task_cross_attend_factors(factors, task):
+    task = task_projection(task)  # [D]
+    task = jnp.expand_dims(task, 0)  # [1, D]
+    queries = jnp.concatenate((task, factors))  # [N+1 or N+2, D]
+
+    outputs = pred_transformer(queries=queries)  # [N, D]
+
+    if config.context_as_slot:
+      factors = outputs.factors[2:]
+    else:
+      factors = outputs.factors[1:]
+
+    weights = weight_fn(factors)  # [N, 1]
+    weights = jax.nn.softmax(weights, axis=-2)
+
+    return factors, weights, outputs
+
+  def weighted_average(x: jnp.ndarray,
+                        weights: jnp.ndarray):
+    """x: [..., num_factors, num_predictions]"""
+    return (x*weights).sum(axis=-2)
+
+  def root_predictor(state_rep: TaskAwareSaviState):
+    def _root_predictor(state_rep: TaskAwareSaviState):
+      factors = state_rep.rep.factors  # [N, D]
+      task = state_rep.task            # [D]
+
+      pred_input, weights, outputs = task_cross_attend_factors(factors, task)
+
+      if config.share_pred_base:
+        pred_input = vpi_base(pred_input)
+      policy_logits = policy_fn(pred_input)
+      value_logits = value_fn(pred_input)
+
+      policy_logits = weighted_average(
+          policy_logits, weights)
+      value_logits = weighted_average(
+          value_logits, weights)
+
+      return RootOutput(
+          pred_attn_outputs=outputs,
+          state=state_rep,
+          value_logits=value_logits,
+          policy_logits=policy_logits,
+      )
+    assert state_rep.task.ndim in (1, 2), "should be [D] or [B, D]"
+    if state_rep.task.ndim == 2:
+      _root_predictor = jax.vmap(_root_predictor)
+    return _root_predictor(state_rep)
+
+  def model_predictor(state_rep: TaskAwareSaviState):
+    def _model_predictor(state_rep: TaskAwareSaviState):
+      # output of transformer model
+      model_state: attention.TransformerOutput = state_rep.rep
+      factors = model_state.factors
+      task = state_rep.task
+
+      pred_input, weights, outputs = task_cross_attend_factors(factors, task)
+
+      reward_logits = reward_fn(pred_input)
+      if config.share_pred_base:
+        pred_input = vpi_base(pred_input)
+      policy_logits = policy_fn(pred_input)
+      value_logits = value_fn(pred_input)
+
+      reward_logits = weighted_average(
+          reward_logits, weights)
+      policy_logits = weighted_average(
+          policy_logits, weights)
+      value_logits = weighted_average(
+          value_logits, weights)
+
+      return ModelOutput(
+          pred_attn_outputs=outputs,
+          new_state=model_state,
+          value_logits=value_logits,
+          policy_logits=policy_logits,
+          reward_logits=reward_logits,
+      )
+    assert state_rep.task.ndim in (1, 2), "should be [D] or [B, D]"
+    if state_rep.task.ndim == 2:
+      _model_predictor = jax.vmap(_model_predictor)
+    return _model_predictor(state_rep)
+
+  return root_predictor, model_predictor
 
 def make_babyai_networks(
   env_spec: specs.EnvironmentSpec,
   num_spatial_vectors: int,
   config: MuZeroConfig,
   invalid_actions=None,
+  agent_name: str = 'factored',
   **kwargs) -> MuZeroNetworks:
   """Builds default MuZero networks for BabyAI tasks."""
   del num_spatial_vectors # no longer using
@@ -486,6 +834,13 @@ def make_babyai_networks(
     w_init_attn = hk.initializers.VarianceScaling(config.w_init_attn)
     state_fn = make_savi_state_fn(
       config, num_spatial_vectors, w_init_attn)
+    if config.context_as_slot:
+      savi_state_fn = DualSlotMemory(
+        context_memory=hk.GRU(
+          config.slot_size,
+          name='slot_attention_context'),
+        mask_context=config.mask_context,
+        factors_memory=savi_state_fn)
 
     def combine_hidden_obs(
         hidden: attention.SaviState,
@@ -494,21 +849,9 @@ def make_babyai_networks(
       return TaskAwareRep(rep=hidden, task=emb.task)
 
     ###########################
-    # Setup gating functions
-    ###########################
-    get_gate_factory = functools.partial(
-      gates.get_gate_factory,
-      b_init=hk.initializers.Constant(config.b_init_attn),
-      w_init=w_init_attn)
-
-
-    ###########################
     # Setup transformer model transition_fn
     ###########################
     # set default transition sizes based on state function
-    def swap_if_none(a, b):
-      if a is None: return b
-      return a
     slot_tran_heads = config.slot_tran_heads
     slot_tran_mlp_size = swap_if_none(
       config.slot_tran_mlp_size, config.slot_size)
@@ -518,7 +861,6 @@ def make_babyai_networks(
         num_heads=slot_tran_heads,
         qkv_size=config.slot_size,
         mlp_size=slot_tran_mlp_size,
-        get_gate_factory=get_gate_factory,
         w_init_attn=w_init_attn,
     )
 
@@ -526,163 +868,14 @@ def make_babyai_networks(
     ###########################
     # Setup prediction functions: policy, value, reward
     ###########################
+    if agent_name == 'factored':
+      make_prediction_fn = make_single_head_prediction_function
+    elif agent_name == 'branched':
+      make_prediction_fn = make_multi_head_prediction_function
+    else:
+      raise NotImplementedError
 
-    # set default prediction sizes based on transition function
-    slot_pred_heads = config.slot_pred_heads or config.slot_tran_heads
-    slot_pred_mlp_size = swap_if_none(
-      config.slot_pred_mlp_size, slot_tran_mlp_size)
-    slot_pred_qkv_size = config.slot_pred_qkv_size or config.slot_size
-
-    pred_gate = config.pred_gate or config.model_gate
-    def make_transformer(name: str, num_layers: int):
-      return attention.Transformer(
-          num_heads=slot_pred_heads,
-          qkv_size=slot_pred_qkv_size,
-          mlp_size=slot_pred_mlp_size,
-          num_layers=num_layers,
-          w_init=w_init_attn,
-          pre_norm=config.pre_norm,
-          out_mlp=config.pred_out_mlp,
-          gate_factory=get_gate_factory(pred_gate),
-          name=name)
-
-    w_init_out = w_init_attn if config.share_w_init_out else None
-    def make_pred_fn(name: str, sizes: Tuple[int], num_preds: int):
-      assert config.pred_head in ('muzero', 'haiku_mlp')
-      if config.pred_head == 'muzero':
-        return PredictionMlp(
-          sizes, num_preds,
-          w_init=w_init_out,
-          output_init=w_init_out,
-          ln=config.ln,
-          name=name)
-      elif config.pred_head == 'haiku_mlp':
-        return hk.nets.MLP(tuple(sizes) + (num_preds,),
-                           w_init=w_init_out,
-                           name=name)
-
-    assert config.seperate_model_nets == False, 'need to redo function for this'
-    # root
-    vpi_base = ResMlp(config.prediction_blocks,
-                      ln=config.ln, name='pred_root_base')
-    # pre_blocks_base = max(1, config.prediction_blocks//2)
-    pred_transformer = make_transformer(
-      'pred_root_base',
-      num_layers=config.prediction_blocks)
-
-
-    prediction_input_fn = make_slot_selection_fn(
-      selection=config.pred_input_selection,
-      gate_factory=get_gate_factory(pred_gate),
-      attn_factory=lambda: attention.GeneralMultiHeadAttention(
-        num_heads=slot_pred_heads,
-        key_size=slot_pred_qkv_size,
-        # model_size=slot_pred_qkv_size,
-        w_init=w_init_attn,
-        project_out=False,
-        name='pred_selection_attention',
-        ))
-    prediction_input_fn = hk.to_module(prediction_input_fn)('pred_selection_fn')
-
-    policy_fn = make_pred_fn(
-        name='pred_root_policy', sizes=config.vpi_mlps, num_preds=num_actions)
-    value_fn = make_pred_fn(
-        name='pred_root_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
-
-    reward_fn = make_pred_fn(
-      name='pred_model_reward', sizes=config.reward_mlps, num_preds=config.num_bins)
-
-    task_projection = hk.Linear(
-      config.slot_size,
-      w_init=w_init_attn,
-      with_bias=False,
-      name='pred_task_projection')
-
-
-    def task_cross_attend_factors(factors, task):
-        task = task_projection(task)  # [D]
-        task = jnp.expand_dims(task, 0)  # [1, D]
-        queries = jnp.concatenate((task, factors))  #[N+1, D]
-
-        outputs: attention.TransformerOutput = pred_transformer(queries=queries)  # [N, D]
-
-        if config.query == 'task':
-          task_query = task
-        elif config.query == 'task_rep':
-          task_query = outputs.factors[0]
-        else:
-          raise NotImplementedError
-
-        pred_input, outputs = prediction_input_fn(
-          slot_reps=outputs.factors[1:],
-          task_query=task_query,
-          attn_outputs=outputs)
-        return outputs, pred_input
-
-    def task_gathers_factors(factors, task):
-        keys = factors
-        queries = task_projection(task)[None]
-        outputs: attention.TransformerOutput = pred_transformer(queries=queries, inputs=keys)  # [N, D]
-        return outputs, outputs.factors[0]
-
-    def combine_task_factors(factors, task):
-      if config.pred_task_combine == 'gather':
-        fn = task_gathers_factors
-      elif config.pred_task_combine == 'cross':
-        fn = task_cross_attend_factors
-      else:
-        raise NotImplementedError
-      return fn(factors, task)
-
-    def root_predictor(state_rep: TaskAwareSaviState):
-      def _root_predictor(state_rep: TaskAwareSaviState):
-        outputs, pred_input = combine_task_factors(
-          factors=state_rep.rep.factors,
-          task=state_rep.task)
-
-        if config.share_pred_base:
-          pred_input = vpi_base(pred_input)
-        policy_logits = policy_fn(pred_input)
-        value_logits = value_fn(pred_input)
-
-        return RootOutput(
-            pred_attn_outputs=outputs,
-            state=state_rep,
-            value_logits=value_logits,
-            policy_logits=policy_logits,
-        )
-      assert state_rep.task.ndim in (1,2), "should be [D] or [B, D]"
-      if state_rep.task.ndim == 2:
-        _root_predictor = jax.vmap(_root_predictor)
-      return _root_predictor(state_rep)
-
-    def model_predictor(state_rep: TaskAwareSaviState):
-      def _model_predictor(state_rep: TaskAwareSaviState):
-        # output of transformer model
-        model_state: attention.TransformerOutput = state_rep.rep
-        outputs, pred_input = combine_task_factors(
-            factors=model_state.factors,
-            task=state_rep.task)
-
-        reward_logits = reward_fn(pred_input)
-
-        if config.share_pred_base:
-          pred_input = vpi_base(pred_input)
-        policy_logits = policy_fn(pred_input)
-        value_logits = value_fn(pred_input)
-
-        return ModelOutput(
-            pred_attn_outputs=outputs,
-            new_state=model_state,
-            value_logits=value_logits,
-            policy_logits=policy_logits,
-            reward_logits=reward_logits,
-        )
-      assert state_rep.task.ndim in (1,2), "should be [D] or [B, D]"
-      if state_rep.task.ndim == 2:
-        _model_predictor = jax.vmap(_model_predictor)
-      return _model_predictor(state_rep)
-
+    root_predictor, model_predictor = make_prediction_fn(config, env_spec)
     root_pred_fn = hk.to_module(root_predictor)(name='pred_root_predictor')
     model_pred_fn = hk.to_module(model_predictor)(name='pred_model_predictor')
 
