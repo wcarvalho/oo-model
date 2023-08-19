@@ -9,11 +9,11 @@ import rlax
 
 from muzero import utils as muzero_utils
 from muzero.types import TaskAwareRep
+from muzero.builder import MuZeroBuilder
 
 from factored_muzero import networks
 from factored_muzero import types
 from factored_muzero import attention
-from factored_muzero.builder import FactoredMuZeroBuilder
 from factored_muzero.ve_losses import ValueEquivalentLoss
 from factored_muzero.config import FactoredMuZeroConfig
 
@@ -117,7 +117,7 @@ def setup(
       **network_kwargs)
   
 
-  builder = FactoredMuZeroBuilder(
+  builder = MuZeroBuilder(
       config=config,
       loss_fn=ve_loss_fn,
       network_factory=network_factory,

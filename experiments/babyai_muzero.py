@@ -77,13 +77,17 @@ def setup(
     **loss_kwargs,
   )
 
-  builder = MuZeroBuilder(config, loss_fn=ve_loss_fn, **builder_kwargs)
-
   network_factory = functools.partial(
       muzero_networks.make_babyai_networks,
       config=config,
       discretizer=discretizer,
       invalid_actions=invalid_actions,
       **network_kwargs)
+
+  builder = MuZeroBuilder(config,
+                          loss_fn=ve_loss_fn,
+                          network_factory=network_factory,
+                          **builder_kwargs)
+
   
   return builder, network_factory
