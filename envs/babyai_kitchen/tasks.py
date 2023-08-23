@@ -804,6 +804,7 @@ class CookTask(KitchenTask):
 
     if x_options:
         objects_to_cook = self.kitchen.objects_by_type(x_options)
+        objects_to_cook = [x for x in objects_to_cook if x.has_prop('cooked')]
     else:
         objects_to_cook = self.kitchen.objects_with_property(['cooked']) # x
 
