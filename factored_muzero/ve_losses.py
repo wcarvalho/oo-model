@@ -156,6 +156,7 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
     recon_loss = raw_recon_loss = 0.0
     if self._recon_coeff:
       images = data.observation.observation.image
+      images = images.astype(jnp.float32)/255.0
       prediction = online_outputs.reconstruction['image']
       raw_recon_loss = jax.vmap(squared_l2_norm)(prediction, images)
       # sum over feature-axis, mean over space/time

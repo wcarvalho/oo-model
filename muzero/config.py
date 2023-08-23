@@ -115,6 +115,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   # actor hps
   action_source: str = 'policy'  # 'policy', 'value', 'mcts'
 
+  recon_coeff: float = 0.0
   root_policy_coef: float = 1.0
   root_value_coef: float = 0.25
   model_policy_coef: float = 10.0
