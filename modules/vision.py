@@ -249,7 +249,7 @@ class SaviVisionTorso(hk.Module):
 
     # Final dense layer.
     if self.output_size:
-      x = hk.Linear(self.output_size, name="output_layer", use_bias=True)(x)
+      x = hk.Linear(self.output_size, name="output_layer", with_bias=True)(x)
     return x
 
 SmallSaviVisionTorso = functools.partial(
@@ -258,5 +258,106 @@ SmallSaviVisionTorso = functools.partial(
   kernel_size=[(5, 5), (5, 5), (5, 5), (5, 5)],
   strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
   layer_transpose=[False, False, False, False],
-
 )
+
+
+def spatial_broadcast(x: jnp.ndarray, resolution: Sequence[int]) -> jnp.ndarray:
+  """Broadcast flat inputs to a 2D grid of a given resolution."""
+  # x.shape = (batch_size, features).
+  x = x[:, jnp.newaxis, jnp.newaxis, :]
+  return jnp.tile(x, [1, resolution[0], resolution[1], 1])
+
+
+class SpatialBroadcastDecoder(hk.Module):
+  """Spatial broadcast decoder for a set of slots (per frame)."""
+
+
+  def __init__(
+      self,
+      resolution: Sequence[int],
+      backbone: Callable[[], hk.Module],
+      pos_emb: Callable[[], hk.Module],
+      early_fusion: bool = False,  # Fuse slot features before constructing targets.
+      name: str = None):
+    super().__init__(name)
+
+    self.resolution = resolution
+    self.backbone = backbone
+    self.pos_emb = pos_emb
+    self.early_fusion = early_fusion
+
+  def __call__(self, slots: jnp.ndarray) -> jnp.ndarray:
+
+    n_slots, n_features = slots.shape
+    x = slots
+
+    # Spatial broadcast with position embedding.
+    x = spatial_broadcast(x, self.resolution)
+    x = self.pos_emb(x)
+
+    # bb_features.shape = (n_slots, h, w, c)
+    bb_features = self.backbone(x)
+    spatial_dims = bb_features.shape[-3:-1]
+
+    alpha_logits = hk.Linear(
+      1, with_bias=True, name="alpha_logits")(bb_features)
+
+    alphas = jax.nn.softmax(alpha_logits, axis=0)
+
+    if self.early_fusion:
+      # To save memory, fuse the slot features before predicting targets.
+      # The final target output should be equivalent to the late fusion when
+      # using linear prediction.
+      bb_features = jnp.reshape(
+          bb_features, (n_slots) + spatial_dims + (-1,))
+      # Combine backbone features by alpha masks.
+      bb_features = jnp.sum(bb_features * alphas, axis=1)
+
+    channels = hk.Linear(3)(bb_features)
+
+    preds_dict = dict()
+    if self.early_fusion:
+      # decoded_target.shape = (h, w, c) after next line.
+      decoded_target = channels
+    else:
+      # masked_channels.shape = (n_slots, h, w, c)
+      masked_channels = channels * alphas
+
+      # decoded_target.shape = (h, w, c)
+      decoded_target = jnp.sum(masked_channels, axis=0)  # Combine target.
+
+    preds_dict['image'] = decoded_target
+
+    # integers between [0, n_slots]
+    preds_dict["segmentations"] = jnp.argmax(alpha_logits, axis=0)
+    return preds_dict
+
+
+class VisionAutoEncoder(hk.Module):
+  def __init__(
+      self,
+      features: Sequence[int],
+      kernel_size: Sequence[Tuple[int, int]],
+      strides: Sequence[Tuple[int, int]],
+      layer_transpose: Sequence[bool],
+      w_init=None,
+      name: str = None,
+      **kwargs):
+    super().__init__(name)
+
+    self.encoder = SaviVisionTorso(
+          features=features,
+          kernel_size=kernel_size,
+          strides=strides,
+          layer_transpose=layer_transpose,
+          w_init=w_init,
+          **kwargs,
+          )
+    self.decoder = SaviVisionTorso(
+          features=features[::-1],
+          kernel_size=kernel_size[::-1],
+          strides=strides[::-1],
+          layer_transpose=[True for _ in layer_transpose],
+          w_init=w_init,
+          **kwargs,
+          )

@@ -15,10 +15,10 @@ Array = acme_types.NestedArray
 class FactoredMuZeroConfig(MuZeroConfig):
 
   # replay
-  batch_size: Optional[int] = 64
-  trace_length: Optional[int] = 20
+  batch_size: Optional[int] = 32
+  trace_length: Optional[int] = 10
   max_replay_size: int = 40_000
-  num_sgd_steps_per_step: int = 2
+  num_sgd_steps_per_step: int = 4
 
   # general arch (across all parts)
   gru_init: str = 'default'
@@ -90,3 +90,5 @@ class FactoredMuZeroConfig(MuZeroConfig):
   weight_decay: float = 1e-4  # very few params
   attention_penalty: float = 0.0
   extra_contrast: int = 5
+
+  recon_coeff: float = 1.0

@@ -99,6 +99,7 @@ def setup(
     v_target_source=config.v_target_source,
     state_loss=config.state_model_loss,
     state_model_coef=config.state_model_coef,
+    recon_coeff=config.recon_coeff,
     extra_contrast=config.extra_contrast,
     contrast_gamma=config.contrast_gamma,
     contrast_temp=config.contrast_temp,

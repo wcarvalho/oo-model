@@ -3,7 +3,7 @@
 
 import chex
 
-from typing import Tuple
+from typing import Tuple, Optional
 
 import jax.numpy as jnp
 from acme import types
@@ -17,6 +17,7 @@ TaskAwareSaviState = Tuple[attention.SaviState, Task]
 @chex.dataclass(frozen=True)
 class RootOutput(muzero_types.RootOutput):
   pred_attn_outputs: types.NestedArray
+  reconstruction: Optional[types.NestedArray]
 
 
 @chex.dataclass(frozen=True)

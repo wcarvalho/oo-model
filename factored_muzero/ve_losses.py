@@ -71,6 +71,16 @@ def graph_penalty(x, y):
 
     return dot_diff - dot_same
 
+
+def squared_l2_norm(preds: Array, targets: Array,
+                    reduction_type: str = "mean") -> Array:
+  if reduction_type == "sum":
+    return jnp.sum(jnp.square(preds - targets))
+  elif reduction_type == "mean":
+    return jnp.mean(jnp.square(preds - targets))
+  else:
+    raise ValueError(f"Unsupported reduction_type: {reduction_type}")
+
 class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
 
   def __init__(self,
@@ -82,6 +92,7 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
                cswm_spread: float =.5,
                state_model_coef: float = 1.0,
                attention_penalty: float = 0.0,
+               recon_coeff: float = 1.0,
                **kwargs,
                ):
     super().__init__(**kwargs)
@@ -92,6 +103,8 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
     self.cswm_spread = cswm_spread
     self._state_model_coef = state_model_coef
     self._attention_penalty = attention_penalty
+    self._recon_coeff = recon_coeff
+
     if get_factors is None:
       get_factors = lambda state: state.rep.factors
     self.get_factors = get_factors
@@ -140,6 +153,16 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
     raw_root_policy_loss = masked_mean(root_policy_ce, in_episode)
     root_policy_loss = self._root_policy_coef*raw_root_policy_loss
 
+    recon_loss = raw_recon_loss = 0.0
+    if self._recon_coeff:
+      images = data.observation.observation.image
+      prediction = online_outputs.reconstruction['image']
+      raw_recon_loss = jax.vmap(squared_l2_norm)(prediction, images)
+      # sum over feature-axis, mean over space/time
+      raw_recon_loss *= images.shape[-1]
+      raw_recon_loss = masked_mean(raw_recon_loss, in_episode)
+      recon_loss = self._recon_coeff*raw_recon_loss
+
     #------------
     # root metrics
     #------------
@@ -175,8 +198,9 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
         "0.0.total_loss": total_loss,
         '0.1.policy_root_loss': raw_root_policy_loss,
         '0.3.value_root_loss': raw_root_value_loss,
+        '0.4.recon_root_loss': raw_recon_loss,
       })
-      total_loss = root_value_loss + root_policy_loss
+      total_loss = root_value_loss + root_policy_loss + recon_loss
       return total_loss, loss_metrics, visualize_metrics, returns, value_root_prediction
 
     ###############################
@@ -510,18 +534,20 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
 
     raw_total_loss = (
         raw_model_reward_loss +
-        root_value_loss +
+        raw_root_value_loss +
         raw_model_value_loss + 
-        root_policy_loss +
-        raw_model_policy_loss
+        raw_root_policy_loss +
+        raw_model_policy_loss + 
+        raw_recon_loss
         )
 
     total_loss = (
         self._model_reward_coef * raw_model_reward_loss +
         self._root_value_coef * raw_root_value_loss +
         self._model_value_coef * raw_model_value_loss +
-        self._root_policy_coef *raw_root_policy_loss +
-        self._model_policy_coef * raw_model_policy_loss
+        self._root_policy_coef * raw_root_policy_loss +
+        self._model_policy_coef * raw_model_policy_loss + 
+        recon_loss
     )
     loss_metrics.update({
         "0.0.total_loss": total_loss,
@@ -531,6 +557,7 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
         '0.2.model_reward_loss': raw_model_reward_loss,
         '0.3.value_root_loss': raw_root_value_loss,
         '0.3.value_model_loss': raw_model_value_loss,
+        '0.4.recon_root_loss': raw_recon_loss,
     })
 
     if self._state_model_coef > 0.0:

@@ -78,7 +78,7 @@ class FactoredMuZeroArch(MuZeroArch):
   def unroll(
       self,
       input_sequence: attention.SaviInputs,
-      state: attention.SaviState
+      state: attention.SaviState,
   ) -> Tuple[RootOutput, attention.SaviState]:
     """Unroll savi over input_sequence. State has 1 time-step."""
     return super().unroll(input_sequence, state)
@@ -99,6 +99,9 @@ class FactoredMuZeroArch(MuZeroArch):
     """Unrolls transformer model over action_sequence. No batch dim."""
     return super().unroll_model(state, action_sequence)
 
+  def decode_observation(self, state: attention.SaviState):
+    """Apply decoder to state."""
+    return super().decode_observation(state)
 
 class DualSlotMemory(hk.RNNCore):
 
@@ -204,7 +207,6 @@ def make_save_input(embedding: vision_language.TorsoOutput,
     other_obs_info=jnp.concatenate(other_obs_info, axis=-1)
   )
 
-
 def make_slot_selection_fn(selection: str,
                            attn_factory,
                            gate_factory):
@@ -280,7 +282,7 @@ def make_observation_fn(config, w_init_obs, env_spec):
               conv_dim=config.conv_out_dim, flatten=False)
       elif config.vision_torso == 'babyai_patches':
         img_embed = vision.SaviVisionTorso(
-          features=[128, 128, 128],
+          features=[32, 32, 32],
           kernel_size=[(8, 8), (1, 1), (1, 1)],
           strides=[(8, 8), (1, 1), (1, 1)],
           layer_transpose=[False, False, False],
@@ -360,8 +362,6 @@ def make_savi_state_fn(config, num_spatial_vectors, w_init):
       name='state_slot_attention'
   )
   return savi_state_fn
-
-
 
 def make_transformer_model(
     config,
@@ -455,7 +455,8 @@ def make_transformer_model(
     )
 
 def make_single_head_prediction_function(
-    config, env_spec):
+    config, env_spec, img_decoder):
+  del img_decoder
   num_actions = env_spec.actions.num_values
 
   slot_tran_mlp_size = swap_if_none(
@@ -578,8 +579,9 @@ def make_single_head_prediction_function(
 
   def root_predictor(state_rep: TaskAwareSaviState):
     def _root_predictor(state_rep: TaskAwareSaviState):
+      factors = state_rep.rep.factors
       outputs, pred_input = combine_task_factors(
-          factors=state_rep.rep.factors,
+          factors=factors,
           task=state_rep.task)
 
       if config.share_pred_base:
@@ -587,12 +589,18 @@ def make_single_head_prediction_function(
       policy_logits = policy_fn(pred_input)
       value_logits = value_fn(pred_input)
 
+      reconstruction = None
+      if config.recon_coeff > 0:
+        reconstruction = img_decoder(factors)
+
       return RootOutput(
+          reconstruction=reconstruction,
           pred_attn_outputs=outputs,
           state=state_rep,
           value_logits=value_logits,
           policy_logits=policy_logits,
       )
+
     assert state_rep.task.ndim in (1, 2), "should be [D] or [B, D]"
     if state_rep.task.ndim == 2:
       _root_predictor = jax.vmap(_root_predictor)
@@ -628,7 +636,7 @@ def make_single_head_prediction_function(
   return root_predictor, model_predictor
 
 def make_multi_head_prediction_function(
-        config, env_spec):
+        config, env_spec, img_decoder):
   num_actions = env_spec.actions.num_values
 
   slot_tran_mlp_size = swap_if_none(
@@ -754,7 +762,12 @@ def make_multi_head_prediction_function(
       value_logits = weighted_average(
           value_logits, weights)
 
+      reconstruction = None
+      if config.recon_coeff > 0:
+        reconstruction = img_decoder(factors)
+
       return RootOutput(
+          reconstruction=reconstruction,
           pred_attn_outputs=outputs,
           state=state_rep,
           value_logits=value_logits,
@@ -826,8 +839,49 @@ def make_babyai_networks(
     # automatically calculate how many spatial vectors there are
     dummy_observation = jax_utils.zeros_like(env_spec.observations)
     sample = jax.lax.stop_gradient(observation_fn(dummy_observation))
-
     num_spatial_vectors = sample.image.shape[-2]
+
+    ###########################
+    # Setup observation image decoder
+    ###########################
+    dummy_image = dummy_observation.observation.image
+    if config.vision_torso == 'babyai_patches':
+      import math
+      latent_height = math.sqrt(num_spatial_vectors)
+      latent_height = int(latent_height)
+      # image_height = dummy_image.shape[-2]
+      # res = int(image_height//latent_height)
+      # resolution = (res, res)
+      resolution = (latent_height, latent_height)
+      img_decode = vision.SaviVisionTorso(
+          features=[32, 32, 32],
+          kernel_size=[(1, 1), (1, 1), (8, 8)],
+          strides=[(1, 1), (1, 1), (8, 8)],
+          layer_transpose=[True, True, True],
+          w_init=w_init_obs,
+      )
+    elif config.vision_torso == 'savi':
+      resolution = (8, 8)
+      img_decode = vision.SaviVisionTorso(
+          features=[64, 64, 64, 64],
+          kernel_size=[(5, 5), (5, 5), (5, 5), (5, 5)],
+          strides=[(2, 2), (2, 2), (2, 2), (2, 2)],
+          layer_transpose=[True, True, True, False],
+          w_init=w_init_obs,
+      )
+    else:
+      raise NotImplementedError
+
+    img_decoder = vision.SpatialBroadcastDecoder(
+        resolution=resolution,
+        backbone=img_decode,
+        pos_emb=encoder.PositionEmbedding(
+            embedding_type=config.embedding_type,
+            update_type=config.update_type),
+    )
+
+
+
     ###########################
     # Setup state function: SaVi 
     ###########################
@@ -875,7 +929,8 @@ def make_babyai_networks(
     else:
       raise NotImplementedError
 
-    root_predictor, model_predictor = make_prediction_fn(config, env_spec)
+    root_predictor, model_predictor = make_prediction_fn(
+      config, env_spec, img_decoder)
     root_pred_fn = hk.to_module(root_predictor)(name='pred_root_predictor')
     model_pred_fn = hk.to_module(model_predictor)(name='pred_model_predictor')
 
