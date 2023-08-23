@@ -60,7 +60,8 @@ flags.DEFINE_string('agent', 'muzero', 'which agent.')
 flags.DEFINE_string('agent_config', '', 'config file')
 flags.DEFINE_string('env_config', '', 'config file')
 flags.DEFINE_string('path', '.', 'config file')
-# flags.DEFINE_string('tasks_file', 'pickup_place', 'tasks_file')
+flags.DEFINE_string('tasks_file', 'pickup_sanity', 'tasks_file')
+flags.DEFINE_integer('room_size', 7, 'room size')
 flags.DEFINE_bool(
     'run_distributed', False, 'Should an agent be executed in a distributed '
     'way. If False, will run single-threaded.')
