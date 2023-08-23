@@ -160,8 +160,6 @@ class PositionEmbedding(hk.Module):
     # Add batch dimension.
     if has_batch_dim:
       pos_embedding = jnp.expand_dims(pos_embedding, axis=0)
-      print("check this")
-      import ipdb; ipdb.set_trace()
 
     return pos_embedding
 
