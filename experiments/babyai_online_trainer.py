@@ -313,13 +313,12 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             # 'clip_probs': tune.grid_search([True, False]),
         }
     ]
-  elif search == 'factored':
+  elif search == 'factored1':
     shared = {
         "seed": tune.grid_search([4]),
         "group": tune.grid_search(['factored2']),
         "agent": tune.grid_search(['branched']),
         "partial_obs": tune.grid_search([True]),
-        "tasks_file": tune.grid_search(['place_split_medium']),
          **settings['place5'],
     }
     space = [
@@ -330,6 +329,24 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             **shared,
             "recon_coeff": tune.grid_search([1.0, 1e-1, 1e-2, 1e-3]),
         },
+        # {
+        #     **shared,
+        #     "savi_mlp_size": tune.grid_search([64]),
+        # },
+
+    ]
+  elif search == 'factored2':
+    shared = {
+        "seed": tune.grid_search([4]),
+        "group": tune.grid_search(['factored2']),
+        "agent": tune.grid_search(['branched']),
+        "partial_obs": tune.grid_search([True]),
+         **settings['place5'],
+    }
+    space = [
+        {**shared,
+         # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+         },
         {
             **shared,
             "max_grad_norm": tune.grid_search([80.0, 5., .5, .05]),
