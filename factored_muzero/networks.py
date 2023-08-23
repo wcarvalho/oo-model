@@ -358,6 +358,7 @@ def make_savi_state_fn(config, num_spatial_vectors, w_init):
       combo_update=config.savi_combo_update,
       relation_iterations=config.relation_iterations,
       rnn_class=rnn_class,
+      mlp_size=config.savi_mlp_size,
       w_init=w_init,
       name='state_slot_attention'
   )
@@ -456,7 +457,7 @@ def make_transformer_model(
 
 def make_single_head_prediction_function(
     config, env_spec, img_decoder):
-  del img_decoder
+
   num_actions = env_spec.actions.num_values
 
   slot_tran_mlp_size = swap_if_none(

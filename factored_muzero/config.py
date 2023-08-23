@@ -45,6 +45,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   slot_value_combination: str = 'avg'
   savi_iterations: int = 4
   savi_temp: float = 1.0
+  savi_mlp_size: Optional[int] = None,
   savi_epsilon: float = 1e-5
   savi_rnn: str = 'gru'
   num_slots: int = 4

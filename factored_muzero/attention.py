@@ -163,9 +163,11 @@ class SlotAttention(hk.RNNCore):
     rnn = self.rnn
 
 
-    if self.mlp_size is not None:
-      raise NotImplementedError
-      # mlp = misc.MLP(hidden_size=self.mlp_size, layernorm="pre", residual=True)  # type: ignore
+    if self.mlp_size is not None and self.mlp_size > 0:
+      mlp = encoder.Mlp(
+        mlp_layers=[self.mlp_size],
+        layernorm="pre", residual=True,
+        w_init=self.w_init)
 
     # inputs.shape = (..., n_inputs, inputs_size).
     image = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(image)
@@ -232,9 +234,8 @@ class SlotAttention(hk.RNNCore):
         slots, factor_states = rnn(updates, state.factor_states)
 
       # Feedforward block with pre-normalization.
-      if self.mlp_size is not None:
-        raise NotImplementedError
-        # slots = mlp(slots)
+      if self.mlp_size is not None and self.mlp_size > 0:
+        slots = mlp(slots)
 
     if self.init == 'categorical':
       slots = sample_multi_categorical(
