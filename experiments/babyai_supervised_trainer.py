@@ -79,16 +79,19 @@ def setup_logger_factory(
   # create logger factory
   # -----------------------
   def logger_factory(
-      name: str,
+      name: Optional[str] = None,
+      label: Optional[str] = None,
       steps_key: Optional[str] = None,
       time_delta: Optional[float] = None,
   ):
     time_delta = time_delta or log_every
     if custom_steps_keys is not None:
       steps_key = custom_steps_keys(name)
+    name = name or 'learner'
+    label = label or name
     return wandb_logger.make_logger(
         log_dir=log_dir,
-        label=name,
+        label=label,
         time_delta=time_delta,
         steps_key=steps_key,
         use_wandb=use_wandb,
@@ -147,8 +150,9 @@ def run_experiment(
 
   env_actions = ['left', 'right', 'forward', 'pickup_container',
                  'pickup_contents', 'place', 'toggle', 'slice']
+  tasks_file = env_kwargs['tasks_file']
   tasks = babyai_env_utils.open_kitchen_tasks_file(
-    tasks_file=env_kwargs['tasks_file'], path=path)
+    tasks_file=tasks_file, path=path)
   task_valid_actions = tasks.get('valid_actions', env_actions)
   valid_actions = [(a in task_valid_actions) for a in env_actions]
   invalid_actions = 1-jnp.array(valid_actions, dtype=jnp.float32)
@@ -240,13 +244,17 @@ def run_experiment(
         random_key=learner_key,
         networks=networks,
         dataset=train_iterator,
-        logger_fn=logger_fn,
+        logger_fn=functools.partial(
+          logger_fn,
+          label=f'learner.{tasks_file}'),
         environment_spec=environment_spec,
         counter=counting.Counter(parent_counter,
                                  prefix='learner',
                                  time_delta=0.))
-  validation_logger = logger_fn('learner_z1.valid', time_delta=0.0)
-  eval_logger = logger_fn('learner_z1.eval', time_delta=0.0)
+  validation_logger = logger_fn(
+    label=f'learner_z1.{tasks_file}.valid', time_delta=0.0)
+  eval_logger = logger_fn(
+    label=f'learner_z1.{tasks_file}.eval', time_delta=0.0)
 
   # -----------------------
   # training loop

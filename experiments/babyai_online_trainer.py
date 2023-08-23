@@ -215,12 +215,19 @@ def train_single(
       logging.info(f'wandb name: {str(date_time)}')
       wandb_init_kwargs['name'] = date_time
 
+  tasks_file = experiment_config_inputs.final_env_kwargs['tasks_file']
+  logger_factory_kwargs = dict(
+    actor_label=f"actor_{tasks_file}",
+    evaluator_label=f"evaluator_{tasks_file}",
+    learner_label=f"learner_{FLAGS.agent}",
+  )
 
   experiment = experiment_builders.build_online_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
     agent=FLAGS.agent,
     log_dir=log_dir,
     wandb_init_kwargs=wandb_init_kwargs,
+    logger_factory_kwargs=logger_factory_kwargs,
     debug=debug,
     **kwargs,
   )
@@ -246,6 +253,17 @@ def train_single(
 
 
 def sweep(search: str = 'default', agent: str = 'muzero'):
+  settings=dict(
+    place5=dict(tasks_file='place_split_medium', room_size=5, num_steps=3e6),
+    place6=dict(tasks_file='place_split_medium', room_size=6, num_steps=5e6),
+    place7=dict(tasks_file='place_split_medium', room_size=7, num_steps=7e6),
+    medium5=dict(tasks_file='medium_medium', room_size=5, num_steps=4e6),
+    medium6=dict(tasks_file='medium_medium', room_size=6, num_steps=6e6),
+    medium7=dict(tasks_file='medium_medium', room_size=7, num_steps=8e6),
+    long5=dict(tasks_file='long_medium', room_size=5, num_steps=5e6),
+    long6=dict(tasks_file='long_medium', room_size=6, num_steps=7e6),
+    long7=dict(tasks_file='long_medium', room_size=7, num_steps=9e6),
+  )
   if search == 'default':
     space = [
         {
@@ -254,28 +272,40 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
         }
     ]
   elif search == 'benchmark':
+    shared = {
+      "seed": tune.grid_search([1]),
+      "group": tune.grid_search(['benchmark6']),
+      "partial_obs": tune.grid_search([True]),
+    }
     space = [
-        {
-            "seed": tune.grid_search([1]),
-            "group": tune.grid_search(['benchmark5']),
-            "room_size": tune.grid_search([7]),
-            "agent": tune.grid_search(['muzero', 'factored', 'branched']),
-            "tasks_file": tune.grid_search([
-                'place_split_medium',
-                'long',
-            ]),
-        }
+        {**shared, **settings['place5'],
+          # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+          "agent": tune.grid_search(['muzero']),
+        },
+        {**shared, **settings['place7'],
+          # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+          "agent": tune.grid_search(['muzero']),
+        },
+        {**shared, **settings['medium5'],
+          # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+          "agent": tune.grid_search(['muzero']),
+        },
+        {**shared, **settings['medium7'],
+          # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+          "agent": tune.grid_search(['muzero']),
+        },
     ]
   elif search == 'muzero':
     space = [
         {
             "seed": tune.grid_search([1]),
-            "group": tune.grid_search(['muzero4']),
+            "group": tune.grid_search(['benchmark6']),
             "agent": tune.grid_search(['muzero']),
+            "room_size": tune.grid_search([5,7]),
             "tasks_file": tune.grid_search([
-                'place_split_easy',
                 'place_split_medium',
-                'place_split_hard'
+                'medium_medium',
+                'long_medium',
                 ]),
             # 'root_value_coef': tune.grid_search([.25]),
             # 'model_policy_coef': tune.grid_search([10.0]),
@@ -349,8 +379,8 @@ def main(_):
   # env setup
   # -----------------------
   default_env_kwargs = dict(
-      tasks_file='place_split_easy',
-      room_size=5,
+      tasks_file=FLAGS.tasks_file,
+      room_size=7,
       num_dists=1,
       partial_obs=False,
   )

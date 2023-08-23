@@ -201,15 +201,21 @@ def train_single(
       logging.info(f'wandb name: {str(date_time)}')
       wandb_init_kwargs['name'] = date_time
 
+  tasks_file = experiment_config_inputs.final_env_kwargs
+  logger_factory_kwargs = dict(
+      actor_label=f"actor_{tasks_file}",
+      evaluator_label=f"evaluator_{tasks_file}",
+      learner_label=f"learner_{FLAGS.agent}",
+      custom_steps_keys=custom_steps_keys,
+  )
+
   experiment = experiment_builders.build_offline_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
     agent=FLAGS.agent,
     log_dir=log_dir,
     wandb_init_kwargs=wandb_init_kwargs,
     debug=debug,
-    logger_factory_kwargs=dict(
-      custom_steps_keys=custom_steps_keys,
-    ),
+    logger_factory_kwargs=logger_factory_kwargs,
     **kwargs
   )
   if FLAGS.run_distributed:
