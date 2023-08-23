@@ -171,6 +171,7 @@ def setup_experiment_inputs(
 def train_single(
     default_env_kwargs: dict,
     wandb_init_kwargs: dict = None,
+    agent_config_kwargs: dict = None,
     terminal: str = 'output_to_files',
     **kwargs
 ):
@@ -180,6 +181,7 @@ def train_single(
     agent=FLAGS.agent,
     path=FLAGS.path,
     agent_config_file=FLAGS.agent_config,
+    agent_config_kwargs=agent_config_kwargs,
     env_kwargs=default_env_kwargs,
     env_config_file=FLAGS.env_config,
     make_dataset=FLAGS.make_dataset,
@@ -388,7 +390,13 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
 
 
 def main(_):
-
+  agent_config_kwargs = dict()
+  if FLAGS.debug:
+    agent_config_kwargs.update(dict(
+      show_gradients=1,
+      samples_per_insert=1,
+      min_replay_size=100,
+    ))
   # -----------------------
   # wandb setup
   # -----------------------
@@ -427,6 +435,7 @@ def main(_):
   if FLAGS.train_single:
     train_single(
       wandb_init_kwargs=wandb_init_kwargs,
+      agent_config_kwargs=agent_config_kwargs,
       default_env_kwargs=default_env_kwargs)
   else:
     run_distributed = FLAGS.run_distributed

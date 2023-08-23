@@ -164,9 +164,6 @@ def setup_experiment_inputs(
                         'pickup_2', 'place', 'toggle', 'slice'],
       )
   )
-  if debug:
-    config.show_gradients = 1
-    config.samples_per_insert = 1.0
 
   # -----------------------
   # setup observer factory for environment
@@ -190,6 +187,7 @@ def setup_experiment_inputs(
 def train_single(
     default_env_kwargs: dict = None,
     wandb_init_kwargs: dict = None,
+    agent_config_kwargs: dict = None,
     **kwargs,
 ):
 
@@ -198,6 +196,7 @@ def train_single(
   experiment_config_inputs = setup_experiment_inputs(
     agent=FLAGS.agent,
     path=FLAGS.path,
+    agent_config_kwargs=agent_config_kwargs,
     agent_config_file=FLAGS.agent_config,
     env_kwargs=default_env_kwargs,
     env_config_file=FLAGS.env_config,
@@ -317,31 +316,29 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'factored':
     shared = {
         "seed": tune.grid_search([4]),
-        "group": tune.grid_search(['factored1']),
-        "agent": tune.grid_search(['factored']),
-        "num_learner_steps": tune.grid_search([int(1e5)]),
-        "tasks_file": tune.grid_search(['place_split_hard']),
-        "max_grad_norm": tune.grid_search([.2]),
+        "group": tune.grid_search(['factored2']),
+        "agent": tune.grid_search(['branched']),
+        "partial_obs": tune.grid_search([True]),
+        "tasks_file": tune.grid_search(['place_split_medium']),
+         **settings['place5'],
     }
     space = [
+        {**shared,
+         # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+         },
         {
-            **shared,  # vanilla
+            **shared,
+            "recon_coeff": tune.grid_search([1.0, 1e-1, 1e-2, 1e-3]),
         },
         {
             **shared,
-            "context_as_slot": tune.grid_search([True]),
-            "mask_context": tune.grid_search(["softmax", 'sum', 'none']),
+            "max_grad_norm": tune.grid_search([80.0, 5., .5, .05]),
         },
-        {
-            **shared,
-            "state_model_loss": tune.grid_search(['dot_contrast']),
-            "state_model_coef": tune.grid_search([1e-2]),
-            "extra_contrast": tune.grid_search([1, 5, 10]),
-        },
-        {
-            **shared,
-            "savi_temp": tune.grid_search([.1, .5]),
-        }
+        # {
+        #     **shared,
+        #     "savi_mlp_size": tune.grid_search([64]),
+        # },
+
     ]
   else:
     raise NotImplementedError(search)
@@ -350,7 +347,13 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
 
 
 def main(_):
-
+  agent_config_kwargs = dict()
+  if FLAGS.debug:
+    agent_config_kwargs.update(dict(
+      show_gradients=1,
+      samples_per_insert=1,
+      min_replay_size=100,
+    ))
   # -----------------------
   # wandb setup
   # -----------------------
@@ -380,7 +383,7 @@ def main(_):
   # -----------------------
   default_env_kwargs = dict(
       tasks_file=FLAGS.tasks_file,
-      room_size=7,
+      room_size=FLAGS.room_size,
       num_dists=1,
       partial_obs=False,
   )
@@ -389,7 +392,8 @@ def main(_):
   if FLAGS.train_single:
     train_single(
       wandb_init_kwargs=wandb_init_kwargs,
-      default_env_kwargs=default_env_kwargs)
+      default_env_kwargs=default_env_kwargs,
+      agent_config_kwargs=agent_config_kwargs)
   else:
     train_many.run(
       name='babyai_online_trainer',
