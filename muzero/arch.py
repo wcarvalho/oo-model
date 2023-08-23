@@ -10,6 +10,7 @@ import jax.numpy as jnp
 from muzero import types as muzero_types
 from muzero.utils import TaskAwareRecurrentFn
 
+Observation = types.NestedArray
 State = types.NestedArray
 RewardLogits = jnp.ndarray
 PolicyLogits = jnp.ndarray
@@ -17,6 +18,8 @@ ValueLogits = jnp.ndarray
 
 RootFn = Callable[[State], Tuple[PolicyLogits, ValueLogits]]
 ModelFn = Callable[[State], Tuple[RewardLogits, PolicyLogits, ValueLogits]]
+
+Decoder = Callable[[State], Observation]
 
 def mask_policy_logits(output, invalid_actions = None):
   logits = output.policy_logits
@@ -44,6 +47,7 @@ class MuZeroArch(hk.RNNCore):
                transition_fn: TaskAwareRecurrentFn,
                root_pred_fn: RootFn,
                model_pred_fn: ModelFn,
+               observation_decoder: Optional[Decoder] = None,
                invalid_actions: Optional[jnp.ndarray] = None,
                prep_state_input: Callable[
                   [types.NestedArray], types.NestedArray] = lambda x: x,
@@ -63,6 +67,7 @@ class MuZeroArch(hk.RNNCore):
     self._prep_model_state_input = prep_model_state_input
     self._combine_hidden_obs = combine_hidden_obs
     self._invalid_actions = invalid_actions
+    self._observation_decoder = observation_decoder
 
   def initial_state(self,
                     batch_size: Optional[int] = None,
@@ -180,3 +185,10 @@ class MuZeroArch(hk.RNNCore):
 
     # [T, D], [D]
     return model_output, new_state
+
+  def decode_observation(
+      self,
+      state: State,  # [D]
+  ) -> types.NestedArray:
+    """Apply decoder to state."""
+    return self._observation_decoder(state)
