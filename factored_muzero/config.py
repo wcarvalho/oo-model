@@ -18,7 +18,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   batch_size: Optional[int] = 32
   trace_length: Optional[int] = 10
   max_replay_size: int = 40_000
-  num_sgd_steps_per_step: int = 4
+  num_sgd_steps_per_step: int = 1
 
   # general arch (across all parts)
   gru_init: str = 'default'
@@ -26,7 +26,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   w_init_attn: float = 1.0
   pre_norm: bool = False
   share_w_init_out: bool = False
-  share_pred_base: bool = True
+  share_pred_base: bool = False
   slots_use_task: bool = False
 
   # postion embedding
@@ -92,4 +92,4 @@ class FactoredMuZeroConfig(MuZeroConfig):
   attention_penalty: float = 0.0
   extra_contrast: int = 5
 
-  recon_coeff: float = 1.0
+  recon_coeff: float = 0.0
