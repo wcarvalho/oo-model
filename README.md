@@ -1,17 +1,21 @@
 
 # Experiments
 
-## Offline RL experiments
-Not finished
+To use wandb, set the following environment variables (they default to my own):
+- `wandb_entity` (wandb login info)
+- `wandb_project` (which project to log to)
 
-## Online RL experiments
+NOTE: that `wandb_group` is overwritten by `$(search)`
 
-Running experiments:
+## Supervised Learning
 ```
-make online_sync  agent=muzero   # debugging 
-make online_async agent=muzero   # distributed setup for actor/evaluator/learner
-make online_many  search=$(name) # run many distributed experiments
+make supervised_babyai_debug  search=$(name)   # debugging 
+make supervised_babyai_run    search=$(name)   # run a larger experiment
 ```
+
+## Online
+make online_babyai_sync agent=muzero     # debugging, synchronous actor/learner/eval
+make online_babyai_async  search=$(name) # run multiple experiments, everything asynchronous
 
 ## Directory structure
 ```
@@ -20,3 +24,8 @@ results/
     sync  # debugging sync
     named
 ```
+
+
+# Utilities
+
+**batch git commits**: update `updates.yml` and run `python git-commit.py`. suggest copying both files.
