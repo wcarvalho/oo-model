@@ -10,6 +10,7 @@ search?=''
 nojit?=0
 
 debug?=0
+debug_sup?=0
 debug_sync?=1
 
 wandb?=1
@@ -52,7 +53,7 @@ supervised_babyai_debug:
 		--train_single=True \
 		--make_path=True \
 		--auto_name_wandb=True \
-		--debug=$(debug_sync) \
+		--debug=$(debug_sup) \
 		--folder="$(folder)/$(babyai_supervised_project)_debug" \
 		--agent=$(agent) \
 		--use_wandb=$(wandb_sync) \
@@ -103,6 +104,7 @@ online_babyai_sync:
 		--debug=$(debug_sync) \
 		--folder="$(folder)/$(babyai_online_project)_sync" \
 		--agent=$(agent) \
+		--tasks_file=$(task) \
 		--use_wandb=$(wandb_sync) \
 		--wandb_project="$(babyai_online_project)_sync" \
 		--wandb_entity=$(wandb_entity) \
