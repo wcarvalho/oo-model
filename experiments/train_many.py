@@ -188,6 +188,9 @@ def run(
   folder = FLAGS.folder
   skip = FLAGS.skip
 
+  import ray
+  ray.init()
+
 
   def train_function(config):
     """Run inside threads and creates new process.

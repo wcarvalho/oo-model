@@ -103,7 +103,6 @@ class MuZeroConfig(r2d2.R2D2Config):
   output_init: Optional[float] = None
   vision_torso: str = 'babyai'
   network_fn: str = 'babyai'
-  model_combine_state_task: str = 'none'
   resnet_transition_dim: Optional[int] = None  # dim of resnet for transition function
   transition_blocks: int = 6  # number of resnet blocks
   prediction_blocks: int = 2  # number of resnet blocks
