@@ -57,19 +57,21 @@ dot = lambda a,b: jnp.sum(a[:, None] * b[None], axis=-1)  # [A, B]
 
 
 def graph_penalty(x, y):
-    # Step 1: Compute the dot-products between x and y
-    z = dot(x, y)
+    norm = lambda a: jnp.linalg.norm(a, axis=-1, keepdims=False)
+    return jnp.square(dot(x,y)) - norm(x) - norm(y)
+    # # Step 1: Compute the dot-products between x and y
+    # z = dot(x, y)
 
-    # Step 2: Square each entry of the z matrix
-    z_squared = jnp.square(z)
+    # # Step 2: Square each entry of the z matrix
+    # z_squared = jnp.square(z)
 
-    # Step 3: Sum the off-diagonal entries while subtracting the diagonal entries
-    upper_diag_indices = jnp.triu_indices(z.shape[0], k=1)
+    # # Step 3: Sum the off-diagonal entries while subtracting the diagonal entries
+    # upper_diag_indices = jnp.triu_indices(z.shape[0], k=1)
 
-    dot_same = jnp.sum(jnp.diag(z_squared))
-    dot_diff = jnp.sum(z_squared[upper_diag_indices])
+    # dot_same = jnp.sum(jnp.diag(z_squared))
+    # dot_diff = jnp.sum(z_squared[upper_diag_indices])
 
-    return dot_diff - dot_same
+    # return dot_diff - dot_same
 
 
 def squared_l2_norm(preds: Array, targets: Array,
@@ -108,7 +110,6 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
     if get_factors is None:
       get_factors = lambda state: state.rep.factors
     self.get_factors = get_factors
-    
 
   def learn(self,
             data: acme_types.NestedArray,
@@ -475,11 +476,11 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
 
     if 'laplacian-state' == self.state_loss:
       anchor = factors[:-1]  # [T, N, D]
-      positive = factors[1:] 
+      positive = factors[1:]
 
       # [T, N]
       graph_loss = rlax.l2_loss(anchor, positive).mean(-1).mean(-1)
-      penalty = jax.vmap(graph_penalty)(anchor, anchor)
+      penalty = jax.vmap(graph_penalty)(anchor, positive).mean(-1).mean(-1)
       state_loss = graph_loss + self.contrast_gamma*penalty
 
       state_loss = state_loss.mean(-1)
