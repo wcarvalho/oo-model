@@ -590,17 +590,20 @@ class MuZeroLearner(acme.Learner):
       hit_show_gradients = self._state.steps[0] % self._config.show_gradients == 0
       grad_norm = loss_metrics['0.grad_norm']
       if hit_show_gradients or grad_norm.mean() > 40:
-
+        flat_mean_grads = None
+        if grad_norm.mean() > 40:
+          flat_mean_grads = flatten_dict(loss_metrics['mean_grad'])
         mean_grad = group_named_values(
             dictionary=loss_metrics['mean_grad'])
 
         new_mean_grad = {}
         for k, v in mean_grad.items():
-          new_mean_grad[f'{k}_norm'] = float(np.linalg.norm(v, ord=1))
-          new_mean_grad[f'{k}_var'] = float(np.var(v))
-          abs_v = np.abs(v)
-          new_mean_grad[f'{k}_abs_max'] = float(np.max(abs_v))
-          new_mean_grad[f'{k}_abs_min'] = float(np.min(abs_v))
+          new_norm = float(np.linalg.norm(v, ord=1))
+          new_mean_grad[f'{k}_norm'] = new_norm
+          if flat_mean_grads and new_norm > 40:
+            for individual_key, individual_norm in flat_mean_grads.items():
+              if k in individual_key and '.w' in individual_key:  # i.e. weights, not bias
+                new_mean_grad[f'{individual_key}_norm'] = individual_norm
 
         loss_metrics['mean_grad'] = new_mean_grad
 
