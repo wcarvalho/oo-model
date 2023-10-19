@@ -93,7 +93,6 @@ class KitchenLevel(RoomGridLevel):
     self.extra_timesteps = extra_timesteps
 
     assert room_size >= 5, "otherwise can never place objects"
-    agent_view_size = min(agent_view_size, room_size)
     if agent_view_size % 2 !=1:
         agent_view_size -= 1
     # ======================================================
