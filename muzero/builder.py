@@ -79,6 +79,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
       self,
       config: r2d2_config.R2D2Config,
       loss_fn: ValueEquivalentLoss,
+      learnerCls: MuZeroLearner=MuZeroLearner,
       network_factory = None,
       actorCls: actors.GenericActor=muzero_actor.LearnableStateActor,
       visualization_logger: Optional[learner_logger.BaseLogger] = None,
@@ -89,6 +90,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
     self._use_stored_lstm_state = config.use_stored_lstm_state
     self._visualization_logger = visualization_logger
     self._network_factory = network_factory
+    self._learnerCls = learnerCls
 
   def make_learner(
       self,
@@ -103,7 +105,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
     del environment_spec
 
     # The learner updates the parameters (and initializes them).
-    return MuZeroLearner(
+    return self._learnerCls(
         networks=networks,
         batch_size=self._batch_size_per_device,
         random_key=random_key,
