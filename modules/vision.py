@@ -176,19 +176,24 @@ class SaviVisionTorso(hk.Module):
       features: Sequence[int],
       kernel_size: Sequence[Tuple[int, int]],
       strides: Sequence[Tuple[int, int]],
-      layer_transpose: Sequence[bool],
-      activation_fn: Callable[[jnp.ndarray], jnp.ndarray] = jax.nn.relu,
+      layer_transpose: Optional[Sequence[bool]]=None,
+      activation_fns: Optional[Callable[[jnp.ndarray], jnp.ndarray]] = None,
       w_init = None,
       norm_type: Optional[str] = None,
       axis_name: Optional[str] = None,  # Over which axis to aggregate batch stats.
       output_size: Optional[int] = None,
       name: str = None):
     super().__init__(name)
+    if layer_transpose is None:
+      layer_transpose = (False,)*len(features)
+    if activation_fns is None:
+      activation_fns = (jax.nn.relu,)*len(features)
+
     self.features = features
     self.kernel_size = kernel_size
     self.strides = strides
     self.layer_transpose = layer_transpose
-    self.activation_fn = activation_fn
+    self.activation_fns = activation_fns
     self.norm_type = norm_type
     self.axis_name = axis_name
     self.output_size = output_size
@@ -245,7 +250,7 @@ class SaviVisionTorso(hk.Module):
           norm_module(name=f"{self.norm_type}_norm_{i}")(x)
 
       # Activation layer.
-      x = self.activation_fn(x)
+      x = self.activation_fns[i](x)
 
     # Final dense layer.
     if self.output_size:
