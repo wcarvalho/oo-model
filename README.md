@@ -24,7 +24,7 @@ set `CUDA_VISIBLE_DEVICES` to which GPU to use. e.g. `CUDA_VISIBLE_DEVICES=0` us
 replace `$(x)` with the argument. e.g. `$(search)` with muzero_test.
 ```
 CUDA_VISIBLE_DEVICES=$(cuda) \
-python experiments/babyai_online_trainer.py \  # change this
+python experiments/babyai_online_trainer.py \
   --train_single=True \
   --folder=$(folder) \
   --wandb_project=$(wandb_project) \
@@ -48,7 +48,7 @@ python experiments/babyai_online_trainer.py \
 - **recommendation**: either use different `wand_project` for parallel/debugging (to not pollute wandb with debugging runs) or set `--use_wandb=False` for debugging.
 ```
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
-python experiments/babyai_online_trainer.py \  # change this
+python experiments/babyai_online_trainer.py \
   --train_single=False \
   --folder=$(folder) \
   --wandb_project=$(wandb_project) \
