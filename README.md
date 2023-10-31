@@ -19,7 +19,7 @@ bash install.sh
 
 set `CUDA_VISIBLE_DEVICES` to which GPU to use. e.g. `CUDA_VISIBLE_DEVICES=0` uses the 0-th GPU.
 
-### Running experiments (using online RL as example)
+### Running experiments (using `experiments/babyai_online_trainer.py` as an example)
 #### Debugging
 replace `$(x)` with the argument. e.g. `$(search)` with muzero_test.
 ```
