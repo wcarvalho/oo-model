@@ -50,8 +50,10 @@ pip install "jax[cuda11_cudnn82]==0.4.4" -f https://storage.googleapis.com/jax-r
 #############################################
 mkdir -p $CONDA_PREFIX/etc/conda/activate.d
 mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
-echo 'export export PYTHONPATH:=$PYTHONPATH:.' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
-echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+echo 'export PYTHONPATH=$PYTHONPATH:.' > $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/' > $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$HOME/miniconda3/lib/' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/x86_64-linux-gnu/' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/cuda/targets/x86_64-linux/lib/' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 echo 'unset LD_LIBRARY_PATH' >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
 

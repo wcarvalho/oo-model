@@ -369,11 +369,17 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'benchmark':
     space = [
         {
-            "seed": tune.grid_search([3]),
-            "group": tune.grid_search(['benchmark3']),
-            "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+            "seed": tune.grid_search([1,2]),
+            "group": tune.grid_search(['benchmark4']),
+            "agent": tune.grid_search([
+              # 'muzero',
+              'factored',
+              'branched'
+            ]),
             "room_size": tune.grid_search([7]),
-            "tasks_file": tune.grid_search(['long']),
+            "num_sgd_steps_per_step": tune.grid_search([2,4]),
+            "batch_size": tune.grid_search([64, 32]),
+            "tasks_file": tune.grid_search(['place_split_hard']),
         }
     ]
   elif search == 'muzero':
@@ -445,11 +451,11 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'factored2':
     shared = {
         "seed": tune.grid_search([4]),
-        "group": tune.grid_search(['bc_factored_large_26_branched']),
-        "agent": tune.grid_search(['branched']),
+        "group": tune.grid_search(['bc_factored_large_27_branched']),
+        "agent": tune.grid_search(['factored']),
         "num_learner_steps": tune.grid_search([int(1e5)]),
         "tasks_file": tune.grid_search(['place_split_easy']),
-        # "state_model_coef": tune.grid_search([1e-2]),
+        "recon_coeff": tune.grid_search([1e-1]),
     }
     space = [
         {
@@ -478,7 +484,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "share_pred_base": tune.grid_search([False]),
             "pred_out_mlp": tune.grid_search([True]),
             "w_init_obs": tune.grid_search([None]),
-            "task_dim": tune.grid_search([0, 128]),
+            # "task_dim": tune.grid_search([0, 128]),
         },
     ]
   else:
@@ -489,47 +495,29 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
 
 def main(_):
   agent_config_kwargs = dict()
-  if FLAGS.debug:
-    agent_config_kwargs.update(dict(
-      samples_per_insert=0.0,
-      min_replay_size=100,
-    ))
-  # -----------------------
-  # wandb setup
-  # -----------------------
-  search = FLAGS.search or 'default'
-  wandb_init_kwargs = dict(
-      project=FLAGS.wandb_project,
-      entity=FLAGS.wandb_entity,
-      notes=FLAGS.wandb_notes,
-      dir=FLAGS.wandb_dir,
-      save_code=False,
-  )
-  if FLAGS.train_single:
-    # overall group
-    wandb_init_kwargs['group'] = FLAGS.wandb_group or f"{search}_{FLAGS.agent}"
-  else:
-    if FLAGS.wandb_group:
-      logging.info(
-          f'IGNORING `wandb_group`. This will be set using the current `search`')
-    wandb_init_kwargs['group'] = search
-
-  if FLAGS.wandb_name:
-    wandb_init_kwargs['name'] = FLAGS.wandb_name
-
-  use_wandb = FLAGS.use_wandb
-  if not use_wandb:
-    wandb_init_kwargs = None
-
-  # -----------------------
-  # env setup
-  # -----------------------
   default_env_kwargs = dict(
       tasks_file=FLAGS.tasks_file,
       room_size=FLAGS.room_size,
       partial_obs=FLAGS.partial_obs,
   )
+  if FLAGS.debug:
+    agent_config_kwargs.update(dict(
+      recon_coeff=1.0,
+      context_as_slot=True,
+    ))
+    default_env_kwargs.update(dict(
+
+    ))
+
+  search = FLAGS.search or 'default'
+  wandb_init_kwargs = experiment_builders.setup_wandb_init_kwargs()
+  # -----------------------
+  # env setup
+  # -----------------------
   if FLAGS.train_single:
+    first_config = experiment_builders.extract_first_config(
+        sweep(FLAGS.search))
+    agent_config_kwargs.update(**first_config)
     train_single(
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
@@ -541,7 +529,7 @@ def main(_):
       name='babyai_supervised_trainer',
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
-      use_wandb=use_wandb,
+      use_wandb=FLAGS.use_wandb,
       debug=FLAGS.debug,
       space=sweep(search, FLAGS.agent),
       make_program_command=functools.partial(

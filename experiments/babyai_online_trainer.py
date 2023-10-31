@@ -342,117 +342,6 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "pred_gate": tune.grid_search(['sum', 'gru']),
             **settings['place7'],
         },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['branched']),
-        #     "group": tune.grid_search(['B24-trace']),
-        #     "context_slot_dim": tune.grid_search([32]),
-        #     "trace_length": tune.grid_search([30]),
-        #     **settings['place7'],
-        # },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['branched']),
-        #     "group": tune.grid_search(['B24-long']),
-        #     "context_slot_dim": tune.grid_search([32]),
-        #     **settings['medium7'],
-        # },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored', 'muzero']),
-        #     "group": tune.grid_search(['B24-long']),
-        #     **settings['medium7'],
-        # },
-
-        # {
-        #     **shared,
-        #     # "update_type": tune.grid_search(['project_add', 'concat']),
-        #     "agent": tune.grid_search(['branched']),
-        #     "group": tune.grid_search(['B22-room7']),
-        #     "context_slot_dim": tune.grid_search([32, 16]),
-        #     "learned_weights": tune.grid_search([True, False]),
-        #     "state_model_coef": tune.grid_search([0.0]),
-        #     "vision_torso": tune.grid_search(['babyai_patches']),
-        #     **settings['place7'],
-        # },
-        # {
-        #     **shared,
-        #     # "update_type": tune.grid_search(['project_add', 'concat']),
-        #     "agent": tune.grid_search(['branched']),
-        #     "group": tune.grid_search(['B22-room7']),
-        #     "context_slot_dim": tune.grid_search([16, 32]),
-        #     "learned_weights": tune.grid_search([False]),
-        #     "state_model_loss": tune.grid_search(['laplacian-state']),
-        #     "state_model_coef": tune.grid_search([1e-3]),
-        #     "vision_torso": tune.grid_search(['babyai_patches']),
-        #     **settings['place7'],
-        # },
-        # {
-        #     **shared,
-        #     # "update_type": tune.grid_search(['project_add', 'concat']),
-        #     "agent": tune.grid_search(['branched']),
-        #     "group": tune.grid_search(['B21-room7']),
-        #     "context_slot_dim": tune.grid_search([16, 32, 64]),
-        #     "learned_weights": tune.grid_search([True, False]),
-        #     "vision_torso": tune.grid_search(['babyai_patches']),
-        #     **settings['place7'],
-        # },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored']),
-        #     "group": tune.grid_search(['B20-room7']),
-        #     "update_type": tune.grid_search(['project_add', 'concat']),
-        #     "vision_torso": tune.grid_search(['babyai', 'motts2019', 'babyai_patches']),
-        #     **settings['place7'],
-        # },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored']),
-        #     "update_type": tune.grid_search(['project_add', 'concat']),
-        #     "group": tune.grid_search(['B19-attn']),
-        #     "savi_grad_norm": tune.grid_search([5.0, 1.0, 0.5, .1]),
-        #     "grad_fn": tune.grid_search(['muzero', 'savi', 'muzero_savi']),
-        # },
-        # {
-        #     "partial_obs": tune.grid_search([True]),
-        #     **settings['place7'],
-        #     "agent": tune.grid_search(['factored', 'muzero']),
-        #     "vision_torso": tune.grid_search(['babyai']),
-        #     "group": tune.grid_search(['benchmark15-large']),
-        # },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored']),
-        #     "slot_size": tune.grid_search([128]),
-        #     "vision_torso": tune.grid_search(['babyai', 'motts2019', 'babyai_patches']),
-        #     "group": tune.grid_search(['benchmark15-vision']),
-        # },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored']),
-        #     "savi_grad_norm": tune.grid_search([80.0, .5]),
-        #     "muzero_grad_model": tune.grid_search([False]),
-        #     "grad_fn": tune.grid_search(['muzero', 'savi', 'muzero_savi']),
-        #     "group": tune.grid_search(['B18-grad']),
-        # },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored']),
-        #     "state_model_coef": tune.grid_search([1e-4, 1e-5]),
-        #     "contrast_gamma": tune.grid_search([1e-2, 1e-3]),
-        #     "state_model_loss": tune.grid_search(['laplacian-state']),
-        #     "group": tune.grid_search(['B17-L']),
-        # },
-
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored']),
-        #     # "pos_embed_attn": tune.grid_search([True, False]),
-        #     "savi_grad_norm": tune.grid_search([0.5]),
-        #     # "relation_iterations": tune.grid_search(['every', 'once', 'none']),
-        #     "group": tune.grid_search(['B19-attn-grad']),
-        # },
-        
     ]
   elif search == 'factored2':
     shared = {
@@ -462,25 +351,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
          **settings['place7'],
     }
     space = [
-        # {
-        #     **shared,
-        #     # "trace_length": tune.grid_search([20]),
-        #     "agent": tune.grid_search(['muzero']),
-        # },
-        # {
-        #     "partial_obs": tune.grid_search([True]),
-        #     **settings['place7'],
-        #     "agent": tune.grid_search(['factored', 'muzero']),
-        #     "vision_torso": tune.grid_search(['babyai']),
-        #     "group": tune.grid_search(['benchmark15-large']),
-        # },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored']),
-        #     "slot_size": tune.grid_search([128]),
-        #     "vision_torso": tune.grid_search(['babyai', 'motts2019', 'babyai_patches']),
-        #     "group": tune.grid_search(['benchmark15-vision']),
-        # },
+
         {
             **shared,
             "agent": tune.grid_search(['muzero']),
@@ -496,15 +367,6 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             # "state_model_loss": tune.grid_search(['laplacian-state']),
             "group": tune.grid_search(['B17-view']),
         },
-        # {
-        #     **shared,
-        #     "agent": tune.grid_search(['factored']),
-        #     "pos_embed_attn": tune.grid_search([True, False]),
-        #     "update_type": tune.grid_search(['concat', 'project_add']),
-        #     "transform_pos_embed": tune.grid_search([False]),
-        #     "group": tune.grid_search(['benchmark15-pos_embed']),
-        # },
-        
     ]
   else:
     raise NotImplementedError(search)
@@ -527,49 +389,18 @@ def main(_):
   agent_config_kwargs = dict()
   if FLAGS.debug:
     agent_config_kwargs.update(dict(
-      batch_size=196,
-      show_gradients=1,
-      samples_per_insert=1,
-      min_replay_size=100,
-      # clip_attn_probs=False,
-      context_slot_dim=16,
-      learned_weights=False,
-      seperate_model_nets=True,
-      model_gate='sum',
-      state_model_loss='laplacian-state',
     ))
     default_env_kwargs.update(dict(
-      room_size=7,
-      agent_view_size=7,
-      partial_obs=True,
     ))
-  # -----------------------
-  # wandb setup
-  # -----------------------
-  search = FLAGS.search or 'default'
-  wandb_init_kwargs = dict(
-      project=FLAGS.wandb_project,
-      entity=FLAGS.wandb_entity,
-      notes=FLAGS.wandb_notes,
-      save_code=False,
-  )
-  if FLAGS.train_single:
-    # overall group
-    wandb_init_kwargs['group'] = FLAGS.wandb_group if FLAGS.wandb_group else f"{search}_{FLAGS.agent}"
-  else:
-    if FLAGS.wandb_group:
-      logging.info(f'IGNORING `wandb_group`. This will be set using the current `search`')
-    wandb_init_kwargs['group'] = search
 
-  if FLAGS.wandb_name:
-    wandb_init_kwargs['name'] = FLAGS.wandb_name
-  use_wandb = FLAGS.use_wandb
-  if not use_wandb:
-    wandb_init_kwargs = None
+  search = FLAGS.search or 'default'
+  wandb_init_kwargs = experiment_builders.setup_wandb_init_kwargs()
 
   run_distributed = FLAGS.run_distributed
   num_actors = FLAGS.num_actors
   if FLAGS.train_single:
+    first_config = experiment_builders.extract_first_config(sweep(FLAGS.search))
+    agent_config_kwargs.update(**first_config)
     train_single(
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
@@ -579,7 +410,7 @@ def main(_):
       name='babyai_online_trainer',
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
-      use_wandb=use_wandb,
+      use_wandb=FLAGS.use_wandb,
       debug=FLAGS.debug,
       space=sweep(search, FLAGS.agent),
       make_program_command=functools.partial(

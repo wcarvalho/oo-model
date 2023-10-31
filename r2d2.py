@@ -35,6 +35,7 @@ from experiments.config_utils import update_config
 
 @dataclasses.dataclass
 class R2D2Config(r2d2.R2D2Config):
+  agent: str = 'agent'
   # Architecture
   vocab_size: int = 50  # vocab size for env
   sentence_dim: int = 128  # dimensionality of sentence embeddings

@@ -74,7 +74,7 @@ flags.DEFINE_integer('debug', 0, 'Random seed (experiment).')
 # -----------------------
 # wandb
 # -----------------------
-flags.DEFINE_bool('use_wandb', False, 'whether to log.')
+flags.DEFINE_bool('use_wandb', True, 'whether to log.')
 flags.DEFINE_string('wandb_project', None, 'wand project.')
 flags.DEFINE_string('wandb_entity', None, 'wandb entity')
 flags.DEFINE_string('wandb_dir', None, 'wandb directory')
@@ -87,6 +87,36 @@ FLAGS = flags.FLAGS
 
 Seed = int
 Eval = bool
+
+
+def extract_first_config(grid_search_space):
+  """Extract the very first possible setting from the search space."""
+  first_config = {}
+  if isinstance(grid_search_space, list):
+    grid_search_space = grid_search_space[0]
+  for param_name, param_values in grid_search_space.items():
+      first_value = next(iter(param_values.values()))[0]
+      first_config[param_name] = first_value
+  return first_config
+
+def setup_wandb_init_kwargs():
+  wandb_init_kwargs = dict(
+      project=FLAGS.wandb_project,
+      entity=FLAGS.wandb_entity,
+      notes=FLAGS.wandb_notes,
+      wandb_dir="f{FLAGS.folder}/wandb",
+      save_code=False,
+  )
+  search = FLAGS.search or 'default'
+  wandb_init_kwargs['group'] = search
+  if FLAGS.wandb_name:
+    wandb_init_kwargs['name'] = FLAGS.wandb_name
+
+  if not FLAGS.use_wandb:
+    wandb_init_kwargs = None
+
+  return wandb_init_kwargs
+
 
 def setup_logger_factory(
     agent_config,
