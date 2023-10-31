@@ -9,9 +9,8 @@ bash install.sh
 2. you'll set searches in the `sweep(search: str)` function
 
 ## Useful command line arguments to set:
-- `folder`: directory to place experiments. recommend not putting in same directory
-- `train_single`: if True, just runs first config option. If False, runs all in parallel
-- `folder`: directory to place experiment results
+- `folder`: directory to place experiments. recommend not putting in current directory. If you use something like vscode to look at code in server, accessing the results directory may slow down vscode.
+- `train_single`: if True, just runs first `sweep` search. If False, runs all option in parallel
 - `wandb_entity` (wandb login info)
 - `wandb_project` (which project to log to)
 - `debug`: whether to use debug settings.
@@ -41,7 +40,7 @@ python experiments/babyai_online_trainer.py \
   --train_single=True \
   --folder="/tmp/results" \
   --use_wandb=False \
-  --search="default" \
+  --search="my_search" \
   --num_gpus=1
 ```
 
