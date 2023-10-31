@@ -1,3 +1,7 @@
+# Install
+```
+bash install.sh
+```
 
 # Experiments
 
@@ -15,7 +19,7 @@ make supervised_babyai_run    search=$(name)   # run a larger experiment
 
 ## Online
 ```
-make online_babyai_sync agent=muzero     # debugging, synchronous actor/learner/eval
+make online_babyai_sync   agent=muzero     # debugging, synchronous actor/learner/eval
 make online_babyai_async  search=$(name) # run multiple experiments, everything asynchronous
 ```
   
