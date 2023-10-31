@@ -14,7 +14,7 @@
 
 """Factored MuZero Networks."""
 
-from typing import Callable, Optional, Tuple, Union
+from typing import Callable, Optional, NamedTuple, Tuple, Union
 import functools
 
 from acme import specs
@@ -51,10 +51,15 @@ RecurrentState = networks_lib.RecurrentState
 Array = acme_types.NestedArray
 GateFn = Callable[[Array, Array], Array]
 
+class DualSaviState(NamedTuple):
+  context: jnp.ndarray
+  factors: jnp.ndarray
+  factor_states: jnp.ndarray
+  attn: Optional[jnp.ndarray] = None
+
 def swap_if_none(a, b):
   if a is None: return b
   return a
-
 
 class FactoredMuZeroArch(MuZeroArch):
   """Factored MuZero Architecture.
@@ -118,22 +123,12 @@ class DualSlotMemory(hk.RNNCore):
     assert isinstance(factors_memory.rnn, hk.GRU)
 
   def combine_states(self, context_state, context_attn, factors_state):
-    # [D] + [N, D]
-    new_factors = jnp.concatenate(
-        (jnp.expand_dims(context_state, -2), factors_state.factors),
-        axis=-2)
-
-    # [P] + [N, P]
-    new_attn = jnp.concatenate(
-        (jnp.expand_dims(context_attn, -2), factors_state.attn),
-        axis=-2)
-
-    new_state = factors_state._replace(
-        factors=new_factors,
-        factor_states=new_factors,
-        attn=new_attn,
+    return DualSaviState(
+        context=context_state,
+        factors=factors_state.factors,
+        factor_states=factors_state.factor_states,
+        attn=factors_state.attn,
     )
-    return new_state
 
   def __call__(
       self,
@@ -142,15 +137,9 @@ class DualSlotMemory(hk.RNNCore):
   ) -> Tuple[jnp.ndarray, jnp.ndarray]:
     image = inputs.image
     has_batch = len(image.shape) == 3
-    if has_batch:
-      context_state = jax.tree_map(lambda x: x[:, 0], state)
-      factors_state = jax.tree_map(lambda x: x[:, 1:], state)
-    else:
-      context_state = jax.tree_map(lambda x: x[0], state)
-      factors_state = jax.tree_map(lambda x: x[1:], state)
 
     # [..., N, D]
-    new_factors_state, _ = self.factors_memory(inputs, factors_state)
+    new_factors_state, _ = self.factors_memory(inputs, state)
 
     # [..., N, spatial_positions]
     slot_attn = new_factors_state.attn
@@ -178,7 +167,7 @@ class DualSlotMemory(hk.RNNCore):
 
     # [..., D]
     new_context_state, _ = self.context_memory(
-        hk.Linear(128)(image), context_state.factor_states)
+        hk.Linear(128)(image), state.context)
 
     new_state = self.combine_states(
         new_context_state, context_attn, new_factors_state)
@@ -195,8 +184,7 @@ class DualSlotMemory(hk.RNNCore):
 
     return self.combine_states(context_state, context_attn, factors_state)
 
-
-def make_save_input(embedding: vision_language.TorsoOutput,
+def make_savi_input(embedding: vision_language.TorsoOutput,
                     use_task: bool = False):
   other_obs_info = (embedding.reward, embedding.action)
   if use_task:
@@ -273,19 +261,32 @@ def make_slot_selection_fn(selection: str,
     return pred_inputs, attn_outputs
   return selection_module
 
-def make_observation_fn(config, w_init_obs, env_spec):
+def make_observation_fn(config, w_init_obs, env_spec, pos_embedder=None):
   num_actions = env_spec.actions.num_values
 
   def observation_fn(inputs):
       if config.vision_torso == 'babyai':
         img_embed = vision.BabyAIVisionTorso(
               conv_dim=config.conv_out_dim, flatten=False)
+        img_embed = vision.SaviVisionTorso(
+          features=[128, 128, 128],
+          kernel_size=[(8, 8), (3, 3), (1,1)],
+          strides=[(8, 8), 1, 1],
+          activation_fns=[lambda x:x, jax.nn.relu, jax.nn.relu],
+          w_init=w_init_obs,
+          )
+      elif config.vision_torso == 'motts2019':
+        img_embed = vision.SaviVisionTorso(
+          features=[32, 64, 128],
+          kernel_size=[(4, 4), (4, 4), (3, 3)],
+          strides=[(4, 4), (2, 2), (1, 1)],
+          w_init=w_init_obs,
+          )
       elif config.vision_torso == 'babyai_patches':
         img_embed = vision.SaviVisionTorso(
-          features=[32, 32, 32],
-          kernel_size=[(8, 8), (1, 1), (1, 1)],
-          strides=[(8, 8), (1, 1), (1, 1)],
-          layer_transpose=[False, False, False],
+          features=[128, 128],
+          kernel_size=[(8, 8), (1, 1)],
+          strides=[(8, 8), (1, 1)],
           w_init=w_init_obs,
           )
       elif config.vision_torso == 'savi':
@@ -293,24 +294,22 @@ def make_observation_fn(config, w_init_obs, env_spec):
           features=[32, 32, 32, 32],
           kernel_size=[(5, 5), (5, 5), (5, 5), (5, 5)],
           strides=[(1, 1), (1, 1), (1, 1), (1, 1)],
-          layer_transpose=[False, False, False, False],
           w_init=w_init_obs,
           )
-      pos_mlp_layers = config.pos_mlp_layers or (128,)
-      vision_torso = encoder.PositionEncodingTorso(
-          img_embed=img_embed,
-          pos_embed=encoder.PositionEmbedding(
-              embedding_type=config.embedding_type,
-              update_type=config.update_type,
-              w_init=w_init_obs,
-              output_transform=encoder.Mlp(
-                  # default settings from paper
-                  mlp_layers=pos_mlp_layers,
-                  w_init=w_init_obs,
-                  layernorm=config.pos_layernorm,
-              )
+      elif config.vision_torso == 'savi_small':
+        img_embed = vision.SaviVisionTorso(
+          features=[32, 32, 32],
+          kernel_size=[(5, 5), (5, 5), (5, 5)],
+          strides=[(1, 1), (1, 1), (1, 1)],
+          w_init=w_init_obs,
           )
-      )
+      if not config.pos_embed_attn:
+        vision_torso = encoder.PositionEncodingTorso(
+            img_embed=img_embed,
+            pos_embed=pos_embedder
+        )
+      else:
+        vision_torso = img_embed
 
       return vision_language.Torso(
           num_actions=num_actions,
@@ -322,12 +321,11 @@ def make_observation_fn(config, w_init_obs, env_spec):
               sentence_dim=config.sentence_dim,
           ),
           task_dim=config.task_dim,
-          w_init=None,
           output_fn=vision_language.struct_output,
       )(inputs)
   return observation_fn
 
-def make_savi_state_fn(config, num_spatial_vectors, w_init):
+def make_savi_state_fn(config, num_spatial_vectors, w_init, pos_embedder=None):
 
   # during state unroll, rnn gets task from inputs and stores in state
   assert config.gru_init in ('orthogonal', 'default')
@@ -347,8 +345,8 @@ def make_savi_state_fn(config, num_spatial_vectors, w_init):
   savi_state_fn = attention.SlotAttention(
       num_iterations=config.savi_iterations,
       qkv_size=config.slot_size,
+      inverted_attn=config.inverted_attn,
       num_slots=config.num_slots,
-      temperature=config.savi_temp,
       num_spatial=num_spatial_vectors,
       project_values=config.project_slot_values,
       value_combination=config.slot_value_combination,
@@ -357,9 +355,12 @@ def make_savi_state_fn(config, num_spatial_vectors, w_init):
       gumbel_temp=config.savi_gumbel_temp,
       combo_update=config.savi_combo_update,
       relation_iterations=config.relation_iterations,
+      clip_attn_probs=config.clip_attn_probs,
       rnn_class=rnn_class,
+      fixed_point=config.fixed_point,
       mlp_size=config.savi_mlp_size,
       w_init=w_init,
+      pos_embed=pos_embedder,
       name='state_slot_attention'
   )
   return savi_state_fn
@@ -440,7 +441,11 @@ def make_transformer_model(
         if config.scale_grad:
           factors=scale_gradient(factors, config.scale_grad)
 
-        outputs = outputs._replace(factors=factors)
+        # outputs = outputs._replace(factors=factors)
+        outputs = state._replace(
+          factors=factors,
+          attn=outputs.attn,
+        )
 
         return outputs, outputs
       if action_onehot.ndim == 2:
@@ -504,7 +509,6 @@ def make_single_head_prediction_function(
                           w_init=w_init_out,
                           name=name)
 
-  assert config.seperate_model_nets == False, 'need to redo function for this'
   # root
   vpi_base = ResMlp(config.prediction_blocks,
                     ln=config.ln, name='pred_root_base')
@@ -512,20 +516,6 @@ def make_single_head_prediction_function(
   pred_transformer = make_transformer(
       'pred_root_base',
       num_layers=config.prediction_blocks)
-
-  prediction_input_fn = make_slot_selection_fn(
-      selection=config.pred_input_selection,
-      gate_factory=get_gate_factory(pred_gate),
-      attn_factory=lambda: attention.GeneralMultiHeadAttention(
-          num_heads=slot_pred_heads,
-          key_size=slot_pred_qkv_size,
-          # model_size=slot_pred_qkv_size,
-          w_init=w_init_attn,
-          project_out=False,
-          name='pred_selection_attention',
-      ))
-  prediction_input_fn = hk.to_module(
-      prediction_input_fn)('pred_selection_fn')
 
   policy_fn = make_pred_fn(
       name='pred_root_policy', sizes=config.vpi_mlps, num_preds=num_actions)
@@ -541,27 +531,6 @@ def make_single_head_prediction_function(
       with_bias=False,
       name='pred_task_projection')
 
-  def task_cross_attend_factors(factors, task):
-      task = task_projection(task)  # [D]
-      task = jnp.expand_dims(task, 0)  # [1, D]
-      queries = jnp.concatenate((task, factors))  # [N+1, D]
-
-      outputs: attention.TransformerOutput = pred_transformer(
-          queries=queries)  # [N, D]
-
-      if config.query == 'task':
-        task_query = task
-      elif config.query == 'task_rep':
-        task_query = outputs.factors[0]
-      else:
-        raise NotImplementedError
-
-      pred_input, outputs = prediction_input_fn(
-          slot_reps=outputs.factors[1:],
-          task_query=task_query,
-          attn_outputs=outputs)
-      return outputs, pred_input
-
   def task_gathers_factors(factors, task):
       keys = factors
       queries = task_projection(task)[None]
@@ -569,19 +538,10 @@ def make_single_head_prediction_function(
           queries=queries, inputs=keys)  # [N, D]
       return outputs, outputs.factors[0]
 
-  def combine_task_factors(factors, task):
-    if config.pred_task_combine == 'gather':
-      fn = task_gathers_factors
-    elif config.pred_task_combine == 'cross':
-      fn = task_cross_attend_factors
-    else:
-      raise NotImplementedError
-    return fn(factors, task)
-
   def root_predictor(state_rep: TaskAwareSaviState):
     def _root_predictor(state_rep: TaskAwareSaviState):
       factors = state_rep.rep.factors
-      outputs, pred_input = combine_task_factors(
+      outputs, pred_input = task_gathers_factors(
           factors=factors,
           task=state_rep.task)
 
@@ -611,7 +571,7 @@ def make_single_head_prediction_function(
     def _model_predictor(state_rep: TaskAwareSaviState):
       # output of transformer model
       model_state: attention.TransformerOutput = state_rep.rep
-      outputs, pred_input = combine_task_factors(
+      outputs, pred_input = task_gathers_factors(
           factors=model_state.factors,
           task=state_rep.task)
 
@@ -684,7 +644,6 @@ def make_multi_head_prediction_function(
                           w_init=w_init_out,
                           name=name)
 
-  assert config.seperate_model_nets == False, 'need to redo function for this'
   # root
   vpi_base = ResMlp(config.prediction_blocks,
                     ln=config.ln, name='pred_root_base')
@@ -693,30 +652,29 @@ def make_multi_head_prediction_function(
       'pred_root_base',
       num_layers=config.prediction_blocks)
 
-  prediction_input_fn = make_slot_selection_fn(
-      selection=config.pred_input_selection,
-      gate_factory=get_gate_factory(pred_gate),
-      attn_factory=lambda: attention.GeneralMultiHeadAttention(
-          num_heads=slot_pred_heads,
-          key_size=slot_pred_qkv_size,
-          # model_size=slot_pred_qkv_size,
-          w_init=w_init_attn,
-          project_out=False,
-          name='pred_selection_attention',
-      ))
-  prediction_input_fn = hk.to_module(
-      prediction_input_fn)('pred_selection_fn')
-
   policy_fn = make_pred_fn(
       name='pred_root_policy', sizes=config.vpi_mlps, num_preds=num_actions)
   value_fn = make_pred_fn(
       name='pred_root_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
-
   reward_fn = make_pred_fn(
       name='pred_model_reward', sizes=config.reward_mlps, num_preds=config.num_bins)
-
   weight_fn = make_pred_fn(
-      name='pred_weights', sizes=config.reward_mlps, num_preds=1)
+      name='pred_weights', sizes=config.vpi_mlps, num_preds=1)
+
+  if config.seperate_model_nets:
+    model_pred_transformer = make_transformer(
+      'pred_model_base',
+      num_layers=config.prediction_blocks)
+    model_vpi_base = ResMlp(config.prediction_blocks, ln=config.ln, name='pred_model_base')
+    model_value_fn = make_pred_fn(
+      name='pred_model_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
+    model_policy_fn = make_pred_fn(
+      name='pred_model_policy', sizes=config.vpi_mlps, num_preds=num_actions)
+  else:
+    model_pred_transformer = pred_transformer
+    model_value_fn = value_fn
+    model_policy_fn = policy_fn
+    model_vpi_base = vpi_base
 
   task_projection = hk.Linear(
       config.slot_size,
@@ -724,22 +682,43 @@ def make_multi_head_prediction_function(
       with_bias=False,
       name='pred_task_projection')
 
-  def task_cross_attend_factors(factors, task):
-    task = task_projection(task)  # [D]
-    task = jnp.expand_dims(task, 0)  # [1, D]
-    queries = jnp.concatenate((task, factors))  # [N+1 or N+2, D]
+  def task_concat_factors(state_rep, pred_transformer_):
+    """
+    factors: [N or N+1,D]. N+1 if have a factor for full image.
+    task: [D]
+    Concatenate (task + full image factor) with every factor
+    """
+    factors = state_rep.rep.factors  # [N, D]
+    task = state_rep.task            # [D]
 
-    outputs = pred_transformer(queries=queries)  # [N, D]
+    if config.slots_use_task:
+      # if slots already have task as input, no need to use here 
+      task = jnp.zeros_like(task)
 
-    if config.context_as_slot:
-      factors = outputs.factors[2:]
+    context = task_projection(task)  # [D]
+    concat = lambda a, b: jnp.concatenate((a, b))
+    if config.context_slot_dim:
+      # task + image
+      context = concat(context, state_rep.rep.context)
+      # concatenate context with every factor
+      pred_input = jax.vmap(concat, (None, 0), (0))(context, factors)
+      pred_input = pred_transformer_(queries=pred_input)  # [N, 2D]
+      attn_output = None
     else:
-      factors = outputs.factors[1:]
+      queries = jax.vmap(concat, (None, 0), (0))(context, factors)
+      pred_input = pred_transformer_(queries=queries)  # [N, 2D]
+      attn_output = pred_input
+    pred_input = pred_input.factors
 
-    weights = weight_fn(factors)  # [N, 1]
-    weights = jax.nn.softmax(weights, axis=-2)
+    if config.learned_weights:
+      weights = weight_fn(pred_input)  # [N, 1]
+      weights = jax.nn.softmax(weights, axis=-2)
+    else:
+      nfactors = len(factors)
+      weights = jnp.ones(nfactors)/nfactors
+      weights = weights[:, None]
 
-    return factors, weights, outputs
+    return pred_input, weights, attn_output
 
   def weighted_average(x: jnp.ndarray,
                         weights: jnp.ndarray):
@@ -748,13 +727,12 @@ def make_multi_head_prediction_function(
 
   def root_predictor(state_rep: TaskAwareSaviState):
     def _root_predictor(state_rep: TaskAwareSaviState):
-      factors = state_rep.rep.factors  # [N, D]
-      task = state_rep.task            # [D]
 
-      pred_input, weights, outputs = task_cross_attend_factors(factors, task)
+      pred_input, weights, outputs = task_concat_factors(
+        state_rep, pred_transformer_=pred_transformer)
 
       if config.share_pred_base:
-        pred_input = vpi_base(pred_input)
+        pred_input = vpi_base(pred_input).factors
       policy_logits = policy_fn(pred_input)
       value_logits = value_fn(pred_input)
 
@@ -764,8 +742,6 @@ def make_multi_head_prediction_function(
           value_logits, weights)
 
       reconstruction = None
-      if config.recon_coeff > 0:
-        reconstruction = img_decoder(factors)
 
       return RootOutput(
           reconstruction=reconstruction,
@@ -781,18 +757,15 @@ def make_multi_head_prediction_function(
 
   def model_predictor(state_rep: TaskAwareSaviState):
     def _model_predictor(state_rep: TaskAwareSaviState):
-      # output of transformer model
-      model_state: attention.TransformerOutput = state_rep.rep
-      factors = model_state.factors
-      task = state_rep.task
 
-      pred_input, weights, outputs = task_cross_attend_factors(factors, task)
+      pred_input, weights, outputs = task_concat_factors(
+        state_rep, pred_transformer_=model_pred_transformer)
 
       reward_logits = reward_fn(pred_input)
       if config.share_pred_base:
-        pred_input = vpi_base(pred_input)
-      policy_logits = policy_fn(pred_input)
-      value_logits = value_fn(pred_input)
+        pred_input = model_vpi_base(pred_input)
+      policy_logits = model_policy_fn(pred_input)
+      value_logits = model_value_fn(pred_input)
 
       reward_logits = weighted_average(
           reward_logits, weights)
@@ -803,7 +776,7 @@ def make_multi_head_prediction_function(
 
       return ModelOutput(
           pred_attn_outputs=outputs,
-          new_state=model_state,
+          new_state=state_rep.rep,
           value_logits=value_logits,
           policy_logits=policy_logits,
           reward_logits=reward_logits,
@@ -833,53 +806,78 @@ def make_babyai_networks(
     if config.w_init_obs is not None:
       w_init_obs = hk.initializers.VarianceScaling(config.w_init_obs)
 
+    output_transform = lambda x:x
+    if config.transform_pos_embed:
+      output_transform = encoder.Mlp(
+            # default settings from paper
+            mlp_layers=config.pos_mlp_layers,
+            w_init=w_init_obs,
+            layernorm=config.pos_layernorm,
+        )
+    pos_embedder = encoder.PositionEmbedding(
+        embedding_type=config.embedding_type,
+        update_type=config.update_type,
+        w_init=w_init_obs,
+        output_transform=output_transform
+    )
+    if config.pos_embed_attn:
+      pos_embedder_attn = pos_embedder
+      pos_embedder_obs = None
+    else:
+      pos_embedder_attn = None
+      pos_embedder_obs = pos_embedder
+
     observation_fn = make_observation_fn(
-        config, w_init_obs=w_init_obs, env_spec=env_spec)
+        config,
+        w_init_obs=w_init_obs,
+        pos_embedder=pos_embedder_obs,
+        env_spec=env_spec)
     observation_fn = hk.to_module(observation_fn)("observation_fn")
 
     # automatically calculate how many spatial vectors there are
     dummy_observation = jax_utils.zeros_like(env_spec.observations)
     sample = jax.lax.stop_gradient(observation_fn(dummy_observation))
-    num_spatial_vectors = sample.image.shape[-2]
+    if config.pos_embed_attn:
+      num_spatial_vectors = sample.image.shape[-3]*sample.image.shape[-2]
+    else:
+      num_spatial_vectors = sample.image.shape[-2]
 
     ###########################
     # Setup observation image decoder
     ###########################
-    dummy_image = dummy_observation.observation.image
-    if config.vision_torso == 'babyai_patches':
-      import math
-      latent_height = math.sqrt(num_spatial_vectors)
-      latent_height = int(latent_height)
-      # image_height = dummy_image.shape[-2]
-      # res = int(image_height//latent_height)
-      # resolution = (res, res)
-      resolution = (latent_height, latent_height)
-      img_decode = vision.SaviVisionTorso(
-          features=[32, 32, 32],
-          kernel_size=[(1, 1), (1, 1), (8, 8)],
-          strides=[(1, 1), (1, 1), (8, 8)],
-          layer_transpose=[True, True, True],
-          w_init=w_init_obs,
-      )
-    elif config.vision_torso == 'savi':
-      resolution = (8, 8)
-      img_decode = vision.SaviVisionTorso(
-          features=[64, 64, 64, 64],
-          kernel_size=[(5, 5), (5, 5), (5, 5), (5, 5)],
-          strides=[(2, 2), (2, 2), (2, 2), (2, 2)],
-          layer_transpose=[True, True, True, False],
-          w_init=w_init_obs,
-      )
-    else:
-      raise NotImplementedError
+    img_decoder = None
+    if config.recon_coeff > 0.0:
+      if config.vision_torso == 'babyai_patches':
+        import math
+        latent_height = math.sqrt(num_spatial_vectors)
+        latent_height = int(latent_height)
+        resolution = (latent_height, latent_height)
+        img_decode = vision.SaviVisionTorso(
+            features=[32, 32, 32],
+            kernel_size=[(1, 1), (1, 1), (8, 8)],
+            strides=[(1, 1), (1, 1), (8, 8)],
+            layer_transpose=[True, True, True],
+            w_init=w_init_obs,
+        )
+      elif config.vision_torso == 'savi':
+        resolution = (8, 8)
+        img_decode = vision.SaviVisionTorso(
+            features=[64, 64, 64, 64],
+            kernel_size=[(5, 5), (5, 5), (5, 5), (5, 5)],
+            strides=[(2, 2), (2, 2), (2, 2), (2, 2)],
+            layer_transpose=[True, True, True, False],
+            w_init=w_init_obs,
+        )
+      else:
+        raise NotImplementedError
 
-    img_decoder = vision.SpatialBroadcastDecoder(
-        resolution=resolution,
-        backbone=img_decode,
-        pos_emb=encoder.PositionEmbedding(
-            embedding_type=config.embedding_type,
-            update_type=config.update_type),
-    )
+      img_decoder = vision.SpatialBroadcastDecoder(
+          resolution=resolution,
+          backbone=img_decode,
+          pos_emb=encoder.PositionEmbedding(
+              embedding_type=config.embedding_type,
+              update_type=config.update_type),
+      )
 
 
 
@@ -888,14 +886,15 @@ def make_babyai_networks(
     ###########################
     w_init_attn = hk.initializers.VarianceScaling(config.w_init_attn)
     state_fn = make_savi_state_fn(
-      config, num_spatial_vectors, w_init_attn)
-    if config.context_as_slot:
-      savi_state_fn = DualSlotMemory(
+      config, num_spatial_vectors, w_init_attn,
+      pos_embedder=pos_embedder_attn)
+    if config.context_slot_dim:
+      state_fn = DualSlotMemory(
         context_memory=hk.GRU(
-          config.slot_size,
+          config.context_slot_dim,
           name='slot_attention_context'),
         mask_context=config.mask_context,
-        factors_memory=savi_state_fn)
+        factors_memory=state_fn)
 
     def combine_hidden_obs(
         hidden: attention.SaviState,
@@ -939,7 +938,8 @@ def make_babyai_networks(
       action_encoder=lambda a: jax.nn.one_hot(
         a, num_classes=num_actions),
       observation_fn=observation_fn,
-      prep_state_input=make_save_input,
+      prep_state_input=functools.partial(make_savi_input,
+                                         use_task=config.slots_use_task),
       state_fn=state_fn,
       combine_hidden_obs=combine_hidden_obs,
       transition_fn=transition_fn,

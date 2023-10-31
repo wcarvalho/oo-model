@@ -16,8 +16,8 @@ TaskAwareSaviState = Tuple[attention.SaviState, Task]
 
 @chex.dataclass(frozen=True)
 class RootOutput(muzero_types.RootOutput):
-  pred_attn_outputs: types.NestedArray
-  reconstruction: Optional[types.NestedArray]
+  pred_attn_outputs: Optional[types.NestedArray] = None
+  reconstruction: Optional[types.NestedArray] = None
 
 
 @chex.dataclass(frozen=True)
