@@ -1,5 +1,5 @@
 """Factored Muzer config."""
-from typing import Callable, Tuple, Optional
+from typing import Callable, Tuple, Optional, List
 
 from acme.adders import reverb as adders_reverb
 from acme.agents.jax import r2d2
@@ -15,8 +15,8 @@ Array = acme_types.NestedArray
 class FactoredMuZeroConfig(MuZeroConfig):
 
   # replay
-  batch_size: Optional[int] = 32
-  trace_length: Optional[int] = 10
+  batch_size: Optional[int] = 64
+  trace_length: Optional[int] = 20
   max_replay_size: int = 40_000
   num_sgd_steps_per_step: int = 1
 
@@ -24,54 +24,60 @@ class FactoredMuZeroConfig(MuZeroConfig):
   gru_init: str = 'default'
   b_init_attn: float = 1.0
   w_init_attn: float = 1.0
-  pre_norm: bool = False
+  pre_norm: bool = True
   share_w_init_out: bool = False
   share_pred_base: bool = False
-  slots_use_task: bool = False
+  slots_use_task: bool = True
 
   # postion embedding
   embedding_type: str = 'linear'
-  pos_mlp_layers: Optional[Tuple[int]] = None
+  pos_mlp_layers: Optional[Tuple[int]] = (128,)
   pos_layernorm: str = 'pre'
-  update_type: str = 'project_add'
+  update_type: str = 'concat'
 
   # observation function
   w_init_obs: Optional[float] = None
   vision_torso: str = 'babyai_patches'
 
   # state function
-  context_as_slot: bool = False
+  inverted_attn: bool = True
+  context_slot_dim: int = 0
   project_slot_values: bool = True
+  pos_embed_attn: bool = False
   slot_value_combination: str = 'avg'
+  clip_attn_probs: bool = False
   savi_iterations: int = 4
-  savi_temp: float = 1.0
   savi_mlp_size: Optional[int] = None
   savi_epsilon: float = 1e-5
   savi_rnn: str = 'gru'
   num_slots: int = 4
   slot_size: int = 64
+  transform_pos_embed: bool = True
+  fixed_point: bool = True
   savi_combo_update: str = 'concat'
   relation_iterations: str = 'once'
   savi_init: str = 'gauss'
   savi_gumbel_temp: float = 1.0
   mask_context: str = 'softmax'
+  attention_in_updates: bool = False
 
   # transition function
   model_gate: str = 'sum'
-  slot_tran_heads: int = 4
+  slot_tran_heads: int = 2
   tran_mlp_blocks: int = 2
   slot_tran_mlp_size: Optional[int] = None
   transition_blocks: int = 4  # number of transformer blocks
   tran_out_mlp: bool = True
 
   # prediction functions
-  pred_gate: Optional[str] = 'gru'
+  pred_gate: Optional[str] = None
   pred_task_combine: str = 'gather'
   prediction_blocks: int = 2 # number of transformer blocks
   pred_out_mlp: bool = True
   slot_pred_heads: Optional[int] = None
   slot_pred_mlp_size: Optional[int] = None
   slot_pred_qkv_size: Optional[int] = None
+  learned_weights: bool = True
 
   # w_attn_head: bool = True
   pred_input_selection: str = 'attention_gate'  # IMPORTANT
@@ -84,12 +90,16 @@ class FactoredMuZeroConfig(MuZeroConfig):
 
   # loss
   state_model_loss: str = 'dot_contrast'
-  contrast_gamma: float = 1.0  # only for cswm and laplacian
+  contrast_gamma: float = 1e-2  # only for cswm and laplacian
   contrast_temp: float = 0.01  # only for dot_contrast
-  state_model_coef: float = 0.00
+  state_model_coef: float = 1.0
   weight_decay_fn: str = "default"
   weight_decay: float = 1e-4  # very few params
   attention_penalty: float = 0.0
-  extra_contrast: int = 5
+  extra_contrast: int = 10
 
   recon_coeff: float = 0.0
+
+  savi_grad_norm: float = 80.0
+  muzero_grad_model: bool = False
+  grad_fn: str = 'muzero'

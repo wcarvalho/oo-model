@@ -43,7 +43,7 @@ def MuZeroConfig():
 
 @dataclasses.dataclass
 class FactoredMuZeroUpdates:
-  num_sgd_steps_per_step: int = 4
+  num_sgd_steps_per_step: int = 1
 
   discount: float = 0.99
   # vision_torso: str = 'babyai'
