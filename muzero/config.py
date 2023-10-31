@@ -106,7 +106,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   resnet_transition_dim: Optional[int] = None  # dim of resnet for transition function
   transition_blocks: int = 6  # number of resnet blocks
   prediction_blocks: int = 2  # number of resnet blocks
-  seperate_model_nets: bool = False
+  seperate_model_nets: bool = True
   scale_grad: float = 0.5
   reward_mlps: Tuple[int] = (32,)
   vpi_mlps: Tuple[int] = (128, 32)

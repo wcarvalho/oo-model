@@ -70,7 +70,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   tran_out_mlp: bool = True
 
   # prediction functions
-  pred_gate: Optional[str] = None
+  pred_gate: Optional[str] = 'gru'
   pred_task_combine: str = 'gather'
   prediction_blocks: int = 2 # number of transformer blocks
   pred_out_mlp: bool = True
@@ -89,6 +89,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
 
 
   # loss
+  reanalyze_ratio: float = 0.25 # percent of time to use mcts vs. observed return
   state_model_loss: str = 'dot_contrast'
   contrast_gamma: float = 1e-2  # only for cswm and laplacian
   contrast_temp: float = 0.01  # only for dot_contrast

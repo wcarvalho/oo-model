@@ -264,7 +264,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   settings=dict(
     place5=dict(tasks_file='place_split_medium', room_size=5, num_steps=3e6),
     place6=dict(tasks_file='place_split_medium', room_size=6, num_steps=5e6),
-    place7=dict(tasks_file='place_split_medium', room_size=7, num_steps=7e6),
+    place7=dict(tasks_file='place_split_medium', room_size=7, num_steps=6e6),
     medium5=dict(tasks_file='medium_medium', room_size=5, num_steps=4e6),
     medium6=dict(tasks_file='medium_medium', room_size=6, num_steps=6e6),
     medium7=dict(tasks_file='medium_medium', room_size=7, num_steps=8e6),
@@ -325,22 +325,56 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
   elif search == 'factored1':
     shared = {
         "seed": tune.grid_search([3]),
-        # "agent": tune.grid_search(['branched']),
-        "partial_obs": tune.grid_search([True]),
-        #  **settings['place5'],
+        "partial_obs": True,
+         **settings['place7'],
     }
     space = [
         {
             **shared,
+            "group": 'B26-muzero',
+            "agent": tune.grid_search(['muzero']),
+            "lr_transition_steps": tune.grid_search([0, 1_000_000]),
+            "warmup_steps": tune.grid_search([0, 1_000]),
+        },
+        {
+            **shared,
+            "group": 'B26-no-loss',
             "agent": tune.grid_search(['branched']),
-            "group": tune.grid_search(['B25-sweep']),
             "context_slot_dim": tune.grid_search([32]),
-            "seperate_model_nets": tune.grid_search([True]),
-            "reanalyze_ratio": tune.grid_search([0., .25, .5]),
-            "lr_transition_steps": tune.grid_search(
-              [500_000, 1_000_000]),
-            "pred_gate": tune.grid_search(['sum', 'gru']),
-            **settings['place7'],
+            "lr_transition_steps": tune.grid_search([1_000_000]),
+            "reanalyze_ratio": tune.grid_search([0.0]),
+            "state_model_coef": tune.grid_search([0.0]),
+        },
+        {
+            **shared,
+            "group": 'B26-contrastive',
+            "agent": tune.grid_search(['branched']),
+            "context_slot_dim": tune.grid_search([32]),
+            "lr_transition_steps": tune.grid_search([1_000_000]),
+            "reanalyze_ratio": tune.grid_search([0.0]),
+            "state_model_coef": tune.grid_search([1.0, 1e-2]),
+            "extra_contrast": tune.grid_search([1, 10]),
+        },
+        {
+            **shared,
+            "group": 'B26-laplacian',
+            "agent": tune.grid_search(['branched']),
+            "context_slot_dim": tune.grid_search([32]),
+            "lr_transition_steps": tune.grid_search([1_000_000]),
+            "reanalyze_ratio": tune.grid_search([0.0]),
+            "state_model_loss": tune.grid_search(['laplacian-state']),
+            "state_model_coef": tune.grid_search([1.0, 1e-2]),
+            "contrast_gamma": tune.grid_search([1e-2, 1e-3]),
+        },
+        {
+            **shared,
+            "group": 'B26-optimizer',
+            "agent": tune.grid_search(['branched']),
+            "context_slot_dim": tune.grid_search([32]),
+            "lr_transition_steps": tune.grid_search([0]),
+            "reanalyze_ratio": tune.grid_search([0.0]),
+            "savi_grad_norm": tune.grid_search([80.0, 5.0, .5]),
+            "grad_fn": tune.grid_search(['muzero', 'savi', 'muzero_savi']),
         },
     ]
   elif search == 'factored2':

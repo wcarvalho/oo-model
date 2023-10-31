@@ -74,6 +74,7 @@ class R2D2Config(r2d2.R2D2Config):
   # Priority options
   importance_sampling_exponent: float = 0.6
   priority_exponent: float = 0.9
+  step_penalty: float = 0.0
 
 
 class R2D2Arch(hk.RNNCore):

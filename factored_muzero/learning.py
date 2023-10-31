@@ -227,6 +227,9 @@ class FactoredMuZeroLearner(acme.Learner):
         params_unroll = params.unroll
         target_params_unroll = target_params.unroll
 
+      if config.step_penalty > 0.0:
+        data = data._replace(reward=data.reward - jnp.abs(config.step_penalty))
+
       #####################
       # Initialize + Burn-in state
       #####################

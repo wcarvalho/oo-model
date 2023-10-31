@@ -95,7 +95,10 @@ def extract_first_config(grid_search_space):
   if isinstance(grid_search_space, list):
     grid_search_space = grid_search_space[0]
   for param_name, param_values in grid_search_space.items():
-      first_value = next(iter(param_values.values()))[0]
+      if isinstance(param_values, dict):
+        first_value = next(iter(param_values.values()))[0]
+      else:
+        first_value = param_values
       first_config[param_name] = first_value
   return first_config
 
