@@ -44,8 +44,8 @@ python experiments/babyai_online_trainer.py \
 ```
 
 #### Running multiple in parallel
-You'll want to set `--train_single=False` and use more GPUs, e.g.
-**recommendation**: either use different `wand_project` for parallel/debugging (to not pollute wandb with debugging runs) or set `--use_wandb=False` for debugging.
+- You'll want to set `--train_single=False` and use more GPUs, e.g.
+- **recommendation**: either use different `wand_project` for parallel/debugging (to not pollute wandb with debugging runs) or set `--use_wandb=False` for debugging.
 ```
 CUDA_VISIBLE_DEVICES=0,1,2,3 \
 python experiments/babyai_online_trainer.py \  # change this
