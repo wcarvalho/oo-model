@@ -83,18 +83,19 @@ class LearnerLogger(learner_logger.LearnerLogger):
     ######################
     # [T, num_layers, num_heads, num_factors, num_factors]
     # num_factors = num_slots + 1 (for task?)
-    pred_attn = online_outputs.pred_attn_outputs.attn
+    if online_outputs.pred_attn_outputs:
+      pred_attn = online_outputs.pred_attn_outputs.attn
 
-    pred_attn_images = []
-    for t in range(ntime):
-      img = attn_analysis.plot_perlayer_attn(
-        attn=pred_attn[t],
-        title=f"Timestep {t+1}",
-      )
-      pred_attn_images.append(img)
+      pred_attn_images = []
+      for t in range(ntime):
+        img = attn_analysis.plot_perlayer_attn(
+          attn=pred_attn[t],
+          title=f"Timestep {t+1}",
+        )
+        pred_attn_images.append(img)
 
-    to_log['0.pred_attn_01'] = [
-        wandb.Image(img) for img in pred_attn_images]
+      to_log['0.pred_attn_01'] = [
+          wandb.Image(img) for img in pred_attn_images]
 
     ######################
     # plot slot entropy

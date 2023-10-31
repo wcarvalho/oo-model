@@ -217,7 +217,7 @@ def slot_attn_entropy(attn, normalize: bool = True):
 
   fig, ax = plt.subplots()
   for i in range(N):
-      ax.plot(time, entropy[:, i], label=f'Slot {i+1}')
+      ax.plot(time, entropy[:, i], label=f'S {i+1}')
 
   # Remove whitespace around the figure
   # fig.tight_layout()
@@ -302,7 +302,7 @@ def plot_perlayer_attn(
           axes[row, j].set_title(f"Layer {i + 1}, Head {j + 1}")
 
           # Add symmetric labels on x-axis and y-axis
-          factor_labels = lambda i: [f"Factor {f + 1}" for f in range(i)]
+          factor_labels = lambda i: [f"F {f + 1}" for f in range(i)]
           axes[row, j].set_xticks(np.arange(n_x_factors))
           axes[row, j].set_yticks(np.arange(n_y_factors))
           axes[row, j].set_xticklabels(factor_labels(n_x_factors))

@@ -16,6 +16,7 @@ from factored_muzero import types
 from factored_muzero import attention
 from factored_muzero.ve_losses import ValueEquivalentLoss
 from factored_muzero.config import FactoredMuZeroConfig
+from factored_muzero.learning import FactoredMuZeroLearner
 
 from experiments.config_utils import update_config
 
@@ -43,9 +44,7 @@ def get_state_remove_attention(outputs: types.RootOutput):
   """
   state: types.TaskAwareSaviState = outputs.state
   savi_state: attention.SaviState = state.rep
-  return state._replace(
-    rep=attention.TransformerOutput(
-      factors=savi_state.factors))
+  return state._replace(rep=savi_state._replace(attn=None))
 
 
 def setup(
@@ -121,6 +120,7 @@ def setup(
   builder = MuZeroBuilder(
       config=config,
       loss_fn=ve_loss_fn,
+      learnerCls=FactoredMuZeroLearner,
       network_factory=network_factory,
       **builder_kwargs)
 
