@@ -7,11 +7,30 @@ train:
   - name: "1.pickup"
     task_kinds: pickup
 
+  - name: "1.2.place"
+    task_kinds: place
+
+  - name: "1.2.place_nodist"
+    task_kinds: place
+    num_dists: 0
+
   # CLEAN tasks
+  - name: "2.a.clean_no_dist"
+    task_kinds: clean
+    num_dists: 0
+    taskarg_options:
+      x: clean1
+
   - name: "2.a.clean"
     task_kinds: clean
     taskarg_options:
       x: clean1
+
+  - name: "3.place_cleaned_no_dist"
+    task_kinds: place_cleaned
+    num_dists: 0
+    taskarg_options:
+      x: clean2
 
   - name: "3.place_cleaned"
     task_kinds: place_cleaned
@@ -19,8 +38,20 @@ train:
       x: clean2
 
   # SLICE tasks
+  - name: "2.a.slice_no_dist"
+    task_kinds: slice
+    num_dists: 0
+    taskarg_options:
+      x: food1
+
   - name: "2.a.slice"
     task_kinds: slice
+    taskarg_options:
+      x: food1
+
+  - name: "3.place_sliced_no_dist"
+    task_kinds: place_sliced
+    num_dists: 0
     taskarg_options:
       x: food1
 
@@ -30,6 +61,12 @@ train:
       x: food1
 
   # COOK
+  - name: "3.cook_no_dist"
+    task_kinds: cook
+    num_dists: 0
+    taskarg_options:
+      x: food2
+
   - name: "3.cook"
     task_kinds: cook
     taskarg_options:
@@ -37,13 +74,6 @@ train:
 
 
 test:
-
-  - name: "1.pickup_nodist"
-    task_kinds: pickup
-    num_dists: 0
-
-  - name: "1.pickup"
-    task_kinds: pickup
 
   # CLEAN tasks
   - name: "2.a.clean"

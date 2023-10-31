@@ -69,6 +69,7 @@ class MultitaskKitchen(dm_env.Environment):
     wrappers=None,
     num_dists=0,
     symbolic=False,
+    test_larger=False,
     **kwargs):
     """Initializes a new Kitchen environment.
     Args:
@@ -113,6 +114,27 @@ class MultitaskKitchen(dm_env.Environment):
               task_kinds=[task],
               **level_kwargs
           )
+    if test_larger:
+      new_all_level_kwargs = dict()
+      for key, level_kwargs in all_level_kwargs.items():
+        room_size = level_kwargs['room_size']
+        bigger_room_size = room_size + 2
+        num_dists = level_kwargs['num_dists']
+        more_dists = num_dists + 2
+
+        key1 = f"{key}_r={bigger_room_size}_d={num_dists}"
+        key2 = f"{key}_r={bigger_room_size}_d={more_dists}"
+        new_all_level_kwargs[key] = level_kwargs
+        new_all_level_kwargs[key1] = dict(level_kwargs)
+        new_all_level_kwargs[key1].update(
+          room_size=bigger_room_size,
+        )
+        new_all_level_kwargs[key2] = dict(level_kwargs)
+        new_all_level_kwargs[key2].update(
+          room_size=bigger_room_size,
+          num_dists=more_dists,
+        )
+      all_level_kwargs = new_all_level_kwargs
     # from pprint import pprint
     # pprint(all_level_kwargs)
     self.all_level_kwargs = all_level_kwargs
@@ -148,12 +170,14 @@ class MultitaskKitchen(dm_env.Environment):
   def step(self, action: int) -> dm_env.TimeStep:
     """Updates the environment according to the action."""
     obs, reward, done, info = self.env.step(action)
-    del info
     obs = convert_rawobs(obs, symbolic=self.symbolic)
     if self.step_penalty:
       reward = reward - self.step_penalty
     if done:
-      return dm_env.termination(reward=reward, observation=obs)
+      if info['success']:
+        return dm_env.termination(reward=reward, observation=obs)
+      else:
+        return dm_env.truncation(reward=reward, observation=obs)
     else:
       return dm_env.transition(reward=reward, observation=obs)
 

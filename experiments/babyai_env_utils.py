@@ -48,6 +48,7 @@ def make_kitchen_environment(
   evaluate_train_test: bool = False,
   room_size: int=7,
   num_dists: int=2,
+  agent_view_size: int = 7,
   partial_obs: bool = False,
   max_text_length=10,
   tile_size=8,
@@ -57,6 +58,7 @@ def make_kitchen_environment(
   nseeds=0,
   return_gym_env=False,
   wrapper_list=None,
+  test_larger=True,
   **kwargs,
   ) -> dm_env.Environment:
   """Loads environments."""
@@ -95,12 +97,14 @@ def make_kitchen_environment(
     task_dicts=task_dicts,
     tasks_file=tasks,
     tile_size=tile_size,
+    agent_view_size=agent_view_size,
     path=path,
     num_dists=num_dists,
     room_size=room_size,
     wrappers=env_wrappers,
     debug=debug,
     nseeds=nseeds,
+    test_larger=test_larger and evaluation,
     **kwargs
     )
 
