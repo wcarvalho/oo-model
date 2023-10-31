@@ -32,8 +32,7 @@ python experiments/babyai_online_trainer.py \  # change this
   --search=$(search) \
   --num_gpus=$(gpus)
 ```
-**example**
-
+example:
 ```
 CUDA_VISIBLE_DEVICES=0 \
 python experiments/babyai_online_trainer.py \
