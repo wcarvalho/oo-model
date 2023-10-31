@@ -602,6 +602,7 @@ class KitchenLevel(RoomGridLevel):
     # if past step count, done
     if self.step_count >= self.max_steps and self.use_time_limit:
         done = True
+        info['success'] = False
 
     obs = self.gen_obs()
     if self.debug:
@@ -609,6 +610,10 @@ class KitchenLevel(RoomGridLevel):
 
     reward = reward*self.reward_coeff
     reward = float(reward)
+
+    if reward > 0:
+       info['success'] = True
+
     return obs, reward, done, info
 
 
