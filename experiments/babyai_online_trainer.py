@@ -330,15 +330,15 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     }
     space = [
         {
-            **shared,
-            "group": 'B26-muzero',
+            **shared, # 1
+            "group": 'B27-muzero',
             "agent": tune.grid_search(['muzero']),
-            "lr_transition_steps": tune.grid_search([0, 1_000_000]),
-            "warmup_steps": tune.grid_search([0, 1_000]),
+            "lr_transition_steps": tune.grid_search([0]),
+            "warmup_steps": tune.grid_search([0]),
         },
         {
-            **shared,
-            "group": 'B26-no-loss',
+            **shared, # 1
+            "group": 'B27-no-loss',
             "agent": tune.grid_search(['branched']),
             "context_slot_dim": tune.grid_search([32]),
             "lr_transition_steps": tune.grid_search([1_000_000]),
@@ -346,8 +346,8 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "state_model_coef": tune.grid_search([0.0]),
         },
         {
-            **shared,
-            "group": 'B26-contrastive',
+            **shared, #4
+            "group": 'B27-contrastive',
             "agent": tune.grid_search(['branched']),
             "context_slot_dim": tune.grid_search([32]),
             "lr_transition_steps": tune.grid_search([1_000_000]),
@@ -356,8 +356,8 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "extra_contrast": tune.grid_search([1, 10]),
         },
         {
-            **shared,
-            "group": 'B26-laplacian',
+            **shared, #4
+            "group": 'B27-laplacian',
             "agent": tune.grid_search(['branched']),
             "context_slot_dim": tune.grid_search([32]),
             "lr_transition_steps": tune.grid_search([1_000_000]),
@@ -367,13 +367,13 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "contrast_gamma": tune.grid_search([1e-2, 1e-3]),
         },
         {
-            **shared,
-            "group": 'B26-optimizer',
+            **shared, # 6
+            "group": 'B27-optimizer',
             "agent": tune.grid_search(['branched']),
             "context_slot_dim": tune.grid_search([32]),
             "lr_transition_steps": tune.grid_search([0]),
             "reanalyze_ratio": tune.grid_search([.5]),
-            "savi_grad_norm": tune.grid_search([80.0, 5.0, .5]),
+            "savi_grad_norm": tune.grid_search([5.0, .5]),
             "grad_fn": tune.grid_search(['muzero', 'savi', 'muzero_savi']),
         },
     ]
@@ -445,7 +445,7 @@ def main(_):
       default_env_kwargs=default_env_kwargs,
       use_wandb=FLAGS.use_wandb,
       debug=FLAGS.debug,
-      space=sweep(sweep(FLAGS.search), FLAGS.agent),
+      space=sweep(FLAGS.search, FLAGS.agent),
       make_program_command=functools.partial(
         train_many.make_program_command,
         filename='experiments/babyai_online_trainer.py',
