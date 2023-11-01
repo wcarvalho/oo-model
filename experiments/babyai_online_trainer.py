@@ -324,7 +324,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     ]
   elif search == 'factored1':
     shared = {
-        "seed": tune.grid_search([3]),
+        "seed": tune.grid_search([5]),
         "partial_obs": True,
          **settings['place7'],
     }
@@ -342,7 +342,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "agent": tune.grid_search(['branched']),
             "context_slot_dim": tune.grid_search([32]),
             "lr_transition_steps": tune.grid_search([1_000_000]),
-            "reanalyze_ratio": tune.grid_search([0.0]),
+            "reanalyze_ratio": tune.grid_search([.5]),
             "state_model_coef": tune.grid_search([0.0]),
         },
         {
@@ -351,7 +351,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "agent": tune.grid_search(['branched']),
             "context_slot_dim": tune.grid_search([32]),
             "lr_transition_steps": tune.grid_search([1_000_000]),
-            "reanalyze_ratio": tune.grid_search([0.0]),
+            "reanalyze_ratio": tune.grid_search([.5]),
             "state_model_coef": tune.grid_search([1.0, 1e-2]),
             "extra_contrast": tune.grid_search([1, 10]),
         },
@@ -361,7 +361,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "agent": tune.grid_search(['branched']),
             "context_slot_dim": tune.grid_search([32]),
             "lr_transition_steps": tune.grid_search([1_000_000]),
-            "reanalyze_ratio": tune.grid_search([0.0]),
+            "reanalyze_ratio": tune.grid_search([.5]),
             "state_model_loss": tune.grid_search(['laplacian-state']),
             "state_model_coef": tune.grid_search([1.0, 1e-2]),
             "contrast_gamma": tune.grid_search([1e-2, 1e-3]),
@@ -372,7 +372,7 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
             "agent": tune.grid_search(['branched']),
             "context_slot_dim": tune.grid_search([32]),
             "lr_transition_steps": tune.grid_search([0]),
-            "reanalyze_ratio": tune.grid_search([0.0]),
+            "reanalyze_ratio": tune.grid_search([.5]),
             "savi_grad_norm": tune.grid_search([80.0, 5.0, .5]),
             "grad_fn": tune.grid_search(['muzero', 'savi', 'muzero_savi']),
         },
@@ -427,7 +427,6 @@ def main(_):
     default_env_kwargs.update(dict(
     ))
 
-  search = FLAGS.search or 'default'
   wandb_init_kwargs = experiment_builders.setup_wandb_init_kwargs()
 
   run_distributed = FLAGS.run_distributed
@@ -446,7 +445,7 @@ def main(_):
       default_env_kwargs=default_env_kwargs,
       use_wandb=FLAGS.use_wandb,
       debug=FLAGS.debug,
-      space=sweep(search, FLAGS.agent),
+      space=sweep(sweep(FLAGS.search), FLAGS.agent),
       make_program_command=functools.partial(
         train_many.make_program_command,
         filename='experiments/babyai_online_trainer.py',
