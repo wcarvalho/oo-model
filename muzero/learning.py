@@ -569,12 +569,12 @@ class MuZeroLearner(acme.Learner):
     ###############################
     # log learning rate
     ###############################
-    count = self._state.opt_state[1][2].count[0]
     if callable(self.learning_rate):
+      count = self._state.opt_state[1][2].count[0]
       lr = self.learning_rate(count)
     else:
       lr = self.learning_rate
-    metrics['loss_metrics']['z.learning_rate'] = lr
+    metrics['loss_metrics']['z.learning_rate'] = np.array(lr)
 
     ###############################
     # checking for nans
