@@ -367,6 +367,8 @@ class MuZeroLearner(acme.Learner):
         samples)
 
       metrics = extra.metrics
+      metrics['loss_metrics']['0.0.final_loss'] = loss_value
+      metrics['loss_metrics'] = jax.tree_map(lambda x: x.mean(), metrics['loss_metrics'])
       priorities = extra.reverb_priorities
 
       # Average gradients over pmap replicas before optimizer update.
@@ -489,6 +491,7 @@ class MuZeroLearner(acme.Learner):
         optimizer = optax.chain(optax.clip_by_global_norm(
             config.max_grad_norm), optimizer)
 
+      self.learning_rate = learning_rate
       opt_state = optimizer.init(initial_params)
   
       # Log how many parameters the network has.
@@ -562,6 +565,16 @@ class MuZeroLearner(acme.Learner):
     self._state, (priorities, metrics) = self._sgd_step(self._state, samples)
     # Take metrics from first replica.
     metrics = utils.get_from_first_device(metrics)
+
+    ###############################
+    # log learning rate
+    ###############################
+    count = self._state.opt_state[1][2].count[0]
+    if callable(self.learning_rate):
+      lr = self.learning_rate(count)
+    else:
+      lr = self.learning_rate
+    metrics['loss_metrics']['z.learning_rate'] = lr
 
     ###############################
     # checking for nans
