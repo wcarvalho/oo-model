@@ -122,8 +122,8 @@ class MultitaskKitchen(dm_env.Environment):
         num_dists = level_kwargs['num_dists']
         more_dists = num_dists + 2
 
-        key1 = f"{key}_r={bigger_room_size}_d={num_dists}"
-        key2 = f"{key}_r={bigger_room_size}_d={more_dists}"
+        key1 = f"{key}_room"
+        key2 = f"{key}_room_dists"
         new_all_level_kwargs[key] = level_kwargs
         new_all_level_kwargs[key1] = dict(level_kwargs)
         new_all_level_kwargs[key1].update(

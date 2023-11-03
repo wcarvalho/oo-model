@@ -41,7 +41,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
 
   # state function
   inverted_attn: bool = True
-  context_slot_dim: int = 0
+  context_slot_dim: int = 32
   project_slot_values: bool = True
   pos_embed_attn: bool = False
   slot_value_combination: str = 'avg'
@@ -70,6 +70,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   tran_out_mlp: bool = True
 
   # prediction functions
+  seperate_model_nets: bool = True
   pred_gate: Optional[str] = 'gru'
   pred_task_combine: str = 'gather'
   prediction_blocks: int = 2 # number of transformer blocks
@@ -77,7 +78,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   slot_pred_heads: Optional[int] = None
   slot_pred_mlp_size: Optional[int] = None
   slot_pred_qkv_size: Optional[int] = None
-  learned_weights: bool = True
+  learned_weights: bool = False
 
   # w_attn_head: bool = True
   pred_input_selection: str = 'attention_gate'  # IMPORTANT
@@ -89,7 +90,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
 
 
   # loss
-  reanalyze_ratio: float = 0.25 # percent of time to use mcts vs. observed return
+  reanalyze_ratio: float = 0.5 # percent of time to use mcts vs. observed return
   state_model_loss: str = 'dot_contrast'
   contrast_gamma: float = 1e-2  # only for cswm and laplacian
   contrast_temp: float = 0.01  # only for dot_contrast
