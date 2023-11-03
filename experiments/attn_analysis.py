@@ -349,7 +349,7 @@ def asarry(data):
 def collect_episode(env, actor,
                     data: dict=collections.defaultdict(list),
                     get_task_name= lambda env: "task",
-                    collect_data = default_collect_data,
+                    collect_data = None,
                     data_post_process=asarry,
                     budget=np.inf):
     timestep = env.reset()
@@ -361,14 +361,17 @@ def collect_episode(env, actor,
         # Generate an action from the agent's policy.
 
         action = actor.select_action(timestep.observation)
-        collect_data(data=data,
-                     env=env,
-                     actor=actor,
-                     timestep=timestep,
-                     action=action)
+        if collect_data:
+          collect_data(data=data,
+                      env=env,
+                      actor=actor,
+                      timestep=timestep,
+                      action=action)
         # Step the environment with the agent's selected action.
         timestep = env.step(action)
         idx += 1
         if idx >= budget: break
+    # random action, just to collect data
+    action = actor.select_action(timestep.observation)
     data = data_post_process(data)
     return task_name, data

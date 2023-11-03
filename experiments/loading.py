@@ -83,9 +83,7 @@ def load_agent(env,
   # get all directories from year
   checkpointer = None
   if seed_path:
-    dirs = glob(os.path.join(seed_path, "*/checkpoints/learner")); 
-    ckpts = glob(os.path.join(dirs[0], "*"))
-    assert len(dirs) > 0
+    dirs, _ = get_dirs_ckpts(seed_path)
 
     checkpointing = experiments.CheckpointingConfig(
         directory=dirs[0],
@@ -121,12 +119,17 @@ def load_agent(env,
     checkpointer=checkpointer,
   )
 
+def get_dirs_ckpts(seed_path: str):
+  dirs = glob(os.path.join(seed_path, "checkpoints/learner"))
+  assert len(dirs) > 0
+  ckpts = glob(os.path.join(dirs[0], "*"))
+  assert len(ckpts) > 0
+  return dirs, ckpts
 
 def reload(checkpointer, seed_path, use_latest: bool = True):
   # get all directories from year
-  dirs = glob(os.path.join(seed_path, "*/checkpoints/learner")); 
-  ckpts = glob(os.path.join(dirs[0], "*"))
   # load checkpoint
+  _, ckpts = get_dirs_ckpts(seed_path)
   ckpts.sort()
   assert use_latest, 'need to implement otherwise'
   latest = ckpts[-1].split(".index")[0]

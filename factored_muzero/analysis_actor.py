@@ -110,6 +110,7 @@ class VisualizeActor(LearnableStateActor):
                logger: BaseLogger = AttnLogger(),
                log_frequency: int = 1000,  # every 1000 episodes
                verbosity: int=1,
+               log_to_wandb: bool = True,
                **kwargs):
     super().__init__(*args, **kwargs)
     logging.info('Initializing actor visualizer.')
@@ -117,11 +118,12 @@ class VisualizeActor(LearnableStateActor):
     self.idx = 0
     self.log_frequency = log_frequency
     self.verbosity = verbosity
+    self.log_to_wandb = log_to_wandb
 
   def observe_first(self, timestep: dm_env.TimeStep):
     super().observe_first(timestep)
 
-    if self.logger.has_data:
+    if self.logger.has_data and self.log_to_wandb:
       if self.verbosity:
         logging.info(f'logging actor data. idx {self.idx}')
       try:
