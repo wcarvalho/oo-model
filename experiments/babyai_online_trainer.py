@@ -190,6 +190,7 @@ def train_single(
     default_env_kwargs: dict = None,
     wandb_init_kwargs: dict = None,
     agent_config_kwargs: dict = None,
+    strict_config: bool = True, 
     **kwargs,
 ):
 
@@ -201,7 +202,7 @@ def train_single(
     agent_config_file=FLAGS.agent_config,
     env_kwargs=default_env_kwargs,
     env_config_file=FLAGS.env_config,
-    strict_config=False if FLAGS.debug else True,
+    strict_config=strict_config,
     debug=debug)
 
   log_dir = FLAGS.folder
@@ -411,7 +412,8 @@ def main(_):
     train_single(
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
-      agent_config_kwargs=agent_config_kwargs)
+      agent_config_kwargs=agent_config_kwargs,
+      strict_config=False)
   else:
     train_many.run(
       name='babyai_online_trainer',
