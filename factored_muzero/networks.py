@@ -697,7 +697,6 @@ def make_multi_head_prediction_function(
 
     context = task_projection(task)  # [D]
     concat = lambda a, b: jnp.concatenate((a, b))
-    import ipdb; ipdb.set_trace()
     if config.context_slot_dim:
       # task + image
       context = concat(context, state_rep.rep.context)

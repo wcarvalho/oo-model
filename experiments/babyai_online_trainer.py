@@ -66,7 +66,7 @@ def setup_agents(
     builder_kwargs = dict(
         visualization_logger=learner_logger.LearnerLogger(
             label='MuZeroLearnerLogger',
-            log_frequency=5 if debug else 6000,
+            log_frequency=5 if debug else 4000,
             discount=config.discount,
             **update_logger_kwargs,
         ),
@@ -146,7 +146,6 @@ def setup_experiment_inputs(
     del seed
     return babyai_env_utils.make_kitchen_environment(
         path=path,
-        debug=debug,
         evaluation=evaluation,
         **env_kwargs)
 
@@ -334,12 +333,13 @@ def sweep(search: str = 'default', **kwargs):
         # },
         {
             **shared, #4
-            "group": 'B28-contrastive',
+            "group": 'B29-replicate',
             "agent": tune.grid_search(['branched']),
             # "lr_transition_steps": tune.grid_search([1_000_000]),
-            "learned_weights": tune.grid_search([True]),
-            # "state_model_coef": tune.grid_search([1.0, 1e-2]),
-            # "extra_contrast": tune.grid_search([10, 20, 40, 80]),
+            "learned_weights": tune.grid_search([True, False]),
+            # "context_slot_dim": tune.grid_search([0]),
+            # "pred_gate": tune.grid_search(['gru']),
+            # "slot_pred_heads": tune.grid_search([1]),
         },
         # {
         #     **shared, # 6
@@ -354,28 +354,38 @@ def sweep(search: str = 'default', **kwargs):
     ]
   elif search == 'replicate':
     shared = {
-        "seed": tune.grid_search([2]),
-        # "agent": tune.grid_search(['branched']),
-        "partial_obs": tune.grid_search([True]),
+        "seed": tune.grid_search([5]),
+        "partial_obs": True,
          **settings['place7'],
     }
     space = [
-
+        # {
+        #     **shared, # 1
+        #     "group": 'B28-muzero',
+        #     "agent": tune.grid_search(['muzero']),
+        #     "lr_transition_steps": tune.grid_search([0, 1_000_000]),
+        #     "warmup_steps": tune.grid_search([0, 1_000]),
+        # },
         {
-            **shared,
-            "agent": tune.grid_search(['muzero']),
-            "agent_view_size": tune.grid_search([5]),
-            "group": tune.grid_search(['B17-view']),
+            **shared, #4
+            "group": 'B29-replicate',
+            "agent": tune.grid_search(['branched']),
+            # "lr_transition_steps": tune.grid_search([1_000_000]),
+            "learned_weights": tune.grid_search([True, False]),
+            # "context_slot_dim": tune.grid_search([0]),
+            # "pred_gate": tune.grid_search(['gru']),
+            # "slot_pred_heads": tune.grid_search([1]),
         },
-        {
-            **shared,
-            "agent_view_size": tune.grid_search([5]),
-            "agent": tune.grid_search(['factored']),
-            "state_model_coef": tune.grid_search([0.0, 1.0, 1e-2, 1e-3]),
-            # "contrast_gamma": tune.grid_search([1e-2, 1e-3]),
-            # "state_model_loss": tune.grid_search(['laplacian-state']),
-            "group": tune.grid_search(['B17-view']),
-        },
+        # {
+        #     **shared, # 6
+        #     "group": 'B28-optimizer',
+        #     "agent": tune.grid_search(['branched']),
+        #     "lr_transition_steps": tune.grid_search([0]),
+        #     "reanalyze_ratio": tune.grid_search([.5]),
+        #     "savi_grad_norm": tune.grid_search([80.0, 5.0, .5]),
+        #     "grad_fn": tune.grid_search(['muzero', 'savi']),
+        #     "muzero_grad_model": tune.grid_search([True, False]),
+        # },
     ]
   else:
     raise NotImplementedError(search)
@@ -393,6 +403,7 @@ def main(_):
       num_dists=1,
       agent_view_size=7,
       partial_obs=False,
+      timeout_terminate=False,
   )
 
   agent_config_kwargs = dict()

@@ -578,7 +578,6 @@ class FactoredMuZeroLearner(acme.Learner):
       logging.info('Total number of params: %.3g', total_params)
       print(f"{total_params:,}")
       pprint(param_sizes(initial_params))
-      import ipdb; ipdb.set_trace()
     else:
       raise NotImplementedError
 
@@ -650,7 +649,7 @@ class FactoredMuZeroLearner(acme.Learner):
     ###############################
     if callable(self._learning_rate):
       count = self._state.opt_state[1][2].count[0]
-      lr = self.learning_rate(count)
+      lr = self._learning_rate(count)
     else:
       lr = self.learning_rate
     metrics['loss_metrics']['z.learning_rate'] = np.array(lr)

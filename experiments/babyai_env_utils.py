@@ -59,6 +59,7 @@ def make_kitchen_environment(
   return_gym_env=False,
   wrapper_list=None,
   test_larger=True,
+  timeout_terminate: bool = False,
   **kwargs,
   ) -> dm_env.Environment:
   """Loads environments."""
