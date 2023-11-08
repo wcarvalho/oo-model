@@ -1,10 +1,10 @@
-conda create -n omodel python=3.9 -y
+conda create -n omodel2 python=3.9 -y
 
 eval "$(conda shell.bash hook)"
-conda activate omodel
+conda activate omodel2
 
 
-conda env update --name omodel --file env.yaml
+conda env update --name omodel2 --file env.yaml
 
 # conda install -c anaconda -y cudnn
 ##############################################
@@ -35,15 +35,15 @@ git checkout 4525ade7015c46f33556e18d76a8d542b916f264
 pip install --editable ".[jax,testing,envs]"
 cd ..
 
-pip install "gym[atari]==0.23.0"
-
-
 #############################################
 # jax
 # https://github.com/google/jax
 #############################################
 export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/local/cuda/targets/x86_64-linux/lib/
 pip install "jax[cuda11_cudnn82]==0.4.4" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+
+pip install chex==0.1.6
+pip install gym[accept-rom-license]
 
 #############################################
 # Setup activate/deactivate with correct PYTHONPATH and LD_LIBRARY_PATH

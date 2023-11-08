@@ -491,7 +491,7 @@ class MuZeroLearner(acme.Learner):
         optimizer = optax.chain(optax.clip_by_global_norm(
             config.max_grad_norm), optimizer)
 
-      self.learning_rate = learning_rate
+      self._learning_rate = learning_rate
       opt_state = optimizer.init(initial_params)
   
       # Log how many parameters the network has.
@@ -569,11 +569,11 @@ class MuZeroLearner(acme.Learner):
     ###############################
     # log learning rate
     ###############################
-    if callable(self.learning_rate):
+    if callable(self._learning_rate):
       count = self._state.opt_state[1][2].count[0]
-      lr = self.learning_rate(count)
+      lr = self._learning_rate(count)
     else:
-      lr = self.learning_rate
+      lr = self._learning_rate
     metrics['loss_metrics']['z.learning_rate'] = np.array(lr)
 
     ###############################

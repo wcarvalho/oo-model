@@ -35,7 +35,7 @@ export JAX_DISABLE_JIT=$(nojit)
 jupyter_lab:
 	DISPLAY=3 \
 	CUDA_VISIBLE_DEVICES=$(cuda) \
-	jupyter lab --port 5558 --no-browser --ip 0.0.0.0
+	jupyter lab --port 4442 --no-browser --ip 0.0.0.0
 
 babyai_dataset:
 	python -m ipdb -c continue experiments/babyai_collect_data.py \
@@ -103,7 +103,6 @@ online_babyai_sync:
 		--run_distributed=False \
 		--debug=$(debug_sync) \
 		--folder="$(folder)/$(babyai_online_project)_sync" \
-		--agent=$(agent) \
 		--tasks_file=$(task) \
 		--use_wandb=$(wandb_sync) \
 		--wandb_project="$(babyai_online_project)_sync" \
@@ -113,7 +112,6 @@ online_babyai_sync:
 		--wandb_dir=$(wandb_dir) \
 		--skip=$(skip) \
 		--search=$(search) \
-		--agent=$(agent) \
 		--num_gpus=$(gpus) \
 		--num_cpus=2
 
@@ -165,7 +163,6 @@ online_babyai_async:
 	python experiments/babyai_online_trainer.py \
 		--run_distributed=True \
 		--folder="$(folder)/$(babyai_online_project)_async" \
-		--agent=$(agent) \
 		--use_wandb=$(wandb) \
 		--wandb_project="$(babyai_online_project)_async" \
 		--wandb_entity=$(wandb_entity) \

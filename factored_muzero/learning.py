@@ -569,7 +569,7 @@ class FactoredMuZeroLearner(acme.Learner):
           grad_fn2=grad_fn2)
         optimizer = optax.chain(clip_grad_op, optimizer)
 
-      self.learning_rate = learning_rate
+      self._learning_rate = learning_rate
       opt_state = optimizer.init(initial_params)
   
       # Log how many parameters the network has.
@@ -578,6 +578,7 @@ class FactoredMuZeroLearner(acme.Learner):
       logging.info('Total number of params: %.3g', total_params)
       print(f"{total_params:,}")
       pprint(param_sizes(initial_params))
+      import ipdb; ipdb.set_trace()
     else:
       raise NotImplementedError
 
@@ -647,7 +648,7 @@ class FactoredMuZeroLearner(acme.Learner):
     ###############################
     # log learning rate
     ###############################
-    if callable(self.learning_rate):
+    if callable(self._learning_rate):
       count = self._state.opt_state[1][2].count[0]
       lr = self.learning_rate(count)
     else:

@@ -697,12 +697,13 @@ def make_multi_head_prediction_function(
 
     context = task_projection(task)  # [D]
     concat = lambda a, b: jnp.concatenate((a, b))
+    import ipdb; ipdb.set_trace()
     if config.context_slot_dim:
       # task + image
       context = concat(context, state_rep.rep.context)
-      # concatenate context with every factor
+      # concatenate context with every factor, [N, 2D]
       pred_input = jax.vmap(concat, (None, 0), (0))(context, factors)
-      pred_input = pred_transformer_(queries=pred_input)  # [N, 2D]
+      pred_input = pred_transformer_(queries=pred_input)
       attn_output = None
     else:
       queries = jax.vmap(concat, (None, 0), (0))(context, factors)
@@ -790,13 +791,11 @@ def make_multi_head_prediction_function(
 
 def make_babyai_networks(
   env_spec: specs.EnvironmentSpec,
-  num_spatial_vectors: int,
   config: MuZeroConfig,
   invalid_actions=None,
   agent_name: str = 'factored',
   **kwargs) -> MuZeroNetworks:
   """Builds default MuZero networks for BabyAI tasks."""
-  del num_spatial_vectors # no longer using
   num_actions = env_spec.actions.num_values
   def make_core_module() -> MuZeroNetworks:
     ###########################

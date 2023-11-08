@@ -54,7 +54,6 @@ from experiments import config_utils
 # -----------------------
 # flags
 # -----------------------
-flags.DEFINE_string('agent', 'muzero', 'which agent.')
 
 # Flags which modify the behavior of the launcher.
 flags.DEFINE_string('agent_config', '', 'config file')

@@ -66,7 +66,7 @@ def setup_agents(
     builder_kwargs = dict(
         visualization_logger=learner_logger.LearnerLogger(
             label='MuZeroLearnerLogger',
-            log_frequency=5 if debug else 4000,
+            log_frequency=5 if debug else 6000,
             discount=config.discount,
             **update_logger_kwargs,
         ),
@@ -101,12 +101,9 @@ def setup_agents(
         ),
 
     )
-    assert env_kwargs is not None
-    room_size = env_kwargs['room_size']
     builder, network_factory = babyai_factored_muzero.setup(
         config=config,
         agent_name=agent,
-        network_kwargs=dict(num_spatial_vectors=room_size**2),
         builder_kwargs=builder_kwargs,
         **setup_kwargs)
 
@@ -117,7 +114,6 @@ def setup_agents(
 
 
 def setup_experiment_inputs(
-    agent : str,
     path: str = '.',
     agent_config_kwargs: dict=None,
     agent_config_file: str=None,
@@ -141,6 +137,7 @@ def setup_experiment_inputs(
     env_kwargs = config_utils.load_config(env_config_file)
   logging.info(f'env_kwargs: {str(env_kwargs)}')
 
+  agent = config_kwargs.get("agent", "muzero")
   # -----------------------
   # setup environment factory
   # -----------------------
@@ -199,7 +196,6 @@ def train_single(
   debug = FLAGS.debug
 
   experiment_config_inputs = setup_experiment_inputs(
-    agent=FLAGS.agent,
     path=FLAGS.path,
     agent_config_kwargs=agent_config_kwargs,
     agent_config_file=FLAGS.agent_config,
@@ -224,12 +220,11 @@ def train_single(
   logger_factory_kwargs = dict(
     actor_label=f"actor_{tasks_file}",
     evaluator_label=f"evaluator_{tasks_file}",
-    # learner_label=f"learner_{FLAGS.agent}",
   )
 
   experiment = experiment_builders.build_online_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
-    agent=FLAGS.agent,
+    agent=experiment_config_inputs.agent_config.agent,
     log_dir=log_dir,
     wandb_init_kwargs=wandb_init_kwargs,
     logger_factory_kwargs=logger_factory_kwargs,
@@ -260,11 +255,11 @@ def train_single(
 
 
 
-def sweep(search: str = 'default', agent: str = 'muzero'):
+def sweep(search: str = 'default', **kwargs):
   settings=dict(
     place5=dict(tasks_file='place_split_medium', room_size=5, num_steps=3e6),
     place6=dict(tasks_file='place_split_medium', room_size=6, num_steps=5e6),
-    place7=dict(tasks_file='place_split_medium', room_size=7, num_steps=6e6),
+    place7=dict(tasks_file='place_split_medium', room_size=7, num_steps=7e6),
     medium5=dict(tasks_file='medium_medium', room_size=5, num_steps=4e6),
     medium6=dict(tasks_file='medium_medium', room_size=6, num_steps=6e6),
     medium7=dict(tasks_file='medium_medium', room_size=7, num_steps=8e6),
@@ -324,60 +319,39 @@ def sweep(search: str = 'default', agent: str = 'muzero'):
     ]
   elif search == 'factored1':
     shared = {
-        "seed": tune.grid_search([5]),
+        "seed": tune.grid_search([3,4]),
         "partial_obs": True,
          **settings['place7'],
     }
     space = [
-        {
-            **shared, # 1
-            "group": 'B27-muzero',
-            "agent": tune.grid_search(['muzero']),
-            "lr_transition_steps": tune.grid_search([0]),
-            "warmup_steps": tune.grid_search([0]),
-        },
-        {
-            **shared, # 1
-            "group": 'B27-no-loss',
-            "agent": tune.grid_search(['branched']),
-            "context_slot_dim": tune.grid_search([32]),
-            "lr_transition_steps": tune.grid_search([1_000_000]),
-            "reanalyze_ratio": tune.grid_search([.5]),
-            "state_model_coef": tune.grid_search([0.0]),
-        },
+        # {
+        #     **shared, # 1
+        #     "group": 'B28-muzero',
+        #     "agent": tune.grid_search(['muzero']),
+        #     "lr_transition_steps": tune.grid_search([0, 1_000_000]),
+        #     "warmup_steps": tune.grid_search([0, 1_000]),
+        # },
         {
             **shared, #4
-            "group": 'B27-contrastive',
+            "group": 'B28-contrastive',
             "agent": tune.grid_search(['branched']),
-            "context_slot_dim": tune.grid_search([32]),
-            "lr_transition_steps": tune.grid_search([1_000_000]),
-            "reanalyze_ratio": tune.grid_search([.5]),
-            "state_model_coef": tune.grid_search([1.0, 1e-2]),
-            "extra_contrast": tune.grid_search([1, 10]),
+            # "lr_transition_steps": tune.grid_search([1_000_000]),
+            "learned_weights": tune.grid_search([True]),
+            # "state_model_coef": tune.grid_search([1.0, 1e-2]),
+            # "extra_contrast": tune.grid_search([10, 20, 40, 80]),
         },
-        {
-            **shared, #4
-            "group": 'B27-laplacian',
-            "agent": tune.grid_search(['branched']),
-            "context_slot_dim": tune.grid_search([32]),
-            "lr_transition_steps": tune.grid_search([1_000_000]),
-            "reanalyze_ratio": tune.grid_search([.5]),
-            "state_model_loss": tune.grid_search(['laplacian-state']),
-            "state_model_coef": tune.grid_search([1.0, 1e-2]),
-            "contrast_gamma": tune.grid_search([1e-2, 1e-3]),
-        },
-        {
-            **shared, # 6
-            "group": 'B27-optimizer',
-            "agent": tune.grid_search(['branched']),
-            "context_slot_dim": tune.grid_search([32]),
-            "lr_transition_steps": tune.grid_search([0]),
-            "reanalyze_ratio": tune.grid_search([.5]),
-            "savi_grad_norm": tune.grid_search([5.0, .5]),
-            "grad_fn": tune.grid_search(['muzero', 'savi', 'muzero_savi']),
-        },
+        # {
+        #     **shared, # 6
+        #     "group": 'B28-optimizer',
+        #     "agent": tune.grid_search(['branched']),
+        #     "lr_transition_steps": tune.grid_search([0]),
+        #     "reanalyze_ratio": tune.grid_search([.5]),
+        #     "savi_grad_norm": tune.grid_search([80.0, 5.0, .5]),
+        #     "grad_fn": tune.grid_search(['muzero', 'savi']),
+        #     "muzero_grad_model": tune.grid_search([True, False]),
+        # },
     ]
-  elif search == 'factored2':
+  elif search == 'replicate':
     shared = {
         "seed": tune.grid_search([2]),
         # "agent": tune.grid_search(['branched']),
@@ -428,9 +402,9 @@ def main(_):
     ))
 
   wandb_init_kwargs = experiment_builders.setup_wandb_init_kwargs()
-
   run_distributed = FLAGS.run_distributed
   num_actors = FLAGS.num_actors
+
   if FLAGS.train_single:
     first_config = experiment_builders.extract_first_config(sweep(FLAGS.search))
     agent_config_kwargs.update(**first_config)
@@ -445,7 +419,7 @@ def main(_):
       default_env_kwargs=default_env_kwargs,
       use_wandb=FLAGS.use_wandb,
       debug=FLAGS.debug,
-      space=sweep(FLAGS.search, FLAGS.agent),
+      space=sweep(FLAGS.search),
       make_program_command=functools.partial(
         train_many.make_program_command,
         filename='experiments/babyai_online_trainer.py',
