@@ -68,8 +68,9 @@ from muzero.learning import MuZeroLearner
 from muzero import actor as muzero_actor
 from muzero.ve_losses import ValueEquivalentLoss
 from muzero import learner_logger
+from muzero import r2d2_builder
 
-class MuZeroBuilder(r2d2.R2D2Builder):
+class MuZeroBuilder(r2d2_builder.R2D2Builder):
   """MuZero Builder.
 
   This constructs all the pieces of MuZero.
@@ -163,7 +164,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
             max_size=self._config.max_replay_size,
             rate_limiter=limiter,
             signature=sw.infer_signature(
-                configs=r2d2.builder._make_adder_config(
+                configs=r2d2_builder._make_adder_config(
                     step_spec, self._sequence_length,
                     self._config.sequence_period),
                 step_spec=step_spec))
@@ -191,7 +192,7 @@ class MuZeroBuilder(r2d2.R2D2Builder):
     return structured.StructuredAdder(
         client=replay_client,
         max_in_flight_items=5,
-        configs=r2d2.builder._make_adder_config(step_spec, self._sequence_length,
+        configs=r2d2_builder._make_adder_config(step_spec, self._sequence_length,
                                                 self._config.sequence_period),
         step_spec=step_spec)
 
