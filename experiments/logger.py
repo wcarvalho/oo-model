@@ -95,6 +95,7 @@ def make_logger(
     asynchronous: bool = False,
     use_tensorboard: bool = False,
     use_wandb: bool = True,
+    max_number_of_steps: int=None,
     print_fn: Optional[Callable[[str], None]] = None,
     serialize_fn: Optional[Callable[[Mapping[str, Any]], str]] = copy_numpy,
     steps_key: str = 'steps',
@@ -143,6 +144,7 @@ def make_logger(
     loggers.append(WandbLogger(
       label=label,
       steps_key=steps_key,
+      max_number_of_steps=max_number_of_steps,
       ))
 
   # Dispatch to all writers and filter Nones and by time.
@@ -183,6 +185,7 @@ class WandbLogger(base.Logger):
       label: str = 'Logs',
       steps_key: Optional[str] = None,
       name_fn = None,
+      max_number_of_steps: Optional[int] = None,
       **kwargs,
   ):
     """Initializes the logger.
@@ -191,13 +194,27 @@ class WandbLogger(base.Logger):
       label: label string to use when logging. Default to 'Logs'.
       steps_key: key to use for steps. Must be in the values passed to write.
     """
+    if name_fn is None:
+      name_fn = default_logger_name_fn
+    if max_number_of_steps is not None:
+      logging.warning(f"Will exit after {max_number_of_steps} steps")
+
     self._time = time.time()
     self.label = label
     self._iter = 0
     self._steps_key = steps_key
-    if name_fn is None:
-      name_fn = default_logger_name_fn
     self._name_fn = name_fn
+    self.max_number_of_steps = max_number_of_steps
+
+  def try_terminate(self, step: int):
+
+    if step > int(1.05*self.max_number_of_steps):
+      logging.warning("Exiting launchpad")
+      import launchpad as lp  # pylint: disable=g-import-not-at-top
+      lp.stop()
+      import signal
+      signal.raise_signal( signal.SIGTERM )
+
 
   def write(self, values: base.LoggingData):
     label = self.label
@@ -218,6 +235,14 @@ class WandbLogger(base.Logger):
     wandb.log(to_log)
 
     self._iter += 1
+    if self.max_number_of_steps is not None:
+      if self._steps_key == 'actor_steps':
+        self.try_terminate(step)
+      else:
+        try:
+          self.try_terminate(values['actor_steps'])
+        except Exception as e:
+          pass
 
   def close(self):
     try:

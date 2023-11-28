@@ -186,6 +186,7 @@ def setup_logger_factory(
           time_delta=0.0,
           log_with_key=log_with_key,
           steps_key=steps_key,
+          max_number_of_steps=agent_config.num_steps,
           save_data=task_id == 0,
           use_wandb=use_wandb)
     elif name == 'evaluator':
@@ -195,6 +196,7 @@ def setup_logger_factory(
           time_delta=0.0,
           log_with_key=log_with_key,
           steps_key=steps_key,
+          max_number_of_steps=agent_config.num_steps,
           use_wandb=use_wandb)
     elif name == 'learner':
       return wandb_logger.make_logger(
@@ -202,6 +204,7 @@ def setup_logger_factory(
           label=learner_label,
           time_delta=log_every,
           steps_key=steps_key,
+          max_number_of_steps=agent_config.num_steps,
           use_wandb=use_wandb,
           asynchronous=True)
   return logger_factory
