@@ -43,7 +43,7 @@ def setup_agents(
   config_kwargs = config_kwargs or dict()
   update_logger_kwargs = update_logger_kwargs or dict()
   setup_kwargs = setup_kwargs or dict()
-
+  del env_kwargs
   # -----------------------
   # load agent config, builder, network factory
   # -----------------------
@@ -267,14 +267,7 @@ def sweep(search: str = 'default', **kwargs):
     long6=dict(tasks_file='long_medium', room_size=6, num_steps=7e6),
     long7=dict(tasks_file='long_medium', room_size=7, num_steps=9e6),
   )
-  if search == 'default':
-    space = [
-        {
-            "seed": tune.grid_search([1]),
-            "agent": tune.grid_search([agent]),
-        }
-    ]
-  elif search == 'benchmark':
+  if search == 'benchmark':
     shared = {
       "seed": tune.grid_search([1]),
       "group": tune.grid_search(['benchmark6']),
@@ -354,38 +347,26 @@ def sweep(search: str = 'default', **kwargs):
     ]
   elif search == 'replicate':
     shared = {
-        "seed": tune.grid_search([5]),
+        "seed": tune.grid_search([5, 6]),
         "partial_obs": True,
          **settings['place7'],
     }
     space = [
         # {
-        #     **shared, # 1
-        #     "group": 'B28-muzero',
-        #     "agent": tune.grid_search(['muzero']),
-        #     "lr_transition_steps": tune.grid_search([0, 1_000_000]),
-        #     "warmup_steps": tune.grid_search([0, 1_000]),
+        #     **shared, #4
+        #     "group": 'B35-replicate-terminate',
+        #     "agent": tune.grid_search(['muzero', 'branched']),
+        #     "timeout_truncate": tune.grid_search([True, False]),
         # },
         {
             **shared, #4
-            "group": 'B29-replicate',
+            "group": 'B37-replicate-2',
             "agent": tune.grid_search(['branched']),
-            # "lr_transition_steps": tune.grid_search([1_000_000]),
-            "learned_weights": tune.grid_search([True, False]),
-            # "context_slot_dim": tune.grid_search([0]),
-            # "pred_gate": tune.grid_search(['gru']),
-            # "slot_pred_heads": tune.grid_search([1]),
+            "learned_weights": tune.grid_search(
+              ['normalized', 'softmax']),
+            # "staircase_decay": tune.grid_search([True, False]),
+            "reanalyze_ratio": tune.grid_search([0.0, .25, .5]),
         },
-        # {
-        #     **shared, # 6
-        #     "group": 'B28-optimizer',
-        #     "agent": tune.grid_search(['branched']),
-        #     "lr_transition_steps": tune.grid_search([0]),
-        #     "reanalyze_ratio": tune.grid_search([.5]),
-        #     "savi_grad_norm": tune.grid_search([80.0, 5.0, .5]),
-        #     "grad_fn": tune.grid_search(['muzero', 'savi']),
-        #     "muzero_grad_model": tune.grid_search([True, False]),
-        # },
     ]
   else:
     raise NotImplementedError(search)
@@ -403,12 +384,13 @@ def main(_):
       num_dists=1,
       agent_view_size=7,
       partial_obs=False,
-      timeout_terminate=False,
+      timeout_truncate=True,
   )
 
   agent_config_kwargs = dict()
   if FLAGS.debug:
     agent_config_kwargs.update(dict(
+      learned_weights='none',
     ))
     default_env_kwargs.update(dict(
     ))
@@ -417,7 +399,7 @@ def main(_):
   run_distributed = FLAGS.run_distributed
   num_actors = FLAGS.num_actors
 
-  if FLAGS.train_single:
+  if FLAGS.debug:
     first_config = experiment_builders.extract_first_config(sweep(FLAGS.search))
     agent_config_kwargs.update(**first_config)
     train_single(
@@ -425,6 +407,14 @@ def main(_):
       default_env_kwargs=default_env_kwargs,
       agent_config_kwargs=agent_config_kwargs,
       strict_config=False)
+    return
+
+  if FLAGS.train_single:
+    train_single(
+      wandb_init_kwargs=wandb_init_kwargs,
+      default_env_kwargs=default_env_kwargs,
+      agent_config_kwargs=agent_config_kwargs,
+      strict_config=True)
   else:
     train_many.run(
       name='babyai_online_trainer',

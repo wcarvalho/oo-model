@@ -39,7 +39,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   use_stored_lstm_state: bool = True
   warmup_steps: int = 1_000
   learning_rate_decay: float = .1
-  lr_transition_steps: int = 100_000
+  lr_transition_steps: int = 1_000_000
   weight_decay: float = 1e-4
   # max_grad_norm: float = 80.0
   # adam_eps: float = 1e-3
