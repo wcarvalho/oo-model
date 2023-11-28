@@ -70,7 +70,7 @@ class MultitaskKitchen(dm_env.Environment):
     num_dists=0,
     symbolic=False,
     test_larger=False,
-    timeout_terminate=False,
+    timeout_truncate=False,
     **kwargs):
     """Initializes a new Kitchen environment.
     Args:
@@ -80,7 +80,7 @@ class MultitaskKitchen(dm_env.Environment):
     """
 
     self.separate_eval = separate_eval
-    self.timeout_terminate = timeout_terminate
+    self.timeout_truncate = timeout_truncate
     level_kwargs = dict(
       room_size=room_size,
       agent_view_size=agent_view_size,
@@ -180,10 +180,10 @@ class MultitaskKitchen(dm_env.Environment):
       if info['success']:
         return dm_env.termination(reward=reward, observation=obs)
       else:
-        if self.timeout_terminate:
-          return dm_env.termination(reward=reward, observation=obs)
-        else:
+        if self.timeout_truncate:
           return dm_env.truncation(reward=reward, observation=obs)
+        else:
+          return dm_env.termination(reward=reward, observation=obs)
     else:
       return dm_env.transition(reward=reward, observation=obs)
 

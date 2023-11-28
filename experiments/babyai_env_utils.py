@@ -59,7 +59,7 @@ def make_kitchen_environment(
   return_gym_env=False,
   wrapper_list=None,
   test_larger=True,
-  timeout_terminate: bool = False,
+  timeout_truncate: bool = False,
   **kwargs,
   ) -> dm_env.Environment:
   """Loads environments."""
@@ -106,6 +106,7 @@ def make_kitchen_environment(
     debug=debug,
     nseeds=nseeds,
     test_larger=test_larger and evaluation,
+    timeout_truncate=timeout_truncate,
     **kwargs
     )
 
