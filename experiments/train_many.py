@@ -28,7 +28,6 @@ def directory_not_empty(directory_path):
     return len(os.listdir(directory_path)) > 0
 
 def make_program_command(
-    agent: str,
     folder: str,
     agent_config: str,
     env_config: str,
@@ -46,7 +45,6 @@ def make_program_command(
 
   assert filename, 'please provide file'
   str = f"""python {filename}
-		--agent={agent}
 		--use_wandb=True
 		--wandb_project='{wandb_project}'
 		--wandb_entity='{wandb_entity}'
@@ -77,7 +75,6 @@ def create_and_run_program(
   """Create and run launchpad program
   """
 
-  agent = config.pop('agent', 'muzero')
   cuda = config.pop('cuda', None)
   label = config.pop('label', DEFAULT_LABEL)
 
@@ -103,11 +100,7 @@ def create_and_run_program(
   # -----------------------
   # get log dir for experiment
   # -----------------------
-  log_path_config=dict(
-    agent=agent,
-    **env_path,
-    **config
-    )
+  log_path_config=dict(**env_path, **config)
 
   wandb_group = None
   if wandb_init_kwargs:
@@ -159,7 +152,6 @@ def create_and_run_program(
 
   #TODO: could be made more general...
   command = make_program_command(
-    agent=agent,
     wandb_init_kwargs=wandb_init_kwargs,
     folder=log_dir,
     agent_config=agent_config_file,
