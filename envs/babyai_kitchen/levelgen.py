@@ -596,23 +596,21 @@ class KitchenLevel(RoomGridLevel):
     if self.task is not None:
         reward, done = self.task.check_and_update_status()
         reward = float(reward)
+        if done:
+           info['success'] = True
         if self.verbosity > 0:
           if reward !=0:
             print("REWARD:", reward)
+
     # if past step count, done
     if self.step_count >= self.max_steps and self.use_time_limit:
         done = True
-        info['success'] = False
 
     obs = self.gen_obs()
     if self.debug:
       reward = 1.0
 
     reward = reward*self.reward_coeff
-    reward = float(reward)
-
-    if reward > 0:
-       info['success'] = True
 
     return obs, reward, done, info
 
