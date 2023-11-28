@@ -670,11 +670,15 @@ def make_multi_head_prediction_function(
       name='pred_model_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
     model_policy_fn = make_pred_fn(
       name='pred_model_policy', sizes=config.vpi_mlps, num_preds=num_actions)
+    model_weight_fn = make_pred_fn(
+      name='pred_weights', sizes=config.vpi_mlps, num_preds=1)
+
   else:
     model_pred_transformer = pred_transformer
     model_value_fn = value_fn
     model_policy_fn = policy_fn
     model_vpi_base = vpi_base
+    model_weight_fn = weight_fn
 
   task_projection = hk.Linear(
       config.slot_size,
@@ -682,7 +686,7 @@ def make_multi_head_prediction_function(
       with_bias=False,
       name='pred_task_projection')
 
-  def task_concat_factors(state_rep, pred_transformer_):
+  def task_concat_factors(state_rep, pred_transformer_, weight_fn_):
     """
     factors: [N or N+1,D]. N+1 if have a factor for full image.
     task: [D]
@@ -710,13 +714,18 @@ def make_multi_head_prediction_function(
       attn_output = pred_input
     pred_input = pred_input.factors
 
-    if config.learned_weights:
-      weights = weight_fn(pred_input)  # [N, 1]
+    if config.learned_weights == 'softmax':
+      weights = weight_fn_(pred_input)  # [N, 1]
       weights = jax.nn.softmax(weights, axis=-2)
-    else:
+    elif config.learned_weights == 'normalized':
+      weights = weight_fn_(pred_input)  # [N, 1]
+      weights = weights/jnp.sum(weights, keepdims=True, axis=-2)
+    elif config.learned_weights == 'none':
       nfactors = len(factors)
       weights = jnp.ones(nfactors)/nfactors
       weights = weights[:, None]
+    else:
+      raise NotImplementedError
 
     return pred_input, weights, attn_output
 
@@ -729,7 +738,9 @@ def make_multi_head_prediction_function(
     def _root_predictor(state_rep: TaskAwareSaviState):
 
       pred_input, weights, outputs = task_concat_factors(
-        state_rep, pred_transformer_=pred_transformer)
+        state_rep,
+        pred_transformer_=pred_transformer,
+        weight_fn_=weight_fn)
 
       if config.share_pred_base:
         pred_input = vpi_base(pred_input).factors
@@ -759,7 +770,9 @@ def make_multi_head_prediction_function(
     def _model_predictor(state_rep: TaskAwareSaviState):
 
       pred_input, weights, outputs = task_concat_factors(
-        state_rep, pred_transformer_=model_pred_transformer)
+        state_rep,
+        pred_transformer_=model_pred_transformer,
+        weight_fn_=model_weight_fn)
 
       reward_logits = reward_fn(pred_input)
       if config.share_pred_base:

@@ -78,7 +78,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   slot_pred_heads: Optional[int] = None
   slot_pred_mlp_size: Optional[int] = None
   slot_pred_qkv_size: Optional[int] = None
-  learned_weights: bool = False
+  learned_weights: str = 'softmax'
 
   # w_attn_head: bool = True
   pred_input_selection: str = 'attention_gate'  # IMPORTANT
