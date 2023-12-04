@@ -140,8 +140,9 @@ class LearnerLogger(BaseLogger):
     ######################
     # plot value/policy entropy 
     ######################
+    value_dim = value_probs.shape[0]
     value_entropy = analyis_utils.compute_entropy(
-      prob=self._mask_fn(value_probs, in_episode[:-1]),
+      prob=self._mask_fn(value_probs, in_episode[:value_dim]),
     )
     prob_entropy = analyis_utils.compute_entropy(
       prob=self._mask_fn(policy_probs, in_episode),
@@ -161,12 +162,14 @@ class LearnerLogger(BaseLogger):
     ######################
     # root
     episode_return = compute_episode_return(reward, gamma=self._discount)
+    dim = value_loss_mask.shape[0]
     value_plot = analyis_utils.plot_line(
         ys=[
           self._mask_fn(value_prediction, value_loss_mask),
           self._mask_fn(mcts_values, value_loss_mask),
-          self._mask_fn(episode_return[:-1], value_loss_mask),
-          self._mask_fn(value_root_target, value_loss_mask),
+          self._mask_fn(episode_return[:dim], value_loss_mask),
+          self._mask_fn(value_root_target,
+                        value_loss_mask[:value_root_target.shape[0]]),
         ],
         labels=[
           "Value Prediction",

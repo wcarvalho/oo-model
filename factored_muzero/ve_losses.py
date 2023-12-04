@@ -95,6 +95,7 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
                state_model_coef: float = 1.0,
                attention_penalty: float = 0.0,
                recon_coeff: float = 1.0,
+               root_target: str = 'return',
                **kwargs,
                ):
     super().__init__(**kwargs)
@@ -106,6 +107,7 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
     self._state_model_coef = state_model_coef
     self._attention_penalty = attention_penalty
     self._recon_coeff = recon_coeff
+    self._root_target = root_target
 
     if get_factors is None:
       get_factors = lambda state: state.rep.factors
@@ -139,10 +141,18 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
     ###############################
     # Root losses
     ###############################
+    if self._root_target == "mcts":
+      root_target = self._discretizer.scalar_to_probs(mcts_values)
+      root_target = jax.lax.stop_gradient(root_target)
+    elif self._root_target == "model_target":
+      root_target = value_probs_target
+    else:
+      raise NotImplementedError
+
     # [T/T-1]
-    dim_return = value_probs_target.shape[0]
+    dim_return = root_target.shape[0]
     root_value_ce = jax.vmap(rlax.categorical_cross_entropy)(
-        value_probs_target, online_outputs.value_logits[:dim_return])
+        root_target, online_outputs.value_logits[:dim_return])
     # []
     raw_root_value_loss = masked_mean(root_value_ce, in_episode[:dim_return])
     root_value_loss = self._root_value_coef*raw_root_value_loss
@@ -232,7 +242,7 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
     else:
       nz = self._simulation_steps
     dummy_zeros = self._discretizer.scalar_to_probs(jnp.zeros(nz))
-    value_model_target = jnp.concatenate((value_probs_target, dummy_zeros))
+    value_model_target = jnp.concatenate((root_target, dummy_zeros))
 
     # for every timestep t=0,...T,  we have predictions for t+1, ..., t+k where k = simulation_steps
     # use rolling window to create T x k prediction targets
@@ -246,7 +256,7 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
     # get masks for losses
     #------------
     # if dim_return is LESS than number of predictions, then have extra target, so mask it
-    extra_v = self._simulation_steps + int(dim_return < npreds)
+    extra_v = self._simulation_steps + int(dim_return < nsteps)
     mask_includes_terminal = jnp.concatenate((in_episode[1:], jnp.zeros(self._simulation_steps)))
     if self._mask_model:
       mask_no_terminal = jnp.concatenate((in_episode[1:dim_return], jnp.zeros(extra_v)))

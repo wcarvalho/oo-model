@@ -546,28 +546,33 @@ class FactoredMuZeroLearner(acme.Learner):
         optimizer = optax.adam(learning_rate=learning_rate, eps=config.adam_eps)
 
       if config.max_grad_norm:
-        muzero_params = ('pred')
-        if config.muzero_grad_model:
-          muzero_params += ('model')
-
-        if config.grad_fn == 'muzero':
-          grad_fn1=muzero_clip_grads
-          grad_fn2=muzero_clip_grads
-        elif config.grad_fn == 'savi':
-          grad_fn1=savi_clip_grads
-          grad_fn2=savi_clip_grads
-        elif config.grad_fn == 'muzero_savi':
-          grad_fn1 = muzero_clip_grads
-          grad_fn2 = savi_clip_grads
+        if config.grad_fn == 'shared':
+          optimizer = optax.chain(optax.clip_by_global_norm(
+              config.max_grad_norm), optimizer)
         else:
-          raise NotImplementedError
+          muzero_params = ('pred')
+          if config.muzero_grad_model:
+            muzero_params += ('model')
 
-        clip_grad_op = split_clip_by_norm(
-          config.max_grad_norm, config.savi_grad_norm,
-          muzero_params,
-          grad_fn1=grad_fn1,
-          grad_fn2=grad_fn2)
-        optimizer = optax.chain(clip_grad_op, optimizer)
+          if config.grad_fn == 'muzero':
+            grad_fn1=muzero_clip_grads
+            grad_fn2=muzero_clip_grads
+          elif config.grad_fn == 'savi':
+            grad_fn1=savi_clip_grads
+            grad_fn2=savi_clip_grads
+          elif config.grad_fn == 'muzero_savi':
+            grad_fn1 = muzero_clip_grads
+            grad_fn2 = savi_clip_grads
+          else:
+            raise NotImplementedError
+
+          savi_grad_norm = config.savi_grad_norm or config.max_grad_norm
+          clip_grad_op = split_clip_by_norm(
+            config.max_grad_norm, savi_grad_norm,
+            muzero_params,
+            grad_fn1=grad_fn1,
+            grad_fn2=grad_fn2)
+          optimizer = optax.chain(clip_grad_op, optimizer)
 
       self._learning_rate = learning_rate
       opt_state = optimizer.init(initial_params)

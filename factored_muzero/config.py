@@ -42,11 +42,11 @@ class FactoredMuZeroConfig(MuZeroConfig):
   # state function
   inverted_attn: bool = True
   context_slot_dim: int = 32
-  project_slot_values: bool = True
   pos_embed_attn: bool = False
   slot_value_combination: str = 'avg'
-  clip_attn_probs: bool = False
+  clip_attn_probs: bool = True
   savi_iterations: int = 4
+  relation_dim: int = 64
   savi_mlp_size: Optional[int] = None
   savi_epsilon: float = 1e-5
   savi_rnn: str = 'gru'
@@ -90,7 +90,8 @@ class FactoredMuZeroConfig(MuZeroConfig):
 
 
   # loss
-  reanalyze_ratio: float = 0.5 # percent of time to use mcts vs. observed return
+  new_factored_learner: bool = True
+  reanalyze_ratio: float = 0.25 # percent of time to use mcts vs. observed return
   state_model_loss: str = 'dot_contrast'
   contrast_gamma: float = 1e-2  # only for cswm and laplacian
   contrast_temp: float = 0.01  # only for dot_contrast
@@ -99,9 +100,12 @@ class FactoredMuZeroConfig(MuZeroConfig):
   weight_decay: float = 1e-4  # very few params
   attention_penalty: float = 0.0
   extra_contrast: int = 10
+  lr_transition_steps: int = 1_000_000
+  root_target: str = 'model_target'
 
   recon_coeff: float = 0.0
 
-  savi_grad_norm: float = 80.0
+  savi_grad_norm: Optional[float] = None
   muzero_grad_model: bool = False
-  grad_fn: str = 'muzero'
+  grad_fn: str = 'shared'
+  new_learner: bool = False

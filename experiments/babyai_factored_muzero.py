@@ -105,6 +105,7 @@ def setup(
     mask_model=config.mask_model,
     attention_penalty=config.attention_penalty,
     invalid_actions=invalid_actions,
+    root_target=config.root_target,
     get_state=get_state_remove_attention,
     **loss_kwargs,
     )
@@ -116,11 +117,17 @@ def setup(
       agent_name=agent_name,
       **network_kwargs)
   
+  learnerCls = None
+  if config.new_factored_learner:
+    learnerCls = FactoredMuZeroLearner
+  else:
+    from muzero.learning import MuZeroLearner
+    learnerCls = MuZeroLearner
 
   builder = MuZeroBuilder(
       config=config,
       loss_fn=ve_loss_fn,
-      learnerCls=FactoredMuZeroLearner,
+      learnerCls=learnerCls,
       network_factory=network_factory,
       **builder_kwargs)
 

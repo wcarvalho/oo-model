@@ -137,7 +137,8 @@ def setup_experiment_inputs(
     env_kwargs = config_utils.load_config(env_config_file)
   logging.info(f'env_kwargs: {str(env_kwargs)}')
 
-  agent = config_kwargs.get("agent", "muzero")
+  agent = config_kwargs.get("agent")
+  assert agent != 'agent', "no agent selected"
   # -----------------------
   # setup environment factory
   # -----------------------
@@ -251,7 +252,9 @@ def train_single(
     controller._kill()
 
   else:
-    experiments.run_experiment(experiment=experiment)
+    experiments.run_experiment(
+      experiment=experiment,
+      num_eval_episodes=10)
 
 
 
@@ -312,37 +315,40 @@ def sweep(search: str = 'default', **kwargs):
     ]
   elif search == 'factored1':
     shared = {
-        "seed": tune.grid_search([3,4]),
+        # "seed": tune.grid_search([3]),
         "partial_obs": True,
          **settings['place7'],
     }
     space = [
-        # {
-        #     **shared, # 1
-        #     "group": 'B28-muzero',
-        #     "agent": tune.grid_search(['muzero']),
-        #     "lr_transition_steps": tune.grid_search([0, 1_000_000]),
-        #     "warmup_steps": tune.grid_search([0, 1_000]),
-        # },
         {
             **shared, #4
-            "group": 'B29-replicate',
+            "group": 'B40-contrastive',
             "agent": tune.grid_search(['branched']),
-            # "lr_transition_steps": tune.grid_search([1_000_000]),
-            "learned_weights": tune.grid_search([True, False]),
-            # "context_slot_dim": tune.grid_search([0]),
-            # "pred_gate": tune.grid_search(['gru']),
-            # "slot_pred_heads": tune.grid_search([1]),
+            "seed": tune.grid_search([3,4]),
+            "learned_weights": tune.grid_search(['softmax']),
+            "relation_dim": tune.grid_search([512]),
+            "savi_epsilon": tune.grid_search([1e-5, 1e-8]),
+            "extra_contrast": tune.grid_search([40, 80]),
         },
         # {
-        #     **shared, # 6
-        #     "group": 'B28-optimizer',
+        #     **shared, #4
+        #     "group": 'B40-target',
         #     "agent": tune.grid_search(['branched']),
-        #     "lr_transition_steps": tune.grid_search([0]),
-        #     "reanalyze_ratio": tune.grid_search([.5]),
-        #     "savi_grad_norm": tune.grid_search([80.0, 5.0, .5]),
-        #     "grad_fn": tune.grid_search(['muzero', 'savi']),
-        #     "muzero_grad_model": tune.grid_search([True, False]),
+        #     "seed": tune.grid_search([3]),
+        #     "learned_weights": tune.grid_search(['softmax']),
+        #     "reanalyze_ratio": tune.grid_search([0.0, .25]),
+        #     "root_target": tune.grid_search(['mcts']),
+        #     "relation_dim": tune.grid_search([256]),
+        #     "savi_epsilon": tune.grid_search([1e-5, 1e-8]),
+        # },
+        # {
+        #     **shared, #4
+        #     "group": 'B40-relation',
+        #     "agent": tune.grid_search(['branched']),
+        #     "seed": tune.grid_search([3]),
+        #     "learned_weights": tune.grid_search(['softmax']),
+        #     "relation_dim": tune.grid_search([256, 512]),
+        #     "savi_epsilon": tune.grid_search([1e-5, 1e-8]),
         # },
     ]
   elif search == 'replicate':
@@ -363,9 +369,11 @@ def sweep(search: str = 'default', **kwargs):
             "group": 'B37-replicate-2',
             "agent": tune.grid_search(['branched']),
             "learned_weights": tune.grid_search(
-              ['normalized', 'softmax']),
+              ['none', 'softmax']),
+            "seperate_model_nets": tune.grid_search(
+              [True, False]),
             # "staircase_decay": tune.grid_search([True, False]),
-            "reanalyze_ratio": tune.grid_search([0.0, .25, .5]),
+            "reanalyze_ratio": tune.grid_search([.25]),
         },
     ]
   else:
@@ -383,18 +391,11 @@ def main(_):
       room_size=FLAGS.room_size,
       num_dists=1,
       agent_view_size=7,
-      partial_obs=False,
+      partial_obs=True,
       timeout_truncate=True,
   )
 
   agent_config_kwargs = dict()
-  if FLAGS.debug:
-    agent_config_kwargs.update(dict(
-      learned_weights='none',
-    ))
-    default_env_kwargs.update(dict(
-    ))
-
   wandb_init_kwargs = experiment_builders.setup_wandb_init_kwargs()
   run_distributed = FLAGS.run_distributed
   num_actors = FLAGS.num_actors
@@ -402,6 +403,22 @@ def main(_):
   if FLAGS.debug:
     first_config = experiment_builders.extract_first_config(sweep(FLAGS.search))
     agent_config_kwargs.update(**first_config)
+
+    agent_config_kwargs.update(dict(
+      learned_weights='softmax',
+      seperate_model_nets=True,
+      grad_fn='shared',
+      show_gradients=1,
+      samples_per_insert=1,
+      min_replay_size=100,
+      new_factored_learner=False,
+      # relation_dim=256,
+      root_target='mcts',
+    ))
+
+    default_env_kwargs.update(dict(
+    ))
+
     train_single(
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,

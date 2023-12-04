@@ -90,6 +90,7 @@ class SlotAttention(hk.RNNCore):
                inverted_attn: bool = True,
                value_combination: str = 'avg',
                init: str = 'noise',
+               relation_dim: int = 64,
                slot_categories: int = 4,
                gumbel_temp: float = 1.0,
                inter_slot_heads: int = 2,
@@ -133,10 +134,11 @@ class SlotAttention(hk.RNNCore):
         clip_attn_probs=clip_attn_probs,
         name='obs_attn')
 
+
     self.inter_slot_attn = GeneralMultiHeadAttention(
         num_heads=inter_slot_heads,
         key_size=qkv_size,
-        # model_size=qkv_size,
+        model_size=relation_dim,
         w_init=w_init,
         attn_weights=False,
         epsilon=self.epsilon,
@@ -164,6 +166,7 @@ class SlotAttention(hk.RNNCore):
       assert len(image.shape) in (3,4), "should either be [H, W, C] or [B, H, W, C]"
       nspatial = image.shape[-3]*image.shape[-2]
       assert nspatial == self.num_spatial, f"{nspatial} != {self.num_spatial}"
+      raise NotImplementedError("don't follow this path")
     else:
       has_batch = len(image.shape) == 3
       assert len(image.shape) in (2,3), "should either be [N, C] or [B, N, C]"
@@ -356,8 +359,8 @@ class SlotAttention(hk.RNNCore):
       slot_inits = hk.Linear(self.qkv_size, name='init_embed_proj')(slot_inits)
       return slot_inits
     elif self.init == 'gauss':
-      # mean_std = get_slot_embeddings(2*self.qkv_size)
-      embeds = jax.nn.relu(get_slot_embeddings())
+      mean_std = get_slot_embeddings()
+      embeds = jax.nn.relu(mean_std)
       mean_std = hk.Linear(2*self.qkv_size, name='init_embed_proj')(embeds)
       mean, log_std = jnp.split(mean_std, 2, axis=-1)
       std = jnp.exp(jax.nn.softplus(log_std)) + self.epsilon

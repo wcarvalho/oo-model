@@ -195,72 +195,6 @@ def make_savi_input(embedding: vision_language.TorsoOutput,
     other_obs_info=jnp.concatenate(other_obs_info, axis=-1)
   )
 
-def make_slot_selection_fn(selection: str,
-                           attn_factory,
-                           gate_factory):
-  """This creates a function which aggregates slot information to single vector.
-
-  attention: use task-vector to select slot information
-  mean: mean of slot information
-  """
-  def selection_module(slot_reps: Array,
-                       task_query: Array,
-                       attn_outputs: Array):
-    # slot_reps: [N, D]
-    # task_query: [D]
-    # attn_outputs: [layers, heads, factors, factors]
-
-    def combine_attn(old, new_attn):
-      old_attn = old.attn
-      _, heads, rows, columns = old_attn.shape
-      assert heads == new_attn.shape[0]
-
-      # [H, 1, C-1] --> [H, 1, C]
-      new_columns = columns - new_attn.shape[-1]
-      zeros = jnp.zeros((*new_attn.shape[:-1], new_columns))
-      new_attn = jnp.concatenate((zeros, new_attn), axis=-1)
-
-      # [H, 1, C] --> [H, R, C]
-      new_rows = rows - new_attn.shape[-2]
-      zeros = jnp.zeros((*new_attn.shape[:-2], new_rows, columns))
-      new_attn = jnp.concatenate((zeros, new_attn), axis=-2)
-
-      # [L, H, R, C] + [H, R, C] --> [L+1, H, R, C]
-      attn = jnp.concatenate((old_attn, new_attn[None]))
-
-      return old._replace(attn=attn)
-
-    if selection == 'attention_gate':
-      # [D], [heads, factors_in, factors_out]
-      pred_inputs, attn = attn_factory()(
-        query=task_query[None],  # convert to [1, D] for attention
-        key=slot_reps)
-      pred_inputs = pred_inputs[0]  # query only
-      pred_inputs = gate_factory()(task_query, pred_inputs)
-      pred_inputs = hk.LayerNorm(
-        axis=(-1),
-        create_scale=True,
-        create_offset=True)(pred_inputs)
-
-      attn_outputs = combine_attn(attn_outputs, attn)
-
-    elif selection == 'attention':
-      # [D]
-      pred_inputs, attn = attn_factory()(
-        query=task_query[None],  # convert to [1, D] for attention
-        key=slot_reps)
-      pred_inputs = pred_inputs[0] # query only
-
-      attn_outputs = combine_attn(attn_outputs, attn)
-
-    elif selection == 'slot_mean':
-      pred_inputs = slot_reps.mean(0)
-    elif selection == 'task_query':
-      pred_inputs = task_query
-
-    return pred_inputs, attn_outputs
-  return selection_module
-
 def make_observation_fn(config, w_init_obs, env_spec, pos_embedder=None):
   num_actions = env_spec.actions.num_values
 
@@ -348,7 +282,6 @@ def make_savi_state_fn(config, num_spatial_vectors, w_init, pos_embedder=None):
       inverted_attn=config.inverted_attn,
       num_slots=config.num_slots,
       num_spatial=num_spatial_vectors,
-      project_values=config.project_slot_values,
       value_combination=config.slot_value_combination,
       epsilon=config.savi_epsilon,
       init=config.savi_init,
@@ -359,6 +292,7 @@ def make_savi_state_fn(config, num_spatial_vectors, w_init, pos_embedder=None):
       rnn_class=rnn_class,
       fixed_point=config.fixed_point,
       mlp_size=config.savi_mlp_size,
+      relation_dim=config.relation_dim,
       w_init=w_init,
       pos_embed=pos_embedder,
       name='state_slot_attention'
@@ -666,12 +600,12 @@ def make_multi_head_prediction_function(
       'pred_model_base',
       num_layers=config.prediction_blocks)
     model_vpi_base = ResMlp(config.prediction_blocks, ln=config.ln, name='pred_model_base')
+    model_weight_fn = make_pred_fn(
+      name='pred_weights', sizes=config.vpi_mlps, num_preds=1)
     model_value_fn = make_pred_fn(
       name='pred_model_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
     model_policy_fn = make_pred_fn(
       name='pred_model_policy', sizes=config.vpi_mlps, num_preds=num_actions)
-    model_weight_fn = make_pred_fn(
-      name='pred_weights', sizes=config.vpi_mlps, num_preds=1)
 
   else:
     model_pred_transformer = pred_transformer
