@@ -9,7 +9,7 @@ python -m ipdb -c continue experiments/babyai_online_trainer.py \
   --debug=True \
   --use_wandb=False \
   --wandb_entity=wcarvalho92 \
-  --wandb_project=minigrid_debug \
+  --wandb_project=factored_muzero2_debug \
   --search='baselines'
 
 # DEBUGGING, single stream, disable just-in-time compilation
@@ -19,7 +19,7 @@ JAX_DISABLE_JIT=1 python -m ipdb -c continue experiments/babyai_online_trainer.p
   --debug=True \
   --use_wandb=False \
   --wandb_entity=wcarvalho92 \
-  --wandb_project=minigrid_debug \
+  --wandb_project=factored_muzero2_debug \
   --search='baselines'
 
 # DEBUGGING, launching jobs in parallel with ray: see `sweep` fn
@@ -29,7 +29,7 @@ python -m ipdb -c continue experiments/babyai_online_trainer.py \
   --run_distributed=False \
   --use_wandb=True \
   --wandb_entity=wcarvalho92 \
-  --wandb_project=minigrid_debug \
+  --wandb_project=factored_muzero2_debug \
   --search='baselines'
 
 
@@ -41,29 +41,7 @@ python experiments/babyai_online_trainer.py \
   --partition=kempner \
   --account=kempner_fellows \
   --wandb_entity=wcarvalho92 \
-  --wandb_project=minigrid \
-  --search='muzero'
-
-# DEBUGGING, launching jobs on slurm: see `sweep` fn
-python -m ipdb -c continue experiments/babyai_online_trainer.py \
-  --parallel='sbatch' \
-  --debug_parallel=True \
-  --run_distributed=False \
-  --use_wandb=True \
-  --wandb_entity=wcarvalho92 \
-  --wandb_project=minigrid_debug \
-  --search='baselines'
-
-
-# launching jobs on slurm: see `sweep` fn
-python experiments/babyai_online_trainer.py \
-  --parallel='sbatch' \
-  --run_distributed=True \
-  --use_wandb=True \
-  --partition=kempner \
-  --account=kempner_fellows \
-  --wandb_entity=wcarvalho92 \
-  --wandb_project=minigrid \
+  --wandb_project=factored_muzero2 \
   --search='muzero'
 
 """
@@ -120,7 +98,7 @@ def setup_agents(
         config_kwargs=config_kwargs,
         config_class=config_class,
         **setup_kwargs)
-  elif agent == 'muzero':
+  elif agent in ('conv_muzero', 'muzero'):
     from experiments import babyai_muzero
     from muzero import learner_logger
 
@@ -138,6 +116,7 @@ def setup_agents(
         ),
     )
     builder, network_factory = babyai_muzero.setup(
+        agent=agent,
         config=config,
         config_class=config_class,
         builder_kwargs=builder_kwargs,
@@ -319,8 +298,8 @@ def run_single():
   wandb_init_kwargs = setup_wandb_init_kwargs()
   if FLAGS.debug:
     agent_config_kwargs.update(dict(
-      samples_per_insert=4.0,
-      min_replay_size=1_000,
+      samples_per_insert=1.0,
+      min_replay_size=100,
     ))
     env_kwargs.update(dict(
     ))
@@ -466,7 +445,7 @@ def sweep(search: str = 'default', **kwargs):
     space = [
         {**shared, **settings['place5'],
           # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
-          "agent": tune.grid_search(['muzero']),
+          "agent": tune.grid_search(['conv_muzero']),
         },
         # {**shared, **settings['place7'],
         #   # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
@@ -561,6 +540,20 @@ def sweep(search: str = 'default', **kwargs):
               [True, False]),
             # "staircase_decay": tune.grid_search([True, False]),
             "reanalyze_ratio": tune.grid_search([.25]),
+        },
+    ]
+
+  elif search == 'conv_muzero':
+    shared = {
+        "seed": tune.grid_search([5, 6]),
+        "env.partial_obs": True,
+         **settings['place5'],
+    }
+    space = [
+        {
+            **shared, #4
+            "group": 'conv-muzero-1',
+            "agent": tune.grid_search(['conv_muzero']),
         },
     ]
   else:

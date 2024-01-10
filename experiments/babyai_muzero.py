@@ -8,7 +8,6 @@ from pprint import pprint
 import rlax
 
 from muzero import utils as muzero_utils
-from muzero import networks as muzero_networks
 from muzero.builder import MuZeroBuilder
 from muzero.config import MuZeroConfig
 from muzero.ve_losses import ValueEquivalentLoss
@@ -32,6 +31,7 @@ def load_config(
   return config
 
 def setup(
+    agent:str,
     config: MuZeroConfig,
     network_kwargs: dict = None,
     loss_kwargs: dict = None,
@@ -76,13 +76,22 @@ def setup(
     invalid_actions=invalid_actions,
     **loss_kwargs,
   )
-
-  network_factory = functools.partial(
-      muzero_networks.make_babyai_networks,
-      config=config,
-      discretizer=discretizer,
-      invalid_actions=invalid_actions,
-      **network_kwargs)
+  if agent == 'muzero':
+    from muzero import networks as muzero_networks
+    network_factory = functools.partial(
+        muzero_networks.make_babyai_networks,
+        config=config,
+        discretizer=discretizer,
+        invalid_actions=invalid_actions,
+        **network_kwargs)
+  elif agent == 'conv_muzero':
+    from muzero import conv_networks as muzero_networks
+    network_factory = functools.partial(
+        muzero_networks.make_babyai_networks,
+        config=config,
+        discretizer=discretizer,
+        invalid_actions=invalid_actions,
+        **network_kwargs)
 
   builder = MuZeroBuilder(config,
                           loss_fn=ve_loss_fn,
