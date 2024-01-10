@@ -13,7 +13,7 @@ from acme.utils import paths
 import dm_env
 
 from experiments import config_utils
-from experiments import train_many
+from experiments import parallel
 from experiments import experiment_builders
 from experiments import babyai_env_utils
 from experiments.observers import LevelAvgReturnObserver
@@ -305,7 +305,7 @@ def main(_):
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs)
   else:
-    train_many.run(
+    parallel.run(
       name='pushworld_online_trainer',
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
@@ -313,7 +313,7 @@ def main(_):
       debug=FLAGS.debug,
       space=sweep(search, FLAGS.agent),
       make_program_command=functools.partial(
-        train_many.make_program_command,
+        parallel.make_program_command,
         filename='experiments/pushworld_online_trainer.py',
         run_distributed=run_distributed,
         num_actors=num_actors,

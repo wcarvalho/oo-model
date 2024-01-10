@@ -1,4 +1,72 @@
+"""
+Running experiments:
+--------------------
 
+# DEBUGGING, single stream
+python -m ipdb -c continue experiments/babyai_online_trainer.py \
+  --parallel='none' \
+  --run_distributed=False \
+  --debug=True \
+  --use_wandb=False \
+  --wandb_entity=wcarvalho92 \
+  --wandb_project=minigrid_debug \
+  --search='baselines'
+
+# DEBUGGING, single stream, disable just-in-time compilation
+JAX_DISABLE_JIT=1 python -m ipdb -c continue experiments/babyai_online_trainer.py \
+  --parallel='none' \
+  --run_distributed=False \
+  --debug=True \
+  --use_wandb=False \
+  --wandb_entity=wcarvalho92 \
+  --wandb_project=minigrid_debug \
+  --search='baselines'
+
+# DEBUGGING, launching jobs in parallel with ray: see `sweep` fn
+python -m ipdb -c continue experiments/babyai_online_trainer.py \
+  --parallel='ray' \
+  --debug_parallel=True \
+  --run_distributed=False \
+  --use_wandb=True \
+  --wandb_entity=wcarvalho92 \
+  --wandb_project=minigrid_debug \
+  --search='baselines'
+
+
+# launching jobs in parallel with ray: see `sweep` fn
+python experiments/babyai_online_trainer.py \
+  --parallel='ray' \
+  --run_distributed=True \
+  --use_wandb=True \
+  --partition=kempner \
+  --account=kempner_fellows \
+  --wandb_entity=wcarvalho92 \
+  --wandb_project=minigrid \
+  --search='muzero'
+
+# DEBUGGING, launching jobs on slurm: see `sweep` fn
+python -m ipdb -c continue experiments/babyai_online_trainer.py \
+  --parallel='sbatch' \
+  --debug_parallel=True \
+  --run_distributed=False \
+  --use_wandb=True \
+  --wandb_entity=wcarvalho92 \
+  --wandb_project=minigrid_debug \
+  --search='baselines'
+
+
+# launching jobs on slurm: see `sweep` fn
+python experiments/babyai_online_trainer.py \
+  --parallel='sbatch' \
+  --run_distributed=True \
+  --use_wandb=True \
+  --partition=kempner \
+  --account=kempner_fellows \
+  --wandb_entity=wcarvalho92 \
+  --wandb_project=minigrid \
+  --search='muzero'
+
+"""
 import functools 
 
 from absl import flags
@@ -13,7 +81,7 @@ from acme.utils import paths
 import dm_env
 
 from experiments import config_utils
-from experiments import train_many
+from experiments import parallel
 from experiments import experiment_builders
 from experiments import babyai_env_utils
 from experiments.observers import LevelAvgReturnObserver
@@ -21,8 +89,6 @@ from experiments import logger as wandb_logger
 from r2d2 import R2D2Config
 
 flags.DEFINE_string('search', 'default', 'which search to use.')
-flags.DEFINE_bool(
-    'train_single', False, 'Run many or 1 experiments')
 flags.DEFINE_bool(
     'make_path', False, 'Create a path under `FLAGS>folder` for the experiment')
 flags.DEFINE_bool(
@@ -112,33 +178,20 @@ def setup_agents(
 
   return config, builder, network_factory
 
-
 def setup_experiment_inputs(
-    path: str = '.',
     agent_config_kwargs: dict=None,
-    agent_config_file: str=None,
     env_kwargs: dict=None,
-    env_config_file: str=None,
-    strict_config: bool = True,
     debug: bool = False,
+    strict_config: bool = True,
+    path: str = '.',
   ):
   """Setup."""
-
-  # -----------------------
-  # load agent and environment kwargs (potentially from files)
-  # -----------------------
   config_kwargs = agent_config_kwargs or dict()
-  if agent_config_file:
-    config_kwargs = config_utils.load_config(agent_config_file)
-  logging.info(f'config_kwargs: {str(config_kwargs)}')
-
   env_kwargs = env_kwargs or dict()
-  if env_config_file:
-    env_kwargs = config_utils.load_config(env_config_file)
-  logging.info(f'env_kwargs: {str(env_kwargs)}')
 
-  agent = config_kwargs.get("agent")
+  agent = config_kwargs.get("agent", 'agent')
   assert agent != 'agent', "no agent selected"
+
   # -----------------------
   # setup environment factory
   # -----------------------
@@ -187,35 +240,19 @@ def setup_experiment_inputs(
   )
 
 def train_single(
-    default_env_kwargs: dict = None,
+    env_kwargs: dict = None,
     wandb_init_kwargs: dict = None,
     agent_config_kwargs: dict = None,
-    strict_config: bool = True, 
-    **kwargs,
+    log_dir: str = None,
+    num_actors: int = 1,
+    run_distributed: bool = False,
 ):
-
   debug = FLAGS.debug
 
   experiment_config_inputs = setup_experiment_inputs(
-    path=FLAGS.path,
     agent_config_kwargs=agent_config_kwargs,
-    agent_config_file=FLAGS.agent_config,
-    env_kwargs=default_env_kwargs,
-    env_config_file=FLAGS.env_config,
-    strict_config=strict_config,
+    env_kwargs=env_kwargs,
     debug=debug)
-
-  log_dir = FLAGS.folder
-  if FLAGS.make_path:
-    log_dir = wandb_logger.gen_log_dir(
-        base_dir=log_dir,
-        hourminute=True,
-        date=True,
-    )
-    if FLAGS.auto_name_wandb and wandb_init_kwargs is not None:
-      date_time = wandb_logger.date_time(time=True)
-      logging.info(f'wandb name: {str(date_time)}')
-      wandb_init_kwargs['name'] = date_time
 
   tasks_file = experiment_config_inputs.final_env_kwargs['tasks_file']
   logger_factory_kwargs = dict(
@@ -225,17 +262,17 @@ def train_single(
 
   experiment = experiment_builders.build_online_experiment_config(
     experiment_config_inputs=experiment_config_inputs,
-    agent=experiment_config_inputs.agent_config.agent,
     log_dir=log_dir,
     wandb_init_kwargs=wandb_init_kwargs,
     logger_factory_kwargs=logger_factory_kwargs,
     debug=debug,
-    **kwargs,
+    run_distributed=run_distributed,
   )
-  if FLAGS.run_distributed:
+
+  if run_distributed:
     program = experiments.make_distributed_experiment(
         experiment=experiment,
-        num_actors=FLAGS.num_actors)
+        num_actors=num_actors)
 
     local_resources = {
         "actor": PythonProcess(env={"CUDA_VISIBLE_DEVICES": ""}),
@@ -257,42 +294,192 @@ def train_single(
       num_eval_episodes=10)
 
 
+def setup_wandb_init_kwargs():
+  if not FLAGS.use_wandb:
+    return dict()
+
+  wandb_init_kwargs = dict(
+      project=FLAGS.wandb_project,
+      entity=FLAGS.wandb_entity,
+      notes=FLAGS.wandb_notes,
+      name=FLAGS.wandb_name,
+      group=FLAGS.search,
+      save_code=False,
+  )
+  return wandb_init_kwargs
+
+def run_single():
+  ########################
+  # default settings
+  ########################
+  env_kwargs = dict()
+  agent_config_kwargs = dict()
+  num_actors = FLAGS.num_actors
+  run_distributed = FLAGS.run_distributed
+  wandb_init_kwargs = setup_wandb_init_kwargs()
+  if FLAGS.debug:
+    agent_config_kwargs.update(dict(
+      samples_per_insert=4.0,
+      min_replay_size=1_000,
+    ))
+    env_kwargs.update(dict(
+    ))
+
+  import os
+  folder = FLAGS.folder or os.environ.get('RL_RESULTS_DIR', None)
+  if not folder:
+    folder = '/tmp/rl_results'
+
+  if FLAGS.make_path:
+    # i.e. ${folder}/runs/${date_time}/
+    folder = parallel.gen_log_dir(
+        base_dir=os.path.join(folder, 'rl_results'),
+        hourminute=True,
+        date=True,
+    )
+
+  ########################
+  # override with config settings, e.g. from parallel run
+  ########################
+  if FLAGS.config_file:
+    configs = config_utils.load_config(FLAGS.config_file)
+    if isinstance(configs, list):
+      config = configs[FLAGS.config_idx-1]  # starts at 1 with SLURM
+    elif isinstance(configs, dict):
+      config = configs
+    else:
+      raise NotImplementedError(type(configs))
+    logging.info(f'loaded config: {str(config)}')
+
+    agent_config_kwargs.update(config['agent_config'])
+    env_kwargs.update(config['env_config'])
+    folder = config['folder']
+
+    num_actors = config['num_actors']
+    run_distributed = config['run_distributed']
+
+    wandb_init_kwargs['group'] = config['wandb_group']
+    wandb_init_kwargs['name'] = config['wandb_name']
+    wandb_init_kwargs['project'] = config['wandb_project']
+    wandb_init_kwargs['entity'] = config['wandb_entity']
+
+    if not config['use_wandb']:
+      wandb_init_kwargs = dict()
+
+  if FLAGS.debug and not FLAGS.subprocess:
+      configs = parallel.get_all_configurations(spaces=sweep(FLAGS.search))
+      first_agent_config, first_env_config = parallel.get_agent_env_configs(
+          config=configs[0])
+      agent_config_kwargs.update(first_agent_config)
+      env_kwargs.update(first_env_config)
+
+  train_single(
+    wandb_init_kwargs=wandb_init_kwargs,
+    env_kwargs=env_kwargs,
+    agent_config_kwargs=agent_config_kwargs,
+    log_dir=folder,
+    num_actors=num_actors,
+    run_distributed=run_distributed
+    )
+
+
+def run_many():
+  wandb_init_kwargs = setup_wandb_init_kwargs()
+
+  import os
+  folder = FLAGS.folder or os.environ.get('RL_RESULTS_DIR', None)
+  if not folder:
+    folder = '/tmp/rl_results_dir'
+
+  assert FLAGS.debug is False, 'only run debug if not running many things in parallel'
+
+  if FLAGS.parallel == 'ray':
+    parallel.run_ray(
+      trainer_filename=__file__,
+      wandb_init_kwargs=wandb_init_kwargs,
+      use_wandb=FLAGS.use_wandb,
+      folder=folder,
+      run_distributed=FLAGS.run_distributed,
+      search_name=FLAGS.search,
+      debug=FLAGS.debug_parallel,
+      spaces=sweep(FLAGS.search),
+      num_actors=FLAGS.num_actors
+    )
+  elif FLAGS.parallel == 'sbatch':
+    parallel.run_sbatch(
+      trainer_filename=__file__,
+      wandb_init_kwargs=wandb_init_kwargs,
+      use_wandb=FLAGS.use_wandb,
+      folder=folder,
+      run_distributed=FLAGS.run_distributed,
+      search_name=FLAGS.search,
+      debug=FLAGS.debug_parallel,
+      spaces=sweep(FLAGS.search),
+      num_actors=FLAGS.num_actors)
+
 
 def sweep(search: str = 'default', **kwargs):
   settings=dict(
-    place5=dict(tasks_file='place_split_medium', room_size=5, num_steps=3e6),
-    place6=dict(tasks_file='place_split_medium', room_size=6, num_steps=5e6),
-    place7=dict(tasks_file='place_split_medium', room_size=7, num_steps=7e6),
-    medium5=dict(tasks_file='medium_medium', room_size=5, num_steps=4e6),
-    medium6=dict(tasks_file='medium_medium', room_size=6, num_steps=6e6),
-    medium7=dict(tasks_file='medium_medium', room_size=7, num_steps=8e6),
-    long5=dict(tasks_file='long_medium', room_size=5, num_steps=5e6),
-    long6=dict(tasks_file='long_medium', room_size=6, num_steps=7e6),
-    long7=dict(tasks_file='long_medium', room_size=7, num_steps=9e6),
+    place5={
+        'env.tasks_file':'place_split_medium',
+        'env.room_size':5,
+        'num_steps':3e6},
+    place6={
+        'env.tasks_file':'place_split_medium',
+        'env.room_size':6,
+        'num_steps':5e6},
+    place7={
+        'env.tasks_file':'place_split_medium',
+        'env.room_size':7,
+        'num_steps':7e6},
+    medium5={
+        'env.tasks_file':'medium_medium',
+        'env.room_size':5,
+        'num_steps':4e6},
+    medium6={
+        'env.tasks_file':'medium_medium',
+        'env.room_size':6,
+        'num_steps':6e6},
+    medium7={
+        'env.tasks_file':'medium_medium',
+        'env.room_size':7,
+        'num_steps':8e6},
+    long5={
+        'env.tasks_file':'long_medium',
+        'env.room_size':5,
+        'num_steps':5e6},
+    long6={
+        'env.tasks_file':'long_medium',
+        'env.room_size':6,
+        'num_steps':7e6},
+    long7={
+        'env.tasks_file':'long_medium',
+        'env.room_size':7,
+        'num_steps':9e6},
   )
   if search == 'benchmark':
     shared = {
       "seed": tune.grid_search([1]),
       "group": tune.grid_search(['benchmark6']),
-      "partial_obs": tune.grid_search([True]),
+      "env.partial_obs": tune.grid_search([True]),
     }
     space = [
         {**shared, **settings['place5'],
           # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
           "agent": tune.grid_search(['muzero']),
         },
-        {**shared, **settings['place7'],
-          # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
-          "agent": tune.grid_search(['muzero']),
-        },
-        {**shared, **settings['medium5'],
-          # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
-          "agent": tune.grid_search(['muzero']),
-        },
-        {**shared, **settings['medium7'],
-          # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
-          "agent": tune.grid_search(['muzero']),
-        },
+        # {**shared, **settings['place7'],
+        #   # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+        #   "agent": tune.grid_search(['muzero']),
+        # },
+        # {**shared, **settings['medium5'],
+        #   # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+        #   "agent": tune.grid_search(['muzero']),
+        # },
+        # {**shared, **settings['medium7'],
+        #   # "agent": tune.grid_search(['muzero', 'factored', 'branched']),
+        #   "agent": tune.grid_search(['muzero']),
+        # },
     ]
   elif search == 'muzero':
     space = [
@@ -381,72 +568,12 @@ def sweep(search: str = 'default', **kwargs):
 
   return space
 
-
 def main(_):
-  # -----------------------
-  # env setup
-  # -----------------------
-  default_env_kwargs = dict(
-      tasks_file=FLAGS.tasks_file,
-      room_size=FLAGS.room_size,
-      num_dists=1,
-      agent_view_size=7,
-      partial_obs=True,
-      timeout_truncate=True,
-  )
-
-  agent_config_kwargs = dict()
-  wandb_init_kwargs = experiment_builders.setup_wandb_init_kwargs()
-  run_distributed = FLAGS.run_distributed
-  num_actors = FLAGS.num_actors
-
-  if FLAGS.debug:
-    first_config = experiment_builders.extract_first_config(sweep(FLAGS.search))
-    agent_config_kwargs.update(**first_config)
-
-    agent_config_kwargs.update(dict(
-      learned_weights='softmax',
-      seperate_model_nets=True,
-      grad_fn='shared',
-      show_gradients=1,
-      samples_per_insert=1,
-      min_replay_size=100,
-      new_factored_learner=False,
-      # relation_dim=256,
-      root_target='mcts',
-    ))
-
-    default_env_kwargs.update(dict(
-    ))
-
-    train_single(
-      wandb_init_kwargs=wandb_init_kwargs,
-      default_env_kwargs=default_env_kwargs,
-      agent_config_kwargs=agent_config_kwargs,
-      strict_config=False)
-    return
-
-  if FLAGS.train_single:
-    train_single(
-      wandb_init_kwargs=wandb_init_kwargs,
-      default_env_kwargs=default_env_kwargs,
-      agent_config_kwargs=agent_config_kwargs,
-      strict_config=True)
+  assert FLAGS.parallel in ('ray', 'sbatch', 'none')
+  if FLAGS.parallel in ('ray', 'sbatch'):
+    run_many()
   else:
-    train_many.run(
-      name='babyai_online_trainer',
-      wandb_init_kwargs=wandb_init_kwargs,
-      default_env_kwargs=default_env_kwargs,
-      use_wandb=FLAGS.use_wandb,
-      debug=FLAGS.debug,
-      space=sweep(FLAGS.search),
-      make_program_command=functools.partial(
-        train_many.make_program_command,
-        filename='experiments/babyai_online_trainer.py',
-        run_distributed=run_distributed,
-        num_actors=num_actors,
-        ),
-    )
+    run_single()
 
 if __name__ == '__main__':
   app.run(main)

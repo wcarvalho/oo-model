@@ -56,6 +56,7 @@ from experiments import config_utils
 # -----------------------
 
 # Flags which modify the behavior of the launcher.
+flags.DEFINE_string('config_file', '', 'config file')
 flags.DEFINE_string('agent_config', '', 'config file')
 flags.DEFINE_string('env_config', '', 'config file')
 flags.DEFINE_string('path', '.', 'config file')
@@ -67,7 +68,7 @@ flags.DEFINE_bool(
 flags.DEFINE_integer('seed', 0, 'Random seed (experiment).')
 flags.DEFINE_integer('num_steps', 1_000_000,
                      'Number of environment steps to run for.')
-flags.DEFINE_integer('debug', 0, 'Random seed (experiment).')
+flags.DEFINE_bool('debug', False, 'Debug.')
 
 
 # -----------------------
@@ -250,7 +251,6 @@ class OnlineExperimentConfigInputs(NamedTuple):
 
 def build_online_experiment_config(
   experiment_config_inputs: OnlineExperimentConfigInputs,
-  agent: str,
   debug: bool = False,
   save_config_dict: dict = None,
   log_dir: str = None,
@@ -258,9 +258,11 @@ def build_online_experiment_config(
   log_with_key: Optional[str] = 'log_data',
   observers: Optional[List[EnvLoopObserver]] = None,
   wandb_init_kwargs: dict = None,
-  logger_factory_kwargs: dict = None
+  logger_factory_kwargs: dict = None,
+  run_distributed: bool = True,
   ):
   """Builds experiment config."""
+  agent = experiment_config_inputs.agent_config.agent
   agent_config = experiment_config_inputs.agent_config
   builder = experiment_config_inputs.builder
   network_factory = experiment_config_inputs.network_factory
@@ -269,6 +271,8 @@ def build_online_experiment_config(
   observers = experiment_config_inputs.observers or ()
   logger_factory_kwargs = logger_factory_kwargs or dict()
   wandb_init_kwargs = wandb_init_kwargs or dict()
+  if not run_distributed:
+    assert agent_config.samples_per_insert > 0
 
   assert log_dir, 'provide directory for logging experiments via FLAGS.folder'
   paths.process_path(log_dir)

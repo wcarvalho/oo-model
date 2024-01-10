@@ -26,7 +26,7 @@ from pprint import pprint
 
 from envs.multitask_kitchen import Observation
 from experiments import config_utils
-from experiments import train_many
+from experiments import parallel
 from experiments import experiment_builders
 from experiments import babyai_env_utils
 from experiments import babyai_collect_data
@@ -525,7 +525,7 @@ def main(_):
       )
   else:
     run_distributed = FLAGS.run_distributed
-    train_many.run(
+    parallel.run(
       name='babyai_supervised_trainer',
       wandb_init_kwargs=wandb_init_kwargs,
       default_env_kwargs=default_env_kwargs,
@@ -533,7 +533,7 @@ def main(_):
       debug=FLAGS.debug,
       space=sweep(search, FLAGS.agent),
       make_program_command=functools.partial(
-        train_many.make_program_command,
+        parallel.make_program_command,
         filename='experiments/babyai_supervised_trainer.py',
         run_distributed=run_distributed,
         num_actors=1,
