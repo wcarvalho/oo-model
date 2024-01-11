@@ -108,7 +108,7 @@ def make_babyai_networks(
     sample = jax.lax.stop_gradient(observation_fn(dummy_observation))
     state_fn = hk.Conv2DLSTM(
       input_shape=sample.image.shape[:-1],
-      output_channels=32,
+      output_channels=sample.image.shape[-1]//2,
       kernel_shape=3,
       name='state_lstm')
 

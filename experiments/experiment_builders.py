@@ -74,7 +74,7 @@ flags.DEFINE_bool('debug', False, 'Debug.')
 # -----------------------
 # wandb
 # -----------------------
-flags.DEFINE_bool('use_wandb', True, 'whether to log.')
+flags.DEFINE_bool('use_wandb', False, 'whether to log.')
 flags.DEFINE_string('wandb_project', None, 'wand project.')
 flags.DEFINE_string('wandb_entity', None, 'wandb entity')
 flags.DEFINE_string('wandb_dir', None, 'wandb directory')

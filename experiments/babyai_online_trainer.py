@@ -7,9 +7,6 @@ python -m ipdb -c continue experiments/babyai_online_trainer.py \
   --parallel='none' \
   --run_distributed=False \
   --debug=True \
-  --use_wandb=False \
-  --wandb_entity=wcarvalho92 \
-  --wandb_project=factored_muzero2_debug \
   --search='baselines'
 
 # DEBUGGING, single stream, disable just-in-time compilation
@@ -17,9 +14,6 @@ JAX_DISABLE_JIT=1 python -m ipdb -c continue experiments/babyai_online_trainer.p
   --parallel='none' \
   --run_distributed=False \
   --debug=True \
-  --use_wandb=False \
-  --wandb_entity=wcarvalho92 \
-  --wandb_project=factored_muzero2_debug \
   --search='baselines'
 
 # DEBUGGING, launching jobs in parallel with ray: see `sweep` fn
@@ -34,12 +28,10 @@ python -m ipdb -c continue experiments/babyai_online_trainer.py \
 
 
 # launching jobs in parallel with ray: see `sweep` fn
-python experiments/babyai_online_trainer.py \
+python -m ipdb -c continue experiments/babyai_online_trainer.py \
   --parallel='ray' \
   --run_distributed=True \
   --use_wandb=True \
-  --partition=kempner \
-  --account=kempner_fellows \
   --wandb_entity=wcarvalho92 \
   --wandb_project=factored_muzero2 \
   --search='muzero'
@@ -68,7 +60,7 @@ from r2d2 import R2D2Config
 
 flags.DEFINE_string('search', 'default', 'which search to use.')
 flags.DEFINE_bool(
-    'make_path', False, 'Create a path under `FLAGS>folder` for the experiment')
+    'make_path', True, 'Create a path under `FLAGS>folder` for the experiment')
 flags.DEFINE_bool(
     'auto_name_wandb', False, 'automatically name wandb.')
 FLAGS = flags.FLAGS
@@ -123,7 +115,7 @@ def setup_agents(
         config_kwargs=config_kwargs,
         **setup_kwargs)
 
-  elif agent in ('factored', 'branched'):
+  elif agent in ('factored', 'branched', 'conv_factored'):
     from experiments import babyai_factored_muzero
     from factored_muzero.analysis_actor import VisualizeActor, AttnLogger
     from factored_muzero import learner_logger
@@ -399,6 +391,10 @@ def run_many():
 
 def sweep(search: str = 'default', **kwargs):
   settings=dict(
+    pickup5={
+        'env.tasks_file':'pickup',
+        'env.room_size':5,
+        'num_steps':3e6},
     place5={
         'env.tasks_file':'place_split_medium',
         'env.room_size':5,
@@ -545,15 +541,35 @@ def sweep(search: str = 'default', **kwargs):
 
   elif search == 'conv_muzero':
     shared = {
-        "seed": tune.grid_search([5, 6]),
+        "seed": tune.grid_search([5]),
+        "env.partial_obs": True,
+         **settings['place7'],
+    }
+    space = [
+        {
+            **shared, #4
+            "group": 'conv-muzero-2',
+            "agent": tune.grid_search([
+              'muzero',
+              'conv_muzero']),
+        },
+    ]
+  elif search == 'conv_factored':
+    shared = {
+        "seed": tune.grid_search([5]),
         "env.partial_obs": True,
          **settings['place5'],
     }
     space = [
         {
             **shared, #4
-            "group": 'conv-muzero-1',
-            "agent": tune.grid_search(['conv_muzero']),
+            "group": 'conv-factored-2',
+            "agent": tune.grid_search(['conv_factored']),
+            "num_slots": tune.grid_search([1]),
+            "seperate_model_nets": tune.grid_search([False, True]),
+            "transition_blocks": tune.grid_search([1, 4]),
+            "context_slot_dim": tune.grid_search([32, 0]),
+            "vpi_mlps": tune.grid_search([(128, 32), (256, 256)]),
         },
     ]
   else:

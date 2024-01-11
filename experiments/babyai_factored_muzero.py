@@ -11,7 +11,7 @@ from muzero import utils as muzero_utils
 from muzero.types import TaskAwareRep
 from muzero.builder import MuZeroBuilder
 
-from factored_muzero import networks
+
 from factored_muzero import types
 from factored_muzero import attention
 from factored_muzero.ve_losses import ValueEquivalentLoss
@@ -37,15 +37,19 @@ def load_config(
   return config
 
 
-def get_state_remove_attention(outputs: types.RootOutput):
+def get_state_remove_attention(outputs: types.RootOutput,
+                               task_aware_state: bool = True):
   """Remove attention weights before returning state in outputs.
   
   MCTS does not accept attention weights for some weird shaping issue.
   """
-  state: types.TaskAwareSaviState = outputs.state
-  savi_state: attention.SaviState = state.rep
-  return state._replace(rep=savi_state._replace(attn=None))
-
+  if task_aware_state:
+    state: types.TaskAwareSaviState = outputs.state
+    savi_state: attention.SaviState = state.rep
+    return state._replace(rep=savi_state._replace(attn=None))
+  else:
+    state: attention.SaviState = outputs.state
+    return state._replace(attn=None)
 
 def setup(
     config: FactoredMuZeroConfig,
@@ -82,6 +86,31 @@ def setup(
         return pmf.kl_divergence(distrax.Categorical(probs=prior_probs))
       policy_loss_fn = jax.vmap(reverse_kl)
 
+  loss_kwargs = dict()
+
+  if agent_name == 'conv_factored':
+    from factored_muzero import conv_networks as networks
+    network_factory = functools.partial(
+        networks.make_babyai_networks,
+        config=config,
+        invalid_actions=invalid_actions,
+        agent_name=agent_name,
+        **network_kwargs)
+    get_state = functools.partial(
+      get_state_remove_attention, task_aware_state=False)
+    get_factors = lambda state: state.factors
+    
+  elif agent_name in ('branced', 'factored'):
+    from factored_muzero import networks
+    network_factory = functools.partial(
+        networks.make_babyai_networks,
+        config=config,
+        invalid_actions=invalid_actions,
+        agent_name=agent_name,
+        **network_kwargs)
+    get_state = get_state_remove_attention
+    get_factors = lambda state: state.rep.factors
+  
   ve_loss_fn = functools.partial(ValueEquivalentLoss,
     muzero_policy=muzero_policy,
     policy_loss_fn=policy_loss_fn,
@@ -106,17 +135,11 @@ def setup(
     attention_penalty=config.attention_penalty,
     invalid_actions=invalid_actions,
     root_target=config.root_target,
-    get_state=get_state_remove_attention,
+    get_state=get_state,
+    get_factors=get_factors,
     **loss_kwargs,
     )
 
-  network_factory = functools.partial(
-      networks.make_babyai_networks,
-      config=config,
-      invalid_actions=invalid_actions,
-      agent_name=agent_name,
-      **network_kwargs)
-  
   learnerCls = None
   if config.new_factored_learner:
     learnerCls = FactoredMuZeroLearner
