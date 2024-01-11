@@ -7,11 +7,11 @@ from envs.babyai_kitchen.levelgen import KitchenLevel
 from envs.babyai_kitchen.wrappers import RGBImgPartialObsWrapper, RGBImgFullyObsWrapper
 import gym_minigrid.window
 
-
 def main():
     import argparse
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--missions', help='# of unique missions', default=10)
+    parser.add_argument('--episodes', help='# of unique missions', type=int, default=10)
+    parser.add_argument('--missions', help='# of unique missions', type=int, default=10)
     parser.add_argument('--num-distractors', type=int, default=0)
     parser.add_argument('--room-size', type=int, default=5)
     parser.add_argument('--agent-view-size', type=int, default=8)
@@ -28,7 +28,7 @@ def main():
     parser.add_argument('--check', type=int, default=0)
     parser.add_argument('--render', type=int, default=0)
     parser.add_argument('--check-end', type=int, default=1)
-    parser.add_argument('--verbosity', type=int, default=2)
+    parser.add_argument('--verbosity', type=int, default=0)
     args = parser.parse_args()
 
 
@@ -38,6 +38,12 @@ def main():
     if args.num_rows:
         kwargs['num_rows'] = args.num_rows
         kwargs['num_cols'] = args.num_rows
+
+    seed = 42
+    import random
+    random.seed(seed)
+    np.random.seed(seed)
+
     env = KitchenLevel(
         room_size=args.room_size,
         agent_view_size=args.agent_view_size,
@@ -46,9 +52,10 @@ def main():
         objects=args.objects,
         verbosity=args.verbosity,
         tile_size=args.tile_size,
-        load_actions_from_tasks=False,
+        # load_actions_from_tasks=False,
         use_time_limit=False,
         use_subtasks=True,
+        nseeds=args.missions,
         task_reset_behavior='remove',
         seed=args.seed,
         **kwargs)
@@ -83,8 +90,9 @@ def main():
         time.sleep(.05)
 
     all_rewards = []
-    for mission_indx in range(int(args.missions)):
-        env.seed(mission_indx)
+    for mission_indx in range(int(args.episodes)):
+        # mission_indx = env._rand_int(0, )
+        # env.seed(mission_indx)
         obs = env.reset()
         print("="*50)
         print("Reset")

@@ -4,7 +4,7 @@ import numpy as np
 import functools
 from babyai.levels.verifier import Instr
 from envs.babyai_kitchen.world import Kitchen
-from envs.babyai_kitchen.types import ActionsSubgoal
+from envs.babyai_kitchen.babyai_types import ActionsSubgoal
 
 from babyai.bot import Bot, GoNextToSubgoal
 from babyai.levels.verifier import (ObjDesc, pos_next_to,

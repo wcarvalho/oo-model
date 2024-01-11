@@ -55,11 +55,12 @@ def make_kitchen_environment(
   path='.',
   tasks_file='',
   debug=False,
-  nseeds=0,
+  nseeds=500,
   return_gym_env=False,
   wrapper_list=None,
   test_larger=True,
   timeout_truncate: bool = False,
+  seed=42,
   **kwargs,
   ) -> dm_env.Environment:
   """Loads environments."""
@@ -91,6 +92,9 @@ def make_kitchen_environment(
     # room-size=5  --> image: 40 x 40  x 3 (conv = 5x5 = 25)
     env_wrappers.append(functools.partial(RGBImgFullyObsWrapper,
       tile_size=tile_size))
+
+  import random
+  random.seed(seed)
 
   nseeds=0 if evaluation else nseeds
 

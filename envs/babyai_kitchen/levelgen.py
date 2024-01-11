@@ -1,16 +1,45 @@
+from typing import Optional, Tuple, Any
+
+
 import logging
 import numpy as np
 import collections
 from gym import spaces
 from gym.utils import seeding
 from pprint import pprint
-
+import random
 from gym_minigrid.minigrid import Grid, WorldObj
 from babyai.levels.levelgen import RoomGridLevel, RejectSampling
 
 
 from envs.babyai_kitchen.world import Kitchen
 import envs.babyai_kitchen.tasks
+
+from gym import error
+
+RNG = RandomNumberGenerator = np.random.Generator
+
+
+def np_random(seed: Optional[int] = None) -> Tuple[np.random.Generator, Any]:
+    """Generates a random number generator from the seed and returns the Generator and seed.
+
+    Args:
+        seed: The seed used to create the generator
+
+    Returns:
+        The generator and resulting seed
+
+    Raises:
+        Error: Seed must be a non-negative integer or omitted
+    """
+    if seed is not None and not (isinstance(seed, int) and 0 <= seed):
+        raise error.Error(
+            f"Seed must be a non-negative integer or omitted, not {seed}")
+
+    seed_seq = np.random.SeedSequence(seed)
+    np_seed = seed_seq.entropy
+    rng = RandomNumberGenerator(np.random.PCG64(seed_seq))
+    return rng, np_seed
 
 
 TILE_PIXELS = 32
@@ -165,6 +194,20 @@ class KitchenLevel(RoomGridLevel):
         dtype='int32'
     )
 
+  def _rand_int(self, low, high):
+      """
+      Generate random integer in [low,high[
+      """
+      return self.np_random.integers(low, high)
+
+  def seed(self, seed=1337):
+      # Seed the random number generator
+      self.np_random, _ = np_random(seed)
+
+      # random.seed(seed)
+      np.random.seed(seed)
+
+      return [seed]
 
   # ======================================================
   # functions for generating grid + objeccts
@@ -410,13 +453,14 @@ class KitchenLevel(RoomGridLevel):
   # reset, step used by gym
   # ======================================================
   def reset(self, **kwargs):
-    if self.nseeds:
-      seeding.np_random(self.nseeds)
     """Copied from: 
     - gym_minigrid.minigrid:MiniGridEnv.reset
     - babyai.levels.levelgen:RoomGridLevel.reset
     the dependencies between RoomGridLevel, MiniGridEnv, and RoomGrid were pretty confusing so I rewrote the base reset function.
     """
+    if self.nseeds:
+       env_seed = random.randrange(1, self.nseeds+1)
+       self.seed(env_seed)
     # ======================================================
     # copied from: gym_minigrid.minigrid:MiniGridEnv.reset
     # ======================================================
