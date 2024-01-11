@@ -11,8 +11,6 @@ import wandb
 
 
 from acme import types as acme_types
-from muzero import types as muzero_types
-from analysis import utils as analyis_utils
 from experiments import attn_analysis
 from muzero import learner_logger
 
@@ -48,7 +46,12 @@ class LearnerLogger(learner_logger.LearnerLogger):
     online_outputs = root_data['online_outputs']
 
     # [T, num_slots, spatial_positions]
-    slot_attn = online_outputs.state.rep.attn
+    if hasattr(online_outputs.state, 'rep'):
+      slot_attn = online_outputs.state.rep.attn
+    elif hasattr(online_outputs.state, 'attn'):
+      slot_attn = online_outputs.state.attn
+    else:
+      raise NotImplementedError
     ntime, slots, spatial_positions = slot_attn.shape
 
     images = root_data['data'].observation.observation.image
