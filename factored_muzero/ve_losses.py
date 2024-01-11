@@ -95,7 +95,7 @@ class ValueEquivalentLoss(ve_losses.ValueEquivalentLoss):
                state_model_coef: float = 1.0,
                attention_penalty: float = 0.0,
                recon_coeff: float = 1.0,
-               root_target: str = 'return',
+               root_target: str = 'model_target',
                **kwargs,
                ):
     super().__init__(**kwargs)

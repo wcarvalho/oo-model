@@ -94,7 +94,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   reanalyze_ratio: float = 0.25 # percent of time to use mcts vs. observed return
   state_model_loss: str = 'dot_contrast'
   contrast_gamma: float = 1e-2  # only for cswm and laplacian
-  contrast_temp: float = 0.01  # only for dot_contrast
+  contrast_temp: float = 0.1  # only for dot_contrast
   state_model_coef: float = 1.0
   weight_decay_fn: str = "default"
   weight_decay: float = 1e-4  # very few params
@@ -108,4 +108,3 @@ class FactoredMuZeroConfig(MuZeroConfig):
   savi_grad_norm: Optional[float] = None
   muzero_grad_model: bool = False
   grad_fn: str = 'shared'
-  new_learner: bool = False

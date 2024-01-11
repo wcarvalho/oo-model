@@ -266,7 +266,7 @@ def create_and_run_program(
   # launch experiment
   # -----------------------
   command = f"python {trainer_filename}"
-  command += f" --config_file={config_file}"
+  command += f" --config_file='{config_file}'"
   command += f" --subprocess={True}"
   command += f" --make_path={False}"
 

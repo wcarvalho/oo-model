@@ -529,7 +529,7 @@ def make_babyai_networks(
 
     conv_state_fn = hk.Conv2DLSTM(
       input_shape=(height, width),
-      output_channels=sample.image.shape[-1]//2,
+      output_channels=config.conv_lstm_dim,
       kernel_shape=3,
       name='state_lstm')
 

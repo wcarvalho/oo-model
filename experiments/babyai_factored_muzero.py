@@ -100,7 +100,7 @@ def setup(
       get_state_remove_attention, task_aware_state=False)
     get_factors = lambda state: state.factors
     
-  elif agent_name in ('branced', 'factored'):
+  elif agent_name in ('branched', 'factored'):
     from factored_muzero import networks
     network_factory = functools.partial(
         networks.make_babyai_networks,
@@ -110,6 +110,8 @@ def setup(
         **network_kwargs)
     get_state = get_state_remove_attention
     get_factors = lambda state: state.rep.factors
+  else:
+    raise NotImplementedError(agent_name)
   
   ve_loss_fn = functools.partial(ValueEquivalentLoss,
     muzero_policy=muzero_policy,

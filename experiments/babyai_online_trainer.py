@@ -515,8 +515,8 @@ def sweep(search: str = 'default', **kwargs):
     ]
   elif search == 'replicate':
     shared = {
-        "seed": tune.grid_search([5, 6]),
-        "partial_obs": True,
+        "seed": tune.grid_search([5]),
+        "env.partial_obs": True,
          **settings['place7'],
     }
     space = [
@@ -528,12 +528,12 @@ def sweep(search: str = 'default', **kwargs):
         # },
         {
             **shared, #4
-            "group": 'B37-replicate-2',
+            "group": 'B37-replicate-6',
             "agent": tune.grid_search(['branched']),
             "learned_weights": tune.grid_search(
               ['none', 'softmax']),
-            "seperate_model_nets": tune.grid_search(
-              [True, False]),
+            # "seperate_model_nets": tune.grid_search(
+            #   [True, False]),
             # "staircase_decay": tune.grid_search([True, False]),
             "reanalyze_ratio": tune.grid_search([.25]),
         },
@@ -548,7 +548,7 @@ def sweep(search: str = 'default', **kwargs):
     space = [
         {
             **shared, #4
-            "group": 'conv-muzero-2',
+            "group": 'conv-muzero-4',
             "agent": tune.grid_search([
               'muzero',
               'conv_muzero']),
@@ -563,13 +563,15 @@ def sweep(search: str = 'default', **kwargs):
     space = [
         {
             **shared, #4
-            "group": 'conv-factored-2',
+            "group": 'conv-factored-6',
             "agent": tune.grid_search(['conv_factored']),
-            "num_slots": tune.grid_search([1]),
-            "seperate_model_nets": tune.grid_search([False, True]),
-            "transition_blocks": tune.grid_search([1, 4]),
-            "context_slot_dim": tune.grid_search([32, 0]),
-            "vpi_mlps": tune.grid_search([(128, 32), (256, 256)]),
+            "num_slots": tune.grid_search([1, 4]),
+            # "seperate_model_nets": tune.grid_search([False, True]),
+            "transition_blocks": tune.grid_search([2]),
+            "conv_lstm_dim": tune.grid_search([32, 64]),
+            "context_slot_dim": tune.grid_search([0]),
+            "learned_weights": tune.grid_search(['none', 'softmax']),
+            # "vpi_mlps": tune.grid_search([[128, 32], [256, 256]]),
         },
     ]
   else:

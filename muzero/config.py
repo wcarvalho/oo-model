@@ -100,6 +100,7 @@ class MuZeroConfig(r2d2.R2D2Config):
 
   # Architecture
   ln: bool = True
+  conv_lstm_dim: int = 64
   output_init: Optional[float] = None
   vision_torso: str = 'babyai'
   network_fn: str = 'babyai'
