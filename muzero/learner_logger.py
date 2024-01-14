@@ -346,12 +346,12 @@ class LearnerLogger(BaseLogger):
   def step(self):
     self._idx += 1
 
-  def log_metrics(self, metrics, label: str = None):
+  def log_metrics(self, metrics, label: str = None, config = None):
     if not (self._idx % self._log_frequency == 0): return
 
     label = label or self._label
     logging.info(f'creating {label} data. idx {self._idx}')
-    to_log = self.create_log_metrics(metrics)
+    to_log = self.create_log_metrics(metrics, config=config)
 
     to_log = {f'{label}/{k}': v for k, v in to_log.items()}
     if not to_log: return

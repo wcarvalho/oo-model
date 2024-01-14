@@ -578,7 +578,7 @@ class FactoredMuZeroLearner(acme.Learner):
       logging.info('Total number of params: %.3g', total_params)
       print(f"{total_params:,}")
       pprint(param_sizes(initial_params))
-      import ipdb; ipdb.set_trace()
+      #import ipdb; ipdb.set_trace()
     else:
       raise NotImplementedError
 
@@ -620,7 +620,7 @@ class FactoredMuZeroLearner(acme.Learner):
     metrics = utils.get_from_first_device(metrics)
 
     if update_visualizations:
-      self._visualization_logger.log_metrics(metrics, label=vis_label)
+      self._visualization_logger.log_metrics(metrics, label=vis_label, config=self._config)
     loss_metrics = metrics.pop('loss_metrics', {})
     loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)
 
@@ -650,7 +650,7 @@ class FactoredMuZeroLearner(acme.Learner):
     ###############################
     if callable(self._learning_rate):
       count = self._state.opt_state[1][2].count[0]
-      lr = self.learning_rate(count)
+      lr = self._learning_rate(count)
     else:
       lr = self.learning_rate
     metrics['loss_metrics']['z.learning_rate'] = np.array(lr)
@@ -676,7 +676,7 @@ class FactoredMuZeroLearner(acme.Learner):
     ###############################
     # updating
     ###############################
-    self._visualization_logger.log_metrics(metrics, label=vis_label)
+    self._visualization_logger.log_metrics(metrics, label=vis_label, config=self._config)
     self._visualization_logger.step()
     loss_metrics = metrics.pop('loss_metrics', {})
     loss_metrics = jax.tree_map(lambda x: x.mean(), loss_metrics)

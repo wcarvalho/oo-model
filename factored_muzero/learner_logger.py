@@ -15,6 +15,8 @@ from muzero import types as muzero_types
 from analysis import utils as analyis_utils
 from experiments import attn_analysis
 from muzero import learner_logger
+from factored_muzero.config import FactoredMuZeroConfig
+from muzero import utils as muzero_utils
 
 State = acme_types.NestedArray
 
@@ -31,9 +33,20 @@ class LearnerLogger(learner_logger.LearnerLogger):
     super().__init__(**kwargs)
     self.image_columns = image_columns
 
-  def create_log_metrics(self, metrics):
+  def create_log_metrics(self, metrics, config = None):
+
+    discretizer = muzero_utils.Discretizer(
+      num_bins=config.num_bins,
+      step_size=config.scalar_step_size,
+      max_value=config.max_scalar_value,
+      tx_pair=config.tx_pair,
+      clip_probs=config.clip_probs,
+    )
+
     # NOTE: RNN hidden is available, not RNN state...
     to_log = super().create_log_metrics(metrics)
+
+    #metrics['visualize_metrics']['visualize_root_data']['value_root_logits']
 
     metrics = metrics.get('visualize_metrics', {})
     # get data from batch-idx = 0
@@ -103,5 +116,46 @@ class LearnerLogger(learner_logger.LearnerLogger):
     attn_entropy = attn_analysis.slot_attn_entropy(
       slot_attn, normalize=True)
     to_log['1.slot_attn_entropy'] = wandb.Image(attn_entropy)
+
+    '''
+    ######################
+    # plot value
+    ######################
+    attn_entropy = attn_analysis.slot_attn_entropy(
+      slot_attn, normalize=True)
+    to_log['1.slot_attn_entropy'] = wandb.Image(attn_entropy)
+
+    num_actions = policy_probs.shape[-1]
+    onehot_env_actions = jax.nn.one_hot(actions, num_classes=num_actions)
+    '''
+
+    ######################
+    # plot root policy
+    ######################
+
+    import ipdb; ipdb.set_trace()
+
+    def wandb_images(images_):
+      return [wandb.Image(img) for img in images_]
+
+    policy_root_logits = root_data['policy_root_logits']
+    policy_root_target = root_data['policy_root_target']
+    in_episode = root_data['in_episode']
+
+    plot_images = []
+    for idx in range(policy_root_logits.shape[0]):
+      if in_episode[idx] == 1:
+        plot_images.append(analyis_utils.plot_compare_pmfs(
+          xlabels=self._action_names,
+          pmfs=[policy_root_logits[idx],
+                policy_root_target[idx],
+                ],
+          pmf_labels=['Prediction', 'Target'],
+          title=f'Policy Root Predictions (T={idx})',
+          ))
+    to_log['3.policy/predictions/1.root'] = wandb_images(plot_images)
+
+    target_values = discretizer.logits_to_scalar(
+      online_outputs.value_logits)
 
     return to_log
