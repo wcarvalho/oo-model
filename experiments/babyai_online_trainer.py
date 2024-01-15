@@ -7,34 +7,34 @@ python -m ipdb -c continue experiments/babyai_online_trainer.py \
   --parallel='none' \
   --run_distributed=False \
   --debug=True \
-  --search='baselines'
+  --search='conv_factored'
 
 # DEBUGGING, single stream, disable just-in-time compilation
 JAX_DISABLE_JIT=1 python -m ipdb -c continue experiments/babyai_online_trainer.py \
   --parallel='none' \
   --run_distributed=False \
   --debug=True \
-  --search='baselines'
+  --search='conv_factored'
 
 # DEBUGGING, launching jobs in parallel with ray: see `sweep` fn
 python -m ipdb -c continue experiments/babyai_online_trainer.py \
-  --parallel='ray' \
+  --parallel='sbatch' \
   --debug_parallel=True \
   --run_distributed=False \
   --use_wandb=True \
   --wandb_entity=wcarvalho92 \
   --wandb_project=factored_muzero2_debug \
-  --search='baselines'
+  --search='conv_factored'
 
 
-# launching jobs in parallel with ray: see `sweep` fn
-python -m ipdb -c continue experiments/babyai_online_trainer.py \
-  --parallel='ray' \
+# launching jobs in parallel with sbatch: see `sweep` fn
+python experiments/babyai_online_trainer.py \
+  --parallel='sbatch' \
   --run_distributed=True \
   --use_wandb=True \
   --wandb_entity=wcarvalho92 \
   --wandb_project=factored_muzero2 \
-  --search='muzero'
+  --search='conv_factored'
 
 """
 import functools 
@@ -262,8 +262,8 @@ def train_single(
   else:
     experiments.run_experiment(
       experiment=experiment,
-      num_eval_episodes=10)
-
+      eval_every=1 if debug else 100,
+      num_eval_episodes=1)
 
 def setup_wandb_init_kwargs():
   if not FLAGS.use_wandb:
@@ -528,18 +528,20 @@ def sweep(search: str = 'default', **kwargs):
         # },
         {
             **shared, #4
-            "group": 'B37-replicate-6',
+            "group": 'replicate-5-slot-64-forward-context',
             "agent": tune.grid_search(['branched']),
-            "learned_weights": tune.grid_search(
-              ['none', 'softmax']),
-            # "seperate_model_nets": tune.grid_search(
-            #   [True, False]),
-            # "staircase_decay": tune.grid_search([True, False]),
-            "reanalyze_ratio": tune.grid_search([.25]),
+            "forward_context": tune.grid_search([True]),
+            "action_as_factor": tune.grid_search([False]),
+            "savi_model_update": tune.grid_search(['sum', 'product']),
+            "seperate_model_nets": tune.grid_search([False]),
+            "vpi_mlps": tune.grid_search([[512, 512], [1024]]),
+            "reward_mlps": tune.grid_search([[512]]),
+            "slot_size": tune.grid_search([64]),
+            "batch_size": tune.grid_search([64]),
         },
     ]
 
-  elif search == 'conv_muzero':
+  elif search == 'seeds':
     shared = {
         "seed": tune.grid_search([5]),
         "env.partial_obs": True,
@@ -548,30 +550,49 @@ def sweep(search: str = 'default', **kwargs):
     space = [
         {
             **shared, #4
-            "group": 'conv-muzero-4',
+            "group": 'seeds-1',
+            "env.nseeds": tune.grid_search([100, 500, 1000, 0]),
             "agent": tune.grid_search([
-              'muzero',
-              'conv_muzero']),
+              'conv_muzero',
+              'muzero']),
         },
     ]
   elif search == 'conv_factored':
     shared = {
         "seed": tune.grid_search([5]),
         "env.partial_obs": True,
-         **settings['place5'],
+         **settings['place7'],
     }
     space = [
+        # {
+        #     **shared, #4
+        #     "group": 'conv-factored-11',
+        #     "agent": tune.grid_search(['conv_factored']),
+        #     # "num_slots": tune.grid_search([1, 4]),
+        #     "seperate_model_nets": tune.grid_search([False]),
+        #     # "transition_blocks": tune.grid_search([2]),
+        #     # "conv_lstm_dim": tune.grid_search([32]),
+        #     "context_slot_dim": tune.grid_search([0]),
+        #     "state_model_coef": tune.grid_search([1.0, 1e-2]),
+        #     "reanalyze_ratio": tune.grid_search([0.0]),
+        #     "savi_combo_update": tune.grid_search(['sum', 'concat', ]),
+        #     "mix_when": tune.grid_search(['conv', 'savi', ]),
+        # },
         {
             **shared, #4
-            "group": 'conv-factored-6',
+            "group": 'conv-factored-15-lower-temp',
             "agent": tune.grid_search(['conv_factored']),
-            "num_slots": tune.grid_search([1, 4]),
-            # "seperate_model_nets": tune.grid_search([False, True]),
-            "transition_blocks": tune.grid_search([2]),
-            "conv_lstm_dim": tune.grid_search([32, 64]),
-            "context_slot_dim": tune.grid_search([0]),
-            "learned_weights": tune.grid_search(['none', 'softmax']),
-            # "vpi_mlps": tune.grid_search([[128, 32], [256, 256]]),
+            # "num_slots": tune.grid_search([1, 4]),
+            "seperate_model_nets": tune.grid_search([False]),
+            # "transition_blocks": tune.grid_search([2]),
+            # "combine_context": tune.grid_search(['sum', 'concat']),
+            "reanalyze_ratio": tune.grid_search([0.0]),
+            "savi_combo_update": tune.grid_search(['sum']),
+            "mix_when": tune.grid_search(['savi']),
+            "vpi_mlps": tune.grid_search([[512, 512], [1024], [1024, 1024]]),
+            "reward_mlps": tune.grid_search([[512]]),
+            "slot_size": tune.grid_search([64]),
+            "batch_size": tune.grid_search([64, 128]),
         },
     ]
   else:

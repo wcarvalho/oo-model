@@ -10,24 +10,27 @@ import pickle
 import datetime
 from pprint import pprint
 from pathlib import Path
-from ray import tune
 import subprocess
 
 from acme.utils import paths
 
-from experiments import logger as wandb_logger 
-from experiments import config_utils
-
-flags.DEFINE_integer('num_actors', 1, 'number of actors.')
-flags.DEFINE_integer('num_cpus', 4, 'number of cpus.')
-flags.DEFINE_float('num_gpus', 1, 'number of gpus.')
+flags.DEFINE_integer('num_actors', 6, 'number of actors.')
 flags.DEFINE_integer('config_idx', 1, 'number of actors.')
+flags.DEFINE_integer('num_cpus', 16, 'number of cpus.')
+flags.DEFINE_integer('num_gpus', 1, 'number of gpus.')
+flags.DEFINE_integer('memory', 120_000, 'memory (in mbs).')
+flags.DEFINE_string('time', '0-18:00:00', '18 hours.')
+flags.DEFINE_integer('max_concurrent', 12, 'number of concurrent jobs')
+flags.DEFINE_string('account', '', 'account on slurm servers to use.')
+flags.DEFINE_string('partition', 'kempner', 'account on slurm servers to use.')
 
 flags.DEFINE_string(
     'parallel', 'none', "none: run 1 experiment. sbatch: run many experiments with SBATCH. ray: run many experiments with say. use sbatch with SLUM or ray otherwise.")
-flags.DEFINE_bool('skip', True, 'whether to skip experiments that have already run.')
 flags.DEFINE_bool('subprocess', False, 'label for whether this run is a subprocess.')
 flags.DEFINE_bool('debug_parallel', False, 'whether to debug parallel runs.')
+
+flags.DEFINE_bool('skip', False, 'whether to skip experiments that have already run.')
+
 
 FLAGS = flags.FLAGS
 
@@ -138,7 +141,7 @@ def make_save_dict(
     use_wandb: bool,
     base_dir: str = '.',
     ):
-  
+  # either look for group name in setting, wandb_init_kwargs, or use search name
   if 'group' in config:
     group = config.pop('group')
   else:
@@ -206,7 +209,6 @@ def make_program_command(
   for k, v in kwargs.items():
     str += f"--{k}={v}"
   return str
-
 
 def create_and_run_program(
     config,
@@ -277,7 +279,6 @@ def create_and_run_program(
   process = subprocess.Popen(command, env=cuda_env, shell=True)
   process.wait()
 
-
 def run_ray(
     trainer_filename: str,
     wandb_init_kwargs: dict,
@@ -325,6 +326,7 @@ def run_ray(
   #--------------------------
   # setup multi-processing + init ray
   #--------------------------
+  from ray import tune
   mp.set_start_method('spawn')
   import ray
   ray.init()
@@ -423,3 +425,115 @@ def run(
     wandb_dir = wandb_init_kwargs.get("dir", './wandb')
     if os.path.exists(wandb_dir):
       shutil.rmtree(wandb_dir)
+
+def run_sbatch(
+    trainer_filename: str,
+    wandb_init_kwargs: dict,
+    folder: str,
+    search_name: str,
+    spaces: Union[Dict, List[Dict]],
+    use_wandb: bool = False,
+    num_actors: int = 4,
+    debug: bool = False,
+    run_distributed: bool = True):
+  """For each possible configuration of a run, create a config entry. save a list of all config entries. When SBATCH is called, it will use the ${SLURM_ARRAY_TASK_ID} to run a particular one.
+  """
+  wandb_init_kwargs = wandb_init_kwargs or dict()
+  #################################
+  # create configs for all runs
+  #################################
+  root_path = str(Path().absolute())
+  configurations = get_all_configurations(spaces=spaces)
+
+  from pprint import pprint
+  logging.info("searching:")
+  pprint(configurations)
+
+
+  save_configs = []
+  base_path = os.path.join(root_path, folder, search_name)
+  for config in configurations:
+    save_config = make_save_dict(
+      config=config,
+      wandb_init_kwargs=wandb_init_kwargs,
+      search_name=search_name,
+      num_actors=num_actors,
+      run_distributed=run_distributed,
+      use_wandb=use_wandb,
+      base_dir=base_path,
+      )
+    save_configs.append(save_config)
+
+  #################################
+  # save configs for all runs
+  #################################
+  base_path = os.path.join(base_path, f'runs-{date_time(True)}')
+  paths.process_path(base_path)
+
+  # base_filename = os.path.join(base_path, date_time(time=True))
+  configs_file = f"{base_path}/config.pkl"
+  with open(configs_file, 'wb') as fp:
+      pickle.dump(save_configs, fp)
+      logging.info(f'Saved: {configs_file}')
+
+  #################################
+  # create run.sh file to run with sbatch
+  #################################
+  python_file_contents = f"python {trainer_filename}"
+  python_file_contents += f" --config_file={configs_file}"
+  python_file_contents += f" --use_wandb={use_wandb}"
+  python_file_contents += f" --num_actors={num_actors}"
+  if debug:
+    python_file_contents += f" --config_idx=1"
+  else:
+    python_file_contents += f" --config_idx=$SLURM_ARRAY_TASK_ID"
+  python_file_contents += f" --run_distributed={run_distributed}"
+  python_file_contents += f" --subprocess={True}"
+  python_file_contents += f" --make_path={False}"
+
+  run_file = f"{base_path}/run.sh"
+
+  if debug:
+    # create file and run single python command
+    run_file_contents = "#!/bin/bash\n" + python_file_contents
+    logging.warning("only running first config")
+    print(run_file_contents)
+    with open(run_file, 'w') as file:
+      # Write the string to the file
+      file.write(run_file_contents)
+    process = subprocess.Popen(f"chmod +x {run_file}", shell=True)
+    process = subprocess.Popen(run_file, shell=True)
+    process.wait()
+    return
+
+  #################################
+  # create sbatch file
+  #################################
+  job_name=f'{search_name}-{date_time(True)}'
+  sbatch_contents = f"#SBATCH --gres=gpu:{FLAGS.num_gpus}\n"
+  sbatch_contents += f"#SBATCH -c {FLAGS.num_cpus}\n"
+  sbatch_contents += f"#SBATCH --mem {FLAGS.memory}\n"
+  sbatch_contents += f"#SBATCH -J {job_name}\n"
+
+  # sbatch_contents += f"#SBATCH --mem-per-cpu={FLAGS.memory}\n"
+  sbatch_contents += f"#SBATCH -p {FLAGS.partition}\n"
+  sbatch_contents += f"#SBATCH -t {FLAGS.time}"
+  sbatch_contents += f"#SBATCH --account {FLAGS.account}\n"
+  sbatch_contents += f"#SBATCH -o {base_path}/id=%j.out\n"
+  sbatch_contents += f"#SBATCH -e {base_path}/id=%j.err\n"
+
+  run_file_contents = "#!/bin/bash\n" + sbatch_contents + python_file_contents
+  print("-"*20)
+  print(run_file_contents)
+  print("-"*20)
+  with open(run_file, 'w') as file:
+    # Write the string to the file
+    file.write(run_file_contents)
+
+  total_jobs = len(save_configs)
+  max_concurrent = min(FLAGS.max_concurrent, total_jobs)
+  sbatch_command = f"sbatch --array=1-{total_jobs}%{max_concurrent} {run_file}"
+  logging.info(sbatch_command)
+  process = subprocess.Popen(f"chmod +x {run_file}", shell=True)
+  process = subprocess.Popen(sbatch_command, shell=True)
+  process.wait()

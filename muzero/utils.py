@@ -1,14 +1,17 @@
 """Agent utilities."""
 
 from typing import Optional, Callable
+from acme.jax import networks as networks_lib
 import chex
 import jax
 import jax.numpy as jnp
 import haiku as hk
 import math
 import rlax
+import mctx
 
 from acme.types import NestedArray as Array
+from muzero import types as muzero_types
 
 State = Array
 Action = Array
@@ -174,3 +177,27 @@ def compute_q_values(state: State,
     q_value = jnp.where(invalid_actions>0, -1e10, q_value)
 
   return q_value
+
+
+def model_step(params: networks_lib.Params,
+               rng_key: chex.Array,
+               action: chex.Array,
+               state: chex.Array,
+               discount: chex.Array,
+               networks: muzero_types.MuZeroNetworks,
+               discretizer: Discretizer):
+  """One simulation step in MCTS."""
+  rng_key, model_key = jax.random.split(rng_key)
+  model_output, next_state = networks.apply_model(
+      params, model_key, state, action,
+  )
+  reward = discretizer.logits_to_scalar(model_output.reward_logits)
+  value = discretizer.logits_to_scalar(model_output.value_logits)
+
+  recurrent_fn_output = mctx.RecurrentFnOutput(
+      reward=reward,
+      discount=discount,
+      prior_logits=model_output.policy_logits,
+      value=value,
+  )
+  return recurrent_fn_output, next_state

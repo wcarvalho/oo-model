@@ -252,10 +252,12 @@ class SlotAttention(hk.RNNCore):
           inter_slot_updates,
           other_obs_info)
       elif self.combo_update == 'sum':
+        dim = image_updates.shape[-1]
+        linear = lambda x: hk.Linear(dim, with_bias=False)(jax.nn.relu(x))
         # [N, D] + [N, D] + [1, D]
-        return (image_updates + 
-                inter_slot_updates +
-                jnp.expand_dims(other_obs_info, axis=-2))
+        return (linear(image_updates) + 
+                linear(inter_slot_updates) +
+                linear(jnp.expand_dims(other_obs_info, axis=-2)))
       else: 
         raise NotImplementedError(self.combo_update)
 

@@ -24,6 +24,7 @@ import os
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = 'false'
 # https://github.com/google/jax/issues/8302
 os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
+os.environ["WANDB__SERVICE_WAIT"] = "300"
 
 import dataclasses
 import datetime
@@ -47,7 +48,7 @@ import launchpad as lp
 from ray import tune
 
 
-from experiments import logger as wandb_logger 
+from experiments import logger as experiment_logger 
 from experiments import config_utils
 
 
@@ -173,7 +174,7 @@ def setup_logger_factory(
   def logger_factory(
       name: str,
       steps_key: Optional[str] = None,
-      task_id: Optional[int] = None,
+      actor_id: Optional[int] = None,
   ) -> loggers.Logger:
     if custom_steps_keys is not None:
       steps_key = custom_steps_keys(name)
@@ -181,26 +182,26 @@ def setup_logger_factory(
       wandb.init(**wandb_init_kwargs)
 
     if name == 'actor':
-      return wandb_logger.make_logger(
+      return experiment_logger.make_logger(
           log_dir=log_dir,
           label=actor_label,
           time_delta=0.0,
           log_with_key=log_with_key,
           steps_key=steps_key,
           max_number_of_steps=agent_config.num_steps,
-          save_data=task_id == 0,
-          use_wandb=use_wandb)
+          save_data=actor_id == 0,
+          use_wandb=use_wandb and actor_id==0)
     elif name == 'evaluator':
-      return wandb_logger.make_logger(
+      return experiment_logger.make_logger(
           log_dir=log_dir,
           label=evaluator_label,
           time_delta=0.0,
           log_with_key=log_with_key,
           steps_key=steps_key,
           max_number_of_steps=agent_config.num_steps,
-          use_wandb=use_wandb)
+          use_wandb=use_wandb and actor_id==0)
     elif name == 'learner':
-      return wandb_logger.make_logger(
+      return experiment_logger.make_logger(
           log_dir=log_dir,
           label=learner_label,
           time_delta=log_every,

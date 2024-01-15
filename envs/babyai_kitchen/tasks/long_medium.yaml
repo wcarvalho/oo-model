@@ -1,9 +1,5 @@
 train:
 
-  - name: "1.pickup_nodist"
-    task_kinds: pickup
-    num_dists: 0
-
   - name: "1.pickup"
     task_kinds: pickup
 
@@ -48,10 +44,6 @@ train:
 
 
 test:
-
-  - name: "1.pickup_nodist"
-    task_kinds: pickup
-    num_dists: 0
 
   - name: "1.pickup"
     task_kinds: pickup

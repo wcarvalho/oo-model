@@ -54,12 +54,15 @@ class FactoredMuZeroConfig(MuZeroConfig):
   slot_size: int = 64
   transform_pos_embed: bool = True
   fixed_point: bool = True
-  savi_combo_update: str = 'concat'
+  savi_combo_update: str = 'sum'
+  savi_model_update: str = 'sum'
+  forward_context: bool = False
   relation_iterations: str = 'once'
   savi_init: str = 'gauss'
   savi_gumbel_temp: float = 1.0
   mask_context: str = 'softmax'
   attention_in_updates: bool = False
+  mix_when: str = 'conv'
 
   # transition function
   model_gate: str = 'sum'
@@ -87,6 +90,8 @@ class FactoredMuZeroConfig(MuZeroConfig):
   reward_mlps: Tuple[int] = (32,)
   vpi_mlps: Tuple[int] = (128, 32)
   query: str = 'task_rep'
+  combine_context: str = 'sum'
+  combine_factors: str = 'logits'
 
 
   # loss
@@ -94,7 +99,7 @@ class FactoredMuZeroConfig(MuZeroConfig):
   reanalyze_ratio: float = 0.25 # percent of time to use mcts vs. observed return
   state_model_loss: str = 'dot_contrast'
   contrast_gamma: float = 1e-2  # only for cswm and laplacian
-  contrast_temp: float = 0.1  # only for dot_contrast
+  contrast_temp: float = 0.01  # only for dot_contrast
   state_model_coef: float = 1.0
   weight_decay_fn: str = "default"
   weight_decay: float = 1e-4  # very few params

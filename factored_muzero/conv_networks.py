@@ -34,6 +34,7 @@ from modules import language
 from modules import vision_language
 from modules.mlp_muzero import PredictionMlp, ResMlp
 from modules.conv_muzero import Transition as ConvTransition
+from modules.conv_muzero import concat_conv_vector
 from muzero.arch import MuZeroArch
 from muzero.types import MuZeroNetworks
 from muzero.utils import scale_gradient
@@ -110,6 +111,8 @@ class ConvSlotMemory(hk.RNNCore):
       conv_state_fn: hk.Conv2DLSTM,
       factors_state_fn: attention.SlotAttention,
       pos_embedder: encoder.PositionEmbedding,
+      art_combo_update: str = 'concat',
+      mix_when: str = 'conv',
       name: Optional[str] = 'ConvSlotMemory'):
     """Constructs an LSTM.
 
@@ -121,6 +124,8 @@ class ConvSlotMemory(hk.RNNCore):
     self.conv_state_fn = conv_state_fn
     self.factors_state_fn = factors_state_fn
     self.pos_embedder = pos_embedder
+    self.art_combo_update = art_combo_update
+    self.mix_when = mix_when
 
   def __call__(
       self,
@@ -128,34 +133,65 @@ class ConvSlotMemory(hk.RNNCore):
       prev_state: ConvSaviState,
   ) -> Tuple[ConvSaviState, ConvSaviState]:
 
-    channels = inputs.image.shape[-1]
+    def mix_conv_info(conv, info):
+      channels = conv.shape[-1]
+      has_batch = conv.ndim == 4
+      #-------------------
+      # add (action, reward, task) info to obs tensor
+      #-------------------
+      encoded_inputs = hk.Linear(
+        channels, 
+        w_init=hk.initializers.TruncatedNormal(),
+        with_bias=False)(jnp.concatenate(
+          (info.action, info.reward, info.task), axis=-1))
 
-    #-------------------
-    # add (action, reward, task) info to obs tensor
-    #-------------------
-    encoded_inputs = hk.Linear(
-      channels, 
-      w_init=hk.initializers.TruncatedNormal(),
-      with_bias=False)(jnp.concatenate(
-        (inputs.action, inputs.reward, inputs.task), axis=-1))
-    # [..., D] --> [..., 1, 1, D]
-    encoded_inputs = jnp.expand_dims(encoded_inputs, axis=-2)
-    encoded_inputs = jnp.expand_dims(encoded_inputs, axis=-2)
 
-    # [H, W, C] + [1, 1, D], i.e. broadcast across H,W
-    conv_input = inputs.image + encoded_inputs
+      if self.art_combo_update == 'sum':
+        # [..., D] --> [..., 1, 1, D]
+        encoded_inputs = jnp.expand_dims(encoded_inputs, axis=-2)
+        encoded_inputs = jnp.expand_dims(encoded_inputs, axis=-2)
+        conv = hk.LayerNorm(axis=(-1), create_scale=True, create_offset=True)(conv)
+        conv = jax.nn.relu(conv)
+        output = conv + encoded_inputs
+      elif self.art_combo_update == 'concat':
+        if has_batch:
+          output = jax.vmap(concat_conv_vector)(conv, encoded_inputs)
+        else:
+          output = concat_conv_vector(conv, encoded_inputs)
+      else:
+        raise NotImplementedError(self.art_combo_update)
+
+      output = hk.Conv2D(channels, kernel_shape=3, stride=1, padding='SAME', with_bias=False)(output)
+      output += conv  # Residual link to maintain recurrent info flow.
+
+      return output
+
 
     #-------------------
     # apply ConvLTSM
     #-------------------
+    if self.mix_when == 'conv':
+      conv_input = mix_conv_info(inputs.image, inputs)
+    elif self.mix_when == 'savi':
+      conv_input = inputs.image
+    else:
+      raise NotImplementedError
+
     conv_hidden, conv_state = self.conv_state_fn(
       conv_input, prev_state.conv)
 
     #-------------------
     # embed positions and then apply slot attention
     #-------------------
+    if self.mix_when == 'conv':
+      savi_input = conv_hidden
+    elif self.mix_when == 'savi':
+      savi_input = mix_conv_info(conv_hidden, inputs)
+    else:
+      raise NotImplementedError
+
     factors_state, _ = self.factors_state_fn(
-      image=self.pos_embedder(conv_hidden),
+      image=self.pos_embedder(savi_input),
       state=prev_state)
 
     new_hidden = ConvSaviState(
@@ -252,7 +288,8 @@ def make_transition_fn(
         #-------------------
         new_conv_state = ConvTransition(
           channels=state.conv.shape[-1],
-          num_blocks=config.transition_blocks)(
+          num_blocks=config.transition_blocks,
+          action_mix_type=config.savi_combo_update)(
             action_onehot, state.conv)
 
         #-------------------
@@ -331,7 +368,7 @@ def make_prediction_function(
   reward_fn = make_pred_fn(
       name='pred_model_reward', sizes=config.reward_mlps, num_preds=config.num_bins)
   weight_fn = make_pred_fn(
-      name='pred_weights', sizes=config.vpi_mlps, num_preds=1)
+      name='pred_weights', sizes=config.reward_mlps, num_preds=1)
 
   context_projection = hk.Linear(
       config.slot_size,
@@ -345,7 +382,7 @@ def make_prediction_function(
       num_layers=config.prediction_blocks)
     model_vpi_base = ResMlp(config.prediction_blocks, ln=config.ln, name='pred_model_base')
     model_weight_fn = make_pred_fn(
-      name='pred_weights', sizes=config.vpi_mlps, num_preds=1)
+      name='pred_weights', sizes=config.reward_mlps, num_preds=1)
     model_value_fn = make_pred_fn(
       name='pred_model_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
     model_policy_fn = make_pred_fn(
@@ -374,12 +411,19 @@ def make_prediction_function(
     Concatenate (task + full image factor) with every factor
     """
     factors = state_rep.factors  # [N, D]
-    concat = lambda a, b: jnp.concatenate((a, b))
+    dim = factors.shape[-1]
+    linear = lambda x: hk.Linear(dim, with_bias=False)(x)
+
+    if config.combine_context == 'sum':
+      combine = lambda a, b: linear(a) + linear(b)
+    elif config.combine_context == 'concat':
+      combine = lambda a, b: jnp.concatenate((a, b))
+
     if config.context_slot_dim:
       context = context_projection_(
         hk.Flatten(-3)(state_rep.conv))  # [D]
       # concatenate context with every factor, [N, 2D]
-      pred_input = jax.vmap(concat, (None, 0), (0))(context, factors)
+      pred_input = jax.vmap(combine, (None, 0), (0))(context, factors)
       pred_input = pred_transformer_(queries=pred_input)
       attn_output = None
     else:
@@ -580,6 +624,8 @@ def make_babyai_networks(
       conv_state_fn=conv_state_fn,
       factors_state_fn=factors_state_fn,
       pos_embedder=pos_embedder,
+      art_combo_update=config.savi_combo_update,
+      mix_when=config.mix_when,
     )
 
     ###########################

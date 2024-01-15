@@ -11,7 +11,7 @@ from muzero import utils as muzero_utils
 from muzero.builder import MuZeroBuilder
 from muzero.config import MuZeroConfig
 from muzero.ve_losses import ValueEquivalentLoss
-
+from muzero import actor as muzero_actor
 from experiments.config_utils import update_config
 
 def load_config(
@@ -93,10 +93,20 @@ def setup(
         invalid_actions=invalid_actions,
         **network_kwargs)
 
-  builder = MuZeroBuilder(config,
-                          loss_fn=ve_loss_fn,
-                          network_factory=network_factory,
-                          **builder_kwargs)
+  get_actor_fn = functools.partial(
+    muzero_actor.get_actor_core,
+    discretizer=discretizer,
+    get_state = lambda preds: preds.state,
+    mcts_policy=functools.partial(
+      muzero_policy,
+      num_simulations=config.num_simulations),
+    )
+  builder = MuZeroBuilder(
+    config,
+    loss_fn=ve_loss_fn,
+    network_factory=network_factory,
+    get_actor_fn=get_actor_fn,
+    **builder_kwargs)
 
   
   return builder, network_factory

@@ -62,6 +62,7 @@ class Transition(hk.Module):
         channels: int,
         num_blocks: int,
         ln: bool = True,
+        action_mix_type: str = 'concat',
         name: str = "transition",
     ):
         """Init transition function."""
@@ -69,6 +70,7 @@ class Transition(hk.Module):
         self._channels = channels
         self._num_blocks = num_blocks
         self._ln = ln
+        self.action_mix_type = action_mix_type
 
     def __call__(
         self,
@@ -89,7 +91,10 @@ class Transition(hk.Module):
         encoded_action = hk.Linear(channels,
                                    w_init=action_w_init,
                                    with_bias=False)(action_onehot)
-        x_and_h = prev_state + encoded_action
+        if self.action_mix_type == 'sum':
+          x_and_h = prev_state + encoded_action
+        elif self.action_mix_type == 'concat':
+          x_and_h = jnp.concatenate((prev_state, encoded_action), axis=-1)
         out = hk.Linear(channels, with_bias=False)(x_and_h)
         out += shortcut  # Residual link to maintain recurrent info flow.
 

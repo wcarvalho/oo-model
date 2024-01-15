@@ -34,7 +34,7 @@ Changes from R2D2:
 - make_policy: custom MuZero actor.
 
 """
-from typing import Generic, Iterator, List, Optional
+from typing import Generic, Iterator, List, Optional, Union
 
 import acme
 from acme import adders
@@ -61,6 +61,7 @@ import reverb
 from reverb import structured_writer as sw
 import tensorflow as tf
 import tree
+import mctx
 
 from acme.agents.jax import r2d2
 
@@ -69,6 +70,7 @@ from muzero import actor as muzero_actor
 from muzero.ve_losses import ValueEquivalentLoss
 from muzero import learner_logger
 from muzero import r2d2_builder
+from muzero import utils as muzero_utils
 
 class MuZeroBuilder(r2d2_builder.R2D2Builder):
   """MuZero Builder.
@@ -84,6 +86,7 @@ class MuZeroBuilder(r2d2_builder.R2D2Builder):
       network_factory = None,
       actorCls: actors.GenericActor=muzero_actor.LearnableStateActor,
       visualization_logger: Optional[learner_logger.BaseLogger] = None,
+      get_actor_fn=None,
       **kwargs):
     """Creates a R2D2 learner, a behavior policy and an eval actor."""
     super().__init__(config=config, actorCls=actorCls, **kwargs)
@@ -92,6 +95,9 @@ class MuZeroBuilder(r2d2_builder.R2D2Builder):
     self._visualization_logger = visualization_logger
     self._network_factory = network_factory
     self._learnerCls = learnerCls
+    if get_actor_fn is None:
+      get_actor_fn = muzero_actor.get_actor_core
+    self.get_actor_fn = get_actor_fn
 
   def make_learner(
       self,
@@ -201,6 +207,8 @@ class MuZeroBuilder(r2d2_builder.R2D2Builder):
                   environment_spec: specs.EnvironmentSpec,
                   evaluation: bool = False) -> muzero_actor.R2D2Policy:
     del environment_spec
-    return muzero_actor.get_actor_core(networks,
-                                       evaluation=evaluation,
-                                       config=self._config)
+    return self.get_actor_fn(
+      networks,
+      evaluation=evaluation,
+      config=self._config,
+      )

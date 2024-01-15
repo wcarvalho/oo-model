@@ -10,6 +10,7 @@ import rlax
 from muzero import utils as muzero_utils
 from muzero.types import TaskAwareRep
 from muzero.builder import MuZeroBuilder
+from muzero import actor as muzero_actor
 
 
 from factored_muzero import types
@@ -149,12 +150,21 @@ def setup(
     from muzero.learning import MuZeroLearner
     learnerCls = MuZeroLearner
 
+  get_actor_fn = functools.partial(
+    muzero_actor.get_actor_core,
+    discretizer=discretizer,
+    get_state=get_state,
+    mcts_policy=functools.partial(
+      muzero_policy,
+      num_simulations=config.num_simulations),
+    )
   builder = MuZeroBuilder(
-      config=config,
-      loss_fn=ve_loss_fn,
-      learnerCls=learnerCls,
-      network_factory=network_factory,
-      **builder_kwargs)
+    config=config,
+    loss_fn=ve_loss_fn,
+    learnerCls=learnerCls,
+    network_factory=network_factory,
+    get_actor_fn=get_actor_fn,
+    **builder_kwargs)
 
   
   return builder, network_factory

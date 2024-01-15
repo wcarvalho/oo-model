@@ -34,7 +34,7 @@ import rlax
 import mctx
 
 from muzero import types as muzero_types
-from muzero.utils import Discretizer
+from muzero.utils import Discretizer, model_step
 from muzero.learner_logger import LearnerLogger
 
 Array = acme_types.NestedArray
@@ -632,25 +632,3 @@ class ValueEquivalentLoss:
 
 
 
-def model_step(params: networks_lib.Params,
-               rng_key: chex.Array,
-               action: chex.Array,
-               state: chex.Array,
-               discount: chex.Array,
-               networks: muzero_types.MuZeroNetworks,
-               discretizer: Discretizer):
-  """One simulation step in MCTS."""
-  rng_key, model_key = jax.random.split(rng_key)
-  model_output, next_state = networks.apply_model(
-      params, model_key, state, action,
-  )
-  reward = discretizer.logits_to_scalar(model_output.reward_logits)
-  value = discretizer.logits_to_scalar(model_output.value_logits)
-
-  recurrent_fn_output = mctx.RecurrentFnOutput(
-      reward=reward,
-      discount=discount,
-      prior_logits=model_output.policy_logits,
-      value=value,
-  )
-  return recurrent_fn_output, next_state

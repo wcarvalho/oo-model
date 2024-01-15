@@ -5,6 +5,14 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 
+def concat_conv_vector(conv: jax.Array, vector: jax.Array):
+  """broadcast over e.g. H,W dimensions of conv"""
+  concat = lambda a,b: jnp.concatenate((a,b), axis=-1)
+  broadcast_concat = jax.vmap(concat, in_axes=(0, None))
+  broadcast_concat = jax.vmap(broadcast_concat, in_axes=(0, None))
+  return broadcast_concat(conv, vector)
+
+
 class ResConvBlock(hk.Module):
     """A residual convolutional block in pre-activation style."""
 
@@ -135,6 +143,7 @@ class Transition(hk.Module):
         channels: int,
         num_blocks: int,
         ln: bool = True,
+        action_mix_type: str = 'concat',
         name: str = "transition",
     ):
         """Init transition function."""
@@ -142,6 +151,7 @@ class Transition(hk.Module):
         self._channels = channels
         self._num_blocks = num_blocks
         self._ln = ln
+        self.action_mix_type = action_mix_type
 
     def __call__(
         self,
@@ -162,7 +172,13 @@ class Transition(hk.Module):
                                    with_bias=False)(action_onehot)
 
         # [H, W, C] + [1, 1, D], i.e. broadcast across H,W
-        x_and_h = prev_state + encoded_action[None, None]
+        if self.action_mix_type == 'sum':
+          x_and_h = prev_state + encoded_action[None, None]
+        elif self.action_mix_type == 'concat':
+          x_and_h = concat_conv_vector(prev_state, encoded_action)
+        else:
+          raise NotImplementedError(self.action_mix_type)
+
         out = hk.Conv2D(channels, kernel_shape=3, stride=1, padding='SAME', with_bias=False)(x_and_h)
         out += shortcut  # Residual link to maintain recurrent info flow.
 

@@ -70,6 +70,7 @@ class MultitaskKitchen(dm_env.Environment):
     num_dists=0,
     symbolic=False,
     test_larger=False,
+    train_smaller=True,
     timeout_truncate=False,
     **kwargs):
     """Initializes a new Kitchen environment.
@@ -116,26 +117,53 @@ class MultitaskKitchen(dm_env.Environment):
               task_kinds=[task],
               **level_kwargs
           )
+    key_fn = lambda k, r, d: f"{k}.R{r}.D{d}"
+
+    if train_smaller:
+      new_all_level_kwargs = dict()
+      for key, level_kwargs in all_level_kwargs.items():
+
+        room_size = level_kwargs['room_size']
+        num_dists = level_kwargs['num_dists']
+
+        new_key = key_fn(key, room_size, num_dists)
+        new_all_level_kwargs[new_key] = level_kwargs
+        for room_size in range(5, room_size+1, 2):
+          for num_dists in range(0, num_dists+1, 2):
+            new_key = key_fn(key, room_size, num_dists)
+            new_all_level_kwargs[new_key] = dict(level_kwargs)
+            new_all_level_kwargs[new_key].update(
+              room_size=room_size,
+              num_dists=num_dists,
+            )
+      all_level_kwargs = new_all_level_kwargs
+
     if test_larger:
       new_all_level_kwargs = dict()
       for key, level_kwargs in all_level_kwargs.items():
-        room_size = level_kwargs['room_size']
-        bigger_room_size = room_size + 2
         num_dists = level_kwargs['num_dists']
-        more_dists = num_dists + 2
+        room_size = level_kwargs['room_size']
 
-        key1 = f"{key}_room"
-        key2 = f"{key}_room_dists"
-        new_all_level_kwargs[key] = level_kwargs
-        new_all_level_kwargs[key1] = dict(level_kwargs)
-        new_all_level_kwargs[key1].update(
+        # add back room with improved name
+        new_key = key_fn(key, room_size, num_dists)
+        new_all_level_kwargs[new_key] = level_kwargs
+
+        # same # of dists, bigger room
+        bigger_room_size = room_size + 2
+        new_key = key_fn(key, bigger_room_size, num_dists)
+        new_all_level_kwargs[new_key] = dict(level_kwargs)
+        new_all_level_kwargs[new_key].update(
           room_size=bigger_room_size,
         )
-        new_all_level_kwargs[key2] = dict(level_kwargs)
-        new_all_level_kwargs[key2].update(
-          room_size=bigger_room_size,
-          num_dists=more_dists,
-        )
+
+        for extra_dist in (4, 8):
+          more_dists = num_dists + extra_dist
+          new_key = key_fn(key, bigger_room_size, more_dists)
+          new_all_level_kwargs[new_key] = dict(level_kwargs)
+          new_all_level_kwargs[new_key].update(
+            room_size=bigger_room_size,
+            num_dists=more_dists,
+          )
       all_level_kwargs = new_all_level_kwargs
     # from pprint import pprint
     # pprint(all_level_kwargs)

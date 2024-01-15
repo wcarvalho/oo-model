@@ -33,6 +33,7 @@ from modules import vision
 from modules import language
 from modules import vision_language
 from modules.mlp_muzero import PredictionMlp, ResMlp, ResMlpBlock
+from modules.mlp_muzero import Transition
 from muzero.arch import MuZeroArch
 from muzero.types import MuZeroNetworks, TaskAwareRep
 from muzero.utils import TaskAwareRecurrentFn, scale_gradient
@@ -330,11 +331,19 @@ def make_transformer_model(
         encoded_action = hk.Linear(slot_dim,
                                    w_init=action_w_init,
                                    with_bias=False)(action_onehot)
+        def join(a, b):
+          linear = lambda x: hk.Linear(a.shape[-1], with_bias=False)(jax.nn.relu(x))
+          if config.savi_model_update == 'sum':
+            return linear(a)+linear(b)
+          elif config.savi_model_update == 'product':
+            return linear(a)*linear(b)
+          elif config.savi_model_update == 'concat':
+            return jnp.concatenate((a,b), axis=-1)
+
         if config.action_as_factor:
           # [N+1, D]
           queries = jnp.concatenate((slots, encoded_action[None]))
         else:
-          def join(a, b): return a+b
           shortcut = slots
           slots = hk.LayerNorm(
               axis=(-1), create_scale=True, create_offset=True)(slots)
@@ -381,6 +390,18 @@ def make_transformer_model(
           attn=outputs.attn,
         )
 
+        if config.forward_context:
+          context = state.context
+          context = Transition(
+            channels=context.shape[-1],
+            num_blocks=config.transition_blocks,
+            action_mix_type=config.savi_combo_update,
+            ln=config.ln)(action_onehot, context)
+          if config.scale_grad:
+            context = scale_gradient(context, config.scale_grad)
+          outputs = state._replace(
+            context=context,
+          )
         return outputs, outputs
       if action_onehot.ndim == 2:
         _transformer_model = jax.vmap(_transformer_model)
@@ -593,7 +614,7 @@ def make_multi_head_prediction_function(
   reward_fn = make_pred_fn(
       name='pred_model_reward', sizes=config.reward_mlps, num_preds=config.num_bins)
   weight_fn = make_pred_fn(
-      name='pred_weights', sizes=config.vpi_mlps, num_preds=1)
+      name='pred_weights', sizes=config.reward_mlps, num_preds=1)
 
   if config.seperate_model_nets:
     model_pred_transformer = make_transformer(
@@ -601,7 +622,7 @@ def make_multi_head_prediction_function(
       num_layers=config.prediction_blocks)
     model_vpi_base = ResMlp(config.prediction_blocks, ln=config.ln, name='pred_model_base')
     model_weight_fn = make_pred_fn(
-      name='pred_weights', sizes=config.vpi_mlps, num_preds=1)
+      name='pred_weights', sizes=config.reward_mlps, num_preds=1)
     model_value_fn = make_pred_fn(
       name='pred_model_value', sizes=config.vpi_mlps, num_preds=config.num_bins)
     model_policy_fn = make_pred_fn(
@@ -628,22 +649,29 @@ def make_multi_head_prediction_function(
     """
     factors = state_rep.rep.factors  # [N, D]
     task = state_rep.task            # [D]
+    dim = factors.shape[-1]
+    linear = lambda x: hk.Linear(dim, with_bias=False)(jax.nn.relu(x))
 
     if config.slots_use_task:
       # if slots already have task as input, no need to use here 
       task = jnp.zeros_like(task)
 
     context = task_projection(task)  # [D]
-    concat = lambda a, b: jnp.concatenate((a, b))
+    if config.combine_context == 'sum':
+      combine = lambda a, b: linear(a) + linear(b)
+    elif config.combine_context == 'concat':
+      combine = lambda a, b: jnp.concatenate((a, b))
+
     if config.context_slot_dim:
       # task + image
-      context = concat(context, state_rep.rep.context)
+      context = jnp.concatenate(
+        (context, state_rep.rep.context), axis=-1)
       # concatenate context with every factor, [N, 2D]
-      pred_input = jax.vmap(concat, (None, 0), (0))(context, factors)
+      pred_input = jax.vmap(combine, (None, 0), (0))(context, factors)
       pred_input = pred_transformer_(queries=pred_input)
       attn_output = None
     else:
-      queries = jax.vmap(concat, (None, 0), (0))(context, factors)
+      queries = jax.vmap(combine, (None, 0), (0))(context, factors)
       pred_input = pred_transformer_(queries=queries)  # [N, 2D]
       attn_output = pred_input
     pred_input = pred_input.factors
@@ -677,15 +705,23 @@ def make_multi_head_prediction_function(
         weight_fn_=weight_fn)
 
       if config.share_pred_base:
-        pred_input = vpi_base(pred_input).factors
-      policy_logits = policy_fn(pred_input)
-      value_logits = value_fn(pred_input)
+        pred_input = vpi_base(pred_input)
 
-      policy_logits = weighted_average(
-          policy_logits, weights)
-      value_logits = weighted_average(
-          value_logits, weights)
+      if config.combine_factors == 'logits':
+        policy_logits = policy_fn(pred_input)
+        value_logits = value_fn(pred_input)
 
+        policy_logits = weighted_average(
+            policy_logits, weights)
+        value_logits = weighted_average(
+            value_logits, weights)
+      elif config.combine_factors == 'factors':
+        pred_input = weighted_average(
+            pred_input, weights)
+        policy_logits = policy_fn(pred_input)
+        value_logits = value_fn(pred_input)
+      else:
+        raise NotImplementedError
       reconstruction = None
 
       return RootOutput(
@@ -708,18 +744,30 @@ def make_multi_head_prediction_function(
         pred_transformer_=model_pred_transformer,
         weight_fn_=model_weight_fn)
 
-      reward_logits = reward_fn(pred_input)
       if config.share_pred_base:
         pred_input = model_vpi_base(pred_input)
-      policy_logits = model_policy_fn(pred_input)
-      value_logits = model_value_fn(pred_input)
 
-      reward_logits = weighted_average(
-          reward_logits, weights)
-      policy_logits = weighted_average(
-          policy_logits, weights)
-      value_logits = weighted_average(
-          value_logits, weights)
+      if config.combine_factors == 'logits':
+        reward_logits = reward_fn(pred_input)
+
+        policy_logits = model_policy_fn(pred_input)
+        value_logits = model_value_fn(pred_input)
+
+        reward_logits = weighted_average(
+            reward_logits, weights)
+        policy_logits = weighted_average(
+            policy_logits, weights)
+        value_logits = weighted_average(
+            value_logits, weights)
+      elif config.combine_factors == 'factors':
+        pred_input = weighted_average(
+            pred_input, weights)
+        reward_logits = reward_fn(pred_input)
+        policy_logits = model_policy_fn(pred_input)
+        value_logits = model_value_fn(pred_input)
+      else:
+        raise NotImplementedError
+
 
       return ModelOutput(
           pred_attn_outputs=outputs,

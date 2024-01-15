@@ -110,6 +110,7 @@ def make_kitchen_environment(
     debug=debug,
     nseeds=nseeds,
     test_larger=test_larger and evaluation,
+    train_smaller=not evaluation,
     timeout_truncate=timeout_truncate,
     **kwargs
     )

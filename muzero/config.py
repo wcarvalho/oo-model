@@ -113,7 +113,7 @@ class MuZeroConfig(r2d2.R2D2Config):
   vpi_mlps: Tuple[int] = (128, 32)
 
   # actor hps
-  action_source: str = 'policy'  # 'policy', 'value', 'mcts'
+  action_source: str = 'mcts_eval'  # 'policy', 'value', 'mcts'
 
   recon_coeff: float = 0.0
   root_policy_coef: float = 1.0
